@@ -47,7 +47,13 @@ window.API_URL = 'https://script.google.com/macros/s/…/exec';
 ---
 
 ## Khi cập nhật code máy chủ
-Sau khi dán `Code.gs` mới và lưu: **Triển khai → Quản lý các bản triển khai → ✏️ → Phiên bản: Phiên bản mới → Triển khai**. URL giữ nguyên, không phải sửa trang web.
+1. Mở [`Code.gs`](Code.gs) trên GitHub → **Copy raw file**.
+2. Trong Apps Script: chọn hết code cũ (Ctrl/Cmd + A), dán code mới đè lên, bấm **💾 Lưu**.
+3. **Triển khai → Quản lý các bản triển khai → ✏️ (Chỉnh sửa) → Phiên bản: Phiên bản mới → Triển khai**.
+
+URL giữ nguyên, không phải sửa trang web. Các trang mới trong Google Sheets (`BaiTap`, `BaiNop`, `LuyenTap`, `KetQua`) tự được tạo ở lần dùng đầu, không cần chạy lại `setup`.
+
+Nếu trang web báo "Máy chủ chưa được cập nhật bản mới" thì nghĩa là bước 3 chưa làm.
 
 ## Quên mật khẩu admin
 Trong Apps Script, chọn hàm **resetAdminPassword** → **Chạy**. Mật khẩu mới hiện trong Nhật ký thực thi.
@@ -55,9 +61,30 @@ Trong Apps Script, chọn hàm **resetAdminPassword** → **Chạy**. Mật kh�
 ## Phân quyền
 | Vai trò | Được làm gì |
 |---|---|
-| **Admin** | Mọi việc: tạo, sửa, khóa tài khoản; đăng và xóa tài liệu ở mọi khóa |
-| **Giáo viên** | Đăng và xóa tài liệu ở các khóa được gán; xem tài liệu các khóa đó |
-| **Học sinh** | Xem và tải tài liệu ở các khóa được ghi danh |
+| **Admin** | Mọi việc: tạo, sửa, khóa tài khoản; mọi thao tác của giáo viên ở mọi khóa |
+| **Giáo viên** | Ở các khóa được gán: đăng tài liệu, soạn bài luyện tập, giao bài tập, chấm bài, xem kết quả |
+| **Học sinh** | Ở các khóa được ghi danh: xem/tải tài liệu, làm bài luyện tập, nộp bài tập, xem điểm và nhận xét |
+
+## Nội dung khóa học
+- **Chủ đề:** mỗi tài liệu, bài luyện tập, bài tập đều có ô "Chủ đề". Gõ tên chủ đề mới hoặc chọn chủ đề có sẵn. Trang khóa học tự nhóm theo chủ đề, sắp theo số (Chủ đề 1, 2, … 10).
+- **Tài liệu:** PDF và ảnh xem trực tiếp trên web (cả điện thoại), hoặc tải về.
+- **Bài luyện tập:** soạn đề bằng chữ, chấm tự động, học sinh làm lại bao nhiêu lần cũng được; giáo viên thấy điểm cao nhất của từng em.
+- **Bài tập về nhà:** giáo viên giao bài (có hạn nộp, file đề); học sinh chụp ảnh bài làm để nộp; giáo viên chấm điểm, nhận xét. Học sinh sửa và nộp lại được cho tới khi bài được chấm. Bài nộp lưu trong thư mục Drive `Bài nộp của học sinh` của từng khóa.
+
+## Mẫu soạn đề luyện tập
+```
+Câu 1: Kết quả của phép tính 3/4 + 1/4 là:
+A. 4/8
+*B. 1
+C. 4/4 + 1
+Giải thích: Cùng mẫu số nên cộng tử số.
+
+Câu 2: Chu vi hình chữ nhật dài 8 cm, rộng 5 cm là bao nhiêu xăng-ti-mét?
+Đáp án: 26 | 26 cm
+Giải thích: (8 + 5) × 2 = 26.
+```
+- Dấu `*` trước chữ cái đánh dấu đáp án đúng (hoặc viết dòng `Đáp án: B`).
+- Câu không có A, B, C là câu điền đáp số. Nhiều cách viết đúng thì ngăn bằng `|`. Máy chấm bỏ qua chữ hoa/thường, dấu cách, và coi `0,75` = `0.75`.
 
 Muốn các giáo viên dạy chung, chỉ cần gán họ vào cùng các khóa.
 
