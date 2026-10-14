@@ -55,6 +55,7 @@ h1, h2, h3 { line-height: 1.25; margin: 0; }
 }
 .links { display: flex; gap: 24px; margin-left: auto; font-weight: 500; color: var(--muted); }
 .links a:hover { color: var(--ink); }
+.nav-login { margin-left: -12px; }
 
 /* Hero */
 .hero {
@@ -161,4 +162,8 @@ h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 800; letter-spacing: -0.0
   .section { padding: 56px 0; }
   .courses, .teachers { grid-template-columns: 1fr; }
   .facts { gap: 24px; }
+}
+@media (max-width: 640px) {
+  .nav-inner { gap: 10px; }
+  .nav .btn-sm + .btn-sm { margin-left: 0; }
 }
