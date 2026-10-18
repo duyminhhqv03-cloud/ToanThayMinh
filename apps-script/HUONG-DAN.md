@@ -69,7 +69,19 @@ Trong Apps Script, chọn hàm **resetAdminPassword** → **Chạy**. Mật kh�
 - **Chủ đề:** mỗi tài liệu, bài luyện tập, bài tập đều có ô "Chủ đề". Gõ tên chủ đề mới hoặc chọn chủ đề có sẵn. Trang khóa học tự nhóm theo chủ đề, sắp theo số (Chủ đề 1, 2, … 10).
 - **Tài liệu:** PDF và ảnh xem trực tiếp trên web (cả điện thoại), hoặc tải về.
 - **Bài luyện tập:** soạn đề bằng chữ, chấm tự động, học sinh làm lại bao nhiêu lần cũng được; giáo viên thấy điểm cao nhất của từng em.
-- **Bài tập về nhà:** giáo viên giao bài (có hạn nộp, file đề); học sinh chụp ảnh bài làm để nộp; giáo viên chấm điểm, nhận xét. Học sinh sửa và nộp lại được cho tới khi bài được chấm. Bài nộp lưu trong thư mục Drive `Bài nộp của học sinh` của từng khóa.
+- **Bài tập về nhà** có 2 kiểu:
+  - *Không có câu hỏi:* học sinh chụp ảnh / nộp file cả bài, giáo viên chấm cả bài.
+  - *Có câu hỏi:* bấm **Lấy đề từ PDF** (hoặc gõ theo mẫu). Hệ thống tự tách câu và phân loại: **trắc nghiệm**, **trả lời ngắn** (máy chấm ngay khi nộp) và **tự luận** (học sinh gõ hoặc chụp ảnh riêng từng câu, giáo viên chấm từng câu). Tổng điểm = phần máy chấm + phần giáo viên chấm. Bài không có câu tự luận được chấm xong ngay khi nộp.
+  - Học sinh chỉ thấy đúng/sai và điểm từng câu khi bài đã chấm xong; đáp án và lời giải chỉ hiện **sau hạn nộp**.
+  - Học sinh sửa và nộp lại được cho tới khi bài được chấm. Ảnh bài nộp lưu trong thư mục Drive `Bài nộp của học sinh` của từng khóa.
+
+## Lấy đề từ PDF
+- Đánh số câu `Câu 1`, `Câu 2`… (hoặc `1.`, `2.`); lựa chọn `A.` `B.` `C.` `D.` (cùng dòng hoặc mỗi dòng một lựa chọn).
+- Có thể chia phần: `PHẦN I. TRẮC NGHIỆM`, `PHẦN II. TRẢ LỜI NGẮN`, `PHẦN III. TỰ LUẬN` — câu trong phần tự luận được xếp là tự luận.
+- Điểm câu ghi trong ngoặc: `Câu 5 (2 điểm).` Không ghi thì mỗi câu 1 điểm; bấm **Chia lại cho tổng = 10** để quy về thang 10.
+- Đáp án đặt cuối file sau chữ `ĐÁP ÁN`, hoặc file riêng, hoặc dán vào ô. Hiểu được: `1.B 2.C 3-A`, `Câu 4: 4/5`, bảng `Câu | 1 | 2` / `Đáp án | B | C`, và lời giải nhiều dòng cho câu tự luận.
+- Không đọc được: PDF ảnh scan, phông chữ cũ (.VnTime, VNI…), phân số dạng công thức chồng. Khi đó dán đề dạng chữ.
+- Luôn **xem lại phần "Học sinh sẽ thấy"** trước khi bấm Giao bài.
 
 ## Mẫu soạn đề luyện tập
 ```
@@ -84,7 +96,8 @@ Câu 2: Chu vi hình chữ nhật dài 8 cm, rộng 5 cm là bao nhiêu xăng-ti
 Giải thích: (8 + 5) × 2 = 26.
 ```
 - Dấu `*` trước chữ cái đánh dấu đáp án đúng (hoặc viết dòng `Đáp án: B`).
-- Câu không có A, B, C là câu điền đáp số. Nhiều cách viết đúng thì ngăn bằng `|`. Máy chấm bỏ qua chữ hoa/thường, dấu cách, và coi `0,75` = `0.75`.
+- Câu không có A, B, C là câu điền đáp số. Nhiều cách viết đúng thì ngăn bằng `|`. Máy chấm bỏ qua chữ hoa/thường, dấu cách, coi `0,75` = `0.75`, và chấp nhận thiếu đơn vị (`24` = `24 cm`, nhưng `24 m` ≠ `24 cm`).
+- Bài tập về nhà dùng thêm câu tự luận: `Câu 3 (tự luận, 4 điểm): …` kèm `Hướng dẫn chấm: …`.
 
 Muốn các giáo viên dạy chung, chỉ cần gán họ vào cùng các khóa.
 

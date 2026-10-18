@@ -504,3 +504,25 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
   .user-name { max-width: 130px; }
   .nav-user { min-width: 0; }
 }
+
+/* ───────── v5: bài tập có câu hỏi, ảnh theo từng câu ───────── */
+.mode-note { background: #f6f8ff; border: 1px solid #dde6ff; border-radius: 12px; padding: 10px 14px; font-size: 14.5px; line-height: 1.6; }
+.panel.mode-note { padding: 14px 18px; }
+.link-btn { border: 0; background: none; font: inherit; font-weight: 600; color: #1d4fbf; text-decoration: underline; cursor: pointer; padding: 0 0 0 8px; }
+.q-form { display: grid; gap: 12px; }
+.q-card { margin: 0; }
+.q-card .q-text { font-size: 17.5px; margin: 6px 0 14px; }
+.q-card textarea { margin-bottom: 8px; }
+.photo-hint { margin: 6px 0 4px; }
+.photo-picker .file-grid { margin: 10px 0 0; }
+.drop-actions.start { justify-content: flex-start; margin: 0; }
+.essay-answer { background: #fbfcfb; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 8px 0; }
+.review-item.compact { padding: 12px 16px; }
+.q-text.sm { font-size: 15px !important; font-weight: 600; margin: 4px 0 8px !important; }
+.essay-grade { border-left-color: #f59e0b; }
+.essay-score-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); font-weight: 600; }
+.essay-score { width: 90px !important; text-align: center; font-weight: 800; font-size: 18px !important; padding: 8px !important; }
+.essay-score-row .chip-btn { padding: 5px 12px; }
+.total-box { display: grid; gap: 2px; background: #f6fcf9; border: 1px solid #bfe9da; border-radius: 14px; padding: 14px 16px; }
+.total-score { font-size: 30px; font-weight: 800; color: var(--brand-dark); }
+.key-panel .review { margin-top: 4px; }

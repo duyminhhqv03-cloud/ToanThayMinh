@@ -5,7 +5,8 @@
  *   TaiKhoan       – tài khoản admin, giáo viên, học sinh
  *   KhoaHoc        – danh sách khóa học
  *   TaiLieu        – tài liệu (file hoặc link), có chủ đề
- *   BaiTap         – bài tập về nhà do giáo viên giao
+ *   BaiTap         – bài tập về nhà; có thể kèm câu hỏi trắc nghiệm / trả lời ngắn (máy chấm)
+ *                    và tự luận (giáo viên chấm)
  *   BaiNop         – bài nộp của học sinh, điểm và nhận xét
  *   LuyenTap       – đề luyện tập tự chấm
  *   KetQua         – kết quả các lần làm bài luyện tập
@@ -30,8 +31,8 @@ var COLUMNS = {
   users: ['username', 'fullName', 'role', 'courses', 'active', 'salt', 'passwordHash', 'createdAt'],
   courses: ['id', 'name', 'grade', 'order'],
   docs: ['id', 'courseId', 'title', 'description', 'type', 'fileId', 'fileName', 'mimeType', 'size', 'url', 'uploadedBy', 'uploadedAt', 'topic'],
-  assignments: ['id', 'courseId', 'topic', 'title', 'instructions', 'dueAt', 'maxScore', 'fileId', 'fileName', 'mimeType', 'size', 'createdBy', 'createdAt'],
-  submissions: ['id', 'assignmentId', 'courseId', 'username', 'text', 'files', 'submittedAt', 'late', 'status', 'score', 'feedback', 'gradedBy', 'gradedAt'],
+  assignments: ['id', 'courseId', 'topic', 'title', 'instructions', 'dueAt', 'maxScore', 'fileId', 'fileName', 'mimeType', 'size', 'createdBy', 'createdAt', 'source', 'questions'],
+  submissions: ['id', 'assignmentId', 'courseId', 'username', 'text', 'files', 'submittedAt', 'late', 'status', 'score', 'feedback', 'gradedBy', 'gradedAt', 'answers', 'itemScores', 'autoScore'],
   quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt'],
   attempts: ['id', 'quizId', 'courseId', 'username', 'answers', 'score', 'total', 'submittedAt'],
   sessions: ['token', 'username', 'expiresAt']
@@ -418,8 +419,18 @@ function saveAssignment_(me, p, isNew) {
 
   var title = clean_(p.title, 200);
   if (!title) throw err_('Vui lòng nhập tên bài tập.');
-  var maxScore = Number(p.maxScore === undefined || p.maxScore === '' ? 10 : p.maxScore);
+  var questions = [];
+  if (Array.isArray(p.questions) && p.questions.length) questions = validateQuestions_(p.questions, true);
+  var maxScore = questions.length
+    ? sumPoints_(questions)
+    : Number(p.maxScore === undefined || p.maxScore === '' ? 10 : p.maxScore);
   if (!(maxScore > 0 && maxScore <= 1000)) throw err_('Thang điểm phải từ 1 đến 1000.');
+  if (a && questions.length && a.questions && a.questions !== JSON.stringify(questions)) {
+    var hasSubs = rows_('submissions').some(function (s) { return s.assignmentId === a.id; });
+    if (hasSubs && JSON.parse(a.questions || '[]').length !== questions.length) {
+      throw err_('Đã có học sinh nộp bài nên không thể thêm/bớt câu hỏi. Bạn chỉ sửa được nội dung, đáp án, điểm; hoặc tạo bài tập mới.');
+    }
+  }
   var dueAt = '';
   if (p.dueAt) {
     var dt = new Date(String(p.dueAt));
@@ -432,8 +443,11 @@ function saveAssignment_(me, p, isNew) {
     title: title,
     instructions: clean_(p.instructions, 5000),
     dueAt: dueAt,
-    maxScore: String(maxScore)
+    maxScore: String(maxScore),
+    source: questions.length ? String(p.source || '').slice(0, 45000) : '',
+    questions: questions.length ? JSON.stringify(questions) : ''
   };
+  if (data.questions.length > 48000) throw err_('Đề quá dài. Hãy tách thành nhiều bài tập.');
   if (p.data) {
     var f = saveUpload_(courseFolder_(courseId), p.data, p.fileName, p.mimeType, 'De bai - ');
     if (a && a.fileId) trash_(a.fileId);
@@ -479,13 +493,18 @@ function assignmentDetail_(me, id) {
   var names = userNames_();
   var edit = canEdit_(me, a.courseId);
   var subs = rows_('submissions').filter(function (s) { return s.assignmentId === id; });
+  var questions = parseQuestions_(a);
   var out = {
     assignment: publicAssignment_(a, names),
     course: { id: c.id, name: c.name, grade: c.grade },
     canEdit: edit,
-    canSubmit: isStudentIn_(me, a.courseId)
+    canSubmit: isStudentIn_(me, a.courseId),
+    // Học sinh chỉ nhận đề, không nhận đáp án.
+    questions: questions.map(function (x) { return { type: x.type, text: x.text, options: x.options || null, points: x.points }; })
   };
   if (edit) {
+    out.fullQuestions = questions;
+    out.source = a.source || '';
     var seen = {};
     var list = studentsOf_(a.courseId).map(function (u) {
       seen[u.username] = 1;
@@ -499,7 +518,12 @@ function assignmentDetail_(me, id) {
     out.students = list;
   } else {
     var mine = subs.filter(function (s) { return s.username === me.username; })[0];
-    out.submission = mine ? publicSubmission_(mine, names) : null;
+    out.submission = mine ? forStudent_(publicSubmission_(mine, names)) : null;
+    if (mine && questions.length) {
+      // Đáp án và lời giải chỉ hiện khi bài đã chấm xong VÀ đã hết hạn nộp (tránh lộ đáp án cho bạn khác).
+      out.reveal = mine.status === 'returned' && (!a.dueAt || Date.now() > new Date(a.dueAt).getTime());
+      out.review = reviewHomework_(questions, mine, out.reveal);
+    }
   }
   return out;
 }
@@ -520,13 +544,36 @@ function submit_(me, p) {
     throw err_('Bài đã được chấm nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
   }
 
+  var questions = parseQuestions_(a);
   var keep = Array.isArray(p.keepFileIds) ? p.keepFileIds.map(String) : [];
   var oldFiles = existing ? parseFiles_(existing.files) : [];
   var files = oldFiles.filter(function (f) { return keep.indexOf(f.fileId) >= 0; });
   var incoming = Array.isArray(p.files) ? p.files : [];
   if (files.length + incoming.length > MAX_SUBMIT_FILES) throw err_('Chỉ nộp tối đa ' + MAX_SUBMIT_FILES + ' file mỗi lần.');
   var text = clean_(p.text, 5000);
-  if (!text && !files.length && !incoming.length) throw err_('Hãy đính kèm ảnh/file bài làm hoặc viết câu trả lời.');
+  var answers = [];
+  var itemScores = [];
+  var autoScore = 0;
+  if (questions.length) {
+    var raw = Array.isArray(p.answers) ? p.answers : [];
+    answers = questions.map(function (x, i) {
+      var v = raw[i];
+      if (v === null || v === undefined || v === '') return null;
+      return x.type === 'mc' ? Number(v) : clean_(v, x.type === 'essay' ? 5000 : 200);
+    });
+    itemScores = questions.map(function (x, i) {
+      if (x.type === 'essay') return null;
+      var pts = isCorrect_(x, answers[i]) ? Number(x.points || 1) : 0;
+      autoScore += pts;
+      return pts;
+    });
+    autoScore = Math.round(autoScore * 100) / 100;
+    if (!answers.some(function (v) { return v !== null; }) && !files.length && !incoming.length && !text) {
+      throw err_('Em chưa trả lời câu nào.');
+    }
+  } else if (!text && !files.length && !incoming.length) {
+    throw err_('Hãy đính kèm ảnh/file bài làm hoặc viết câu trả lời.');
+  }
 
   var total = 0;
   incoming.forEach(function (f) { total += Math.floor(String(f.data || '').length * 3 / 4); });
@@ -534,11 +581,17 @@ function submit_(me, p) {
 
   var folder = submissionsFolder_(a.courseId);
   incoming.forEach(function (f) {
-    files.push(saveUpload_(folder, f.data, f.name, f.mimeType, me.username + ' - '));
+    var q = f.q === undefined || f.q === null || f.q === '' ? null : Number(f.q);
+    if (q !== null && !(questions[q] && questions[q].type === 'essay')) q = null;
+    var saved = saveUpload_(folder, f.data, f.name, f.mimeType, me.username + (q !== null ? ' - Cau ' + (q + 1) : '') + ' - ');
+    saved.q = q;
+    files.push(saved);
   });
   oldFiles.forEach(function (f) { if (keep.indexOf(f.fileId) < 0) trash_(f.fileId); });
 
   var now = new Date();
+  var hasEssay = questions.some(function (x) { return x.type === 'essay'; });
+  var autoOnly = questions.length && !hasEssay;
   var data = {
     assignmentId: a.id,
     courseId: a.courseId,
@@ -547,11 +600,14 @@ function submit_(me, p) {
     files: JSON.stringify(files),
     submittedAt: now.toISOString(),
     late: a.dueAt && now.getTime() > new Date(a.dueAt).getTime() ? '1' : '0',
-    status: 'submitted',
-    score: '',
+    status: autoOnly ? 'returned' : 'submitted',
+    score: autoOnly ? String(autoScore) : '',
     feedback: existing ? existing.feedback : '',
-    gradedBy: '',
-    gradedAt: ''
+    gradedBy: autoOnly ? 'auto' : '',
+    gradedAt: autoOnly ? now.toISOString() : '',
+    answers: questions.length ? JSON.stringify(answers) : '',
+    itemScores: questions.length ? JSON.stringify(itemScores) : '',
+    autoScore: questions.length ? String(autoScore) : ''
   };
   if (existing) {
     update_('submissions', existing, data);
@@ -560,7 +616,53 @@ function submit_(me, p) {
     data.id = Utilities.getUuid();
     append_('submissions', data);
   }
-  return { submission: publicSubmission_(data, userNames_()) };
+  var out = { submission: forStudent_(publicSubmission_(data, userNames_())) };
+  if (questions.length) {
+    out.reveal = autoOnly && (!a.dueAt || Date.now() > new Date(a.dueAt).getTime());
+    out.review = reviewHomework_(questions, data, out.reveal);
+  }
+  return out;
+}
+
+/** Từng câu: học sinh trả lời gì, được mấy điểm; kèm đáp án/lời giải khi reveal. */
+function reviewHomework_(questions, s, reveal) {
+  var answers = parseJson_(s.answers, []);
+  var scores = parseJson_(s.itemScores, []);
+  return questions.map(function (x, i) {
+    var done = s.status === 'returned';
+    var r = {
+      type: x.type, text: x.text, options: x.options || null, points: Number(x.points || 1),
+      answer: answers[i] === undefined ? null : answers[i],
+      // Đúng/sai và điểm từng câu chỉ hiện khi bài đã chấm xong (tránh dò đáp án rồi nộp lại).
+      earned: done && scores[i] !== undefined ? scores[i] : null
+    };
+    if (x.type !== 'essay' && done) r.correct = isCorrect_(x, answers[i]);
+    if (reveal) {
+      if (x.type === 'mc') r.correctAnswer = x.correct;
+      if (x.type === 'short') r.correctAnswer = x.answers[0];
+      r.explain = x.explain || '';
+    }
+    return r;
+  });
+}
+
+/** Học sinh chưa được thấy điểm phần máy chấm khi bài còn chờ giáo viên chấm. */
+function forStudent_(sub) {
+  if (sub.status !== 'returned') { sub.itemScores = null; sub.autoScore = null; }
+  return sub;
+}
+
+function parseQuestions_(a) {
+  return parseJson_(a && a.questions, []);
+}
+
+function sumPoints_(questions) {
+  return Math.round(questions.reduce(function (n, x) { return n + Number(x.points || 1); }, 0) * 100) / 100;
+}
+
+function parseJson_(s, dflt) {
+  if (!s) return dflt;
+  try { return JSON.parse(s); } catch (e) { return dflt; }
 }
 
 function submissionFile_(me, submissionId, fileId) {
@@ -582,16 +684,35 @@ function grade_(me, p) {
     update_('submissions', s, { status: 'submitted', score: '', gradedBy: '', gradedAt: '' });
     return { submission: publicSubmission_(findBy_('submissions', s.id), userNames_()) };
   }
-  var raw = String(p.score === undefined || p.score === null ? '' : p.score).replace(',', '.').trim();
-  var score = Number(raw);
-  if (raw === '' || isNaN(score) || score < 0 || score > max) throw err_('Điểm phải là số từ 0 đến ' + max + '.');
-  update_('submissions', s, {
+  var questions = parseQuestions_(a);
+  var changes = {
     status: 'returned',
-    score: String(Math.round(score * 100) / 100),
     feedback: clean_(p.feedback, 3000),
     gradedBy: me.username,
     gradedAt: new Date().toISOString()
-  });
+  };
+  if (questions.length && s.itemScores) {
+    // Bài có câu hỏi: phần trắc nghiệm/trả lời ngắn đã chấm tự động, giáo viên chấm từng câu tự luận.
+    var items = parseJson_(s.itemScores, []);
+    var given = p.essayScores || {};
+    questions.forEach(function (x, i) {
+      if (x.type !== 'essay') return;
+      var v = String(given[i] === undefined || given[i] === null ? '' : given[i]).replace(',', '.').trim();
+      var n = Number(v);
+      if (v === '' || isNaN(n) || n < 0 || n > Number(x.points)) {
+        throw err_('Câu ' + (i + 1) + ': điểm phải là số từ 0 đến ' + x.points + '.');
+      }
+      items[i] = Math.round(n * 100) / 100;
+    });
+    changes.itemScores = JSON.stringify(items);
+    changes.score = String(Math.round(items.reduce(function (t, v) { return t + Number(v || 0); }, 0) * 100) / 100);
+  } else {
+    var raw = String(p.score === undefined || p.score === null ? '' : p.score).replace(',', '.').trim();
+    var score = Number(raw);
+    if (raw === '' || isNaN(score) || score < 0 || score > max) throw err_('Điểm phải là số từ 0 đến ' + max + '.');
+    changes.score = String(Math.round(score * 100) / 100);
+  }
+  update_('submissions', s, changes);
   return { submission: publicSubmission_(findBy_('submissions', s.id), userNames_()) };
 }
 
@@ -618,7 +739,7 @@ function saveQuiz_(me, p) {
   requireEdit_(me, courseId);
   var title = clean_(p.title, 200);
   if (!title) throw err_('Vui lòng nhập tên bài luyện tập.');
-  var questions = validateQuestions_(p.questions);
+  var questions = validateQuestions_(p.questions, false);
   var limit = Number(p.timeLimit || 0);
   if (isNaN(limit) || limit < 0 || limit > 300) throw err_('Thời gian làm bài phải từ 0 đến 300 phút.');
   var now = new Date().toISOString();
@@ -646,15 +767,21 @@ function saveQuiz_(me, p) {
   return { id: data.id };
 }
 
-function validateQuestions_(list) {
+function validateQuestions_(list, allowEssay) {
   if (!Array.isArray(list) || !list.length) throw err_('Đề chưa có câu hỏi nào.');
   if (list.length > 200) throw err_('Tối đa 200 câu mỗi bài.');
   return list.map(function (q, i) {
     var n = 'Câu ' + (i + 1) + ': ';
     var text = clean_(q.text, 3000);
     if (!text) throw err_(n + 'thiếu nội dung câu hỏi.');
-    var out = { type: q.type === 'short' ? 'short' : 'mc', text: text, explain: clean_(q.explain, 3000) };
-    if (out.type === 'mc') {
+    var type = q.type === 'short' || q.type === 'essay' ? q.type : 'mc';
+    if (type === 'essay' && !allowEssay) throw err_(n + 'bài luyện tập không dùng câu tự luận.');
+    var points = q.points === undefined || q.points === '' ? 1 : Number(q.points);
+    if (!(points > 0 && points <= 100)) throw err_(n + 'số điểm không hợp lệ.');
+    var out = { type: type, text: text, explain: clean_(q.explain, 3000), points: Math.round(points * 100) / 100 };
+    if (out.type === 'essay') {
+      // không có đáp án tự động
+    } else if (out.type === 'mc') {
       var opts = (Array.isArray(q.options) ? q.options : []).map(function (o) { return clean_(o, 500); });
       if (opts.length < 2 || opts.length > 8 || opts.some(function (o) { return !o; })) throw err_(n + 'cần từ 2 đến 8 lựa chọn.');
       var c = Number(q.correct);
@@ -771,7 +898,19 @@ function isCorrect_(x, a) {
   if (a === null || a === undefined || a === '') return false;
   if (x.type === 'mc') return Number(a) === Number(x.correct);
   var v = normAnswer_(a);
-  return (x.answers || []).some(function (ans) { return normAnswer_(ans) === v; });
+  var vn = numPart_(v);
+  return (x.answers || []).some(function (ans) {
+    var k = normAnswer_(ans);
+    if (k === v) return true;
+    // "24" khớp "24cm", "0.75" khớp "0,75kg": cùng con số, chỉ khác đơn vị (hoặc thiếu đơn vị).
+    var kn = numPart_(k);
+    return vn !== null && kn !== null && vn.num === kn.num && (!vn.unit || !kn.unit || vn.unit === kn.unit);
+  });
+}
+
+function numPart_(s) {
+  var m = /^(-?\d+(?:\.\d+)?(?:\/\d+)?)([a-zà-ỹđ²³]*)$/.exec(s);
+  return m ? { num: m[1], unit: m[2] } : null;
 }
 
 function normAnswer_(s) {
@@ -1091,6 +1230,8 @@ function publicAssignment_(a, names) {
     dueAt: a.dueAt || '',
     maxScore: Number(a.maxScore || 10),
     file: a.fileId ? { name: a.fileName, mimeType: a.mimeType, size: Number(a.size || 0) } : null,
+    questionCount: parseQuestions_(a).length,
+    essayCount: parseQuestions_(a).filter(function (x) { return x.type === 'essay'; }).length,
     createdBy: (names && names[a.createdBy]) || a.createdBy,
     createdAt: a.createdAt
   };
@@ -1101,14 +1242,17 @@ function publicSubmission_(s, names) {
     id: s.id,
     username: s.username,
     text: s.text || '',
-    files: parseFiles_(s.files).map(function (f) { return { id: f.fileId, name: f.name, mimeType: f.mimeType, size: Number(f.size || 0) }; }),
+    files: parseFiles_(s.files).map(function (f) { return { id: f.fileId, name: f.name, mimeType: f.mimeType, size: Number(f.size || 0), q: f.q === undefined ? null : f.q }; }),
     submittedAt: s.submittedAt,
     late: s.late === '1',
     status: s.status,
     score: s.score === '' || s.score === undefined ? null : Number(s.score),
     feedback: s.feedback || '',
-    gradedBy: s.gradedBy ? ((names && names[s.gradedBy]) || s.gradedBy) : '',
-    gradedAt: s.gradedAt || ''
+    gradedBy: s.gradedBy === 'auto' ? 'Máy chấm tự động' : s.gradedBy ? ((names && names[s.gradedBy]) || s.gradedBy) : '',
+    gradedAt: s.gradedAt || '',
+    answers: parseJson_(s.answers, null),
+    itemScores: parseJson_(s.itemScores, null),
+    autoScore: s.autoScore === '' || s.autoScore === undefined ? null : Number(s.autoScore)
   };
 }
 
