@@ -541,3 +541,42 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
 .review-item.compact .q-img, .essay-grade .q-img { max-width: 480px; }
 .img-tools { display: flex; gap: 6px; margin: -4px 0 10px; }
 .img-tools .link-btn { padding: 0 8px 0 0; font-size: 13.5px; }
+
+/* Thống kê & học phí */
+.month-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.month-name { font-size: 18px; min-width: 130px; text-align: center; }
+.class-table .num { text-align: right; white-space: nowrap; }
+.click-row { cursor: pointer; }
+.click-row:hover td { background: #f6fcf9; }
+.click-row.sel td { background: #eafaf4; }
+.section-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 32px 0 14px; }
+.section-row .section-title { margin: 0; }
+.chips.filter + .chips.filter { margin-top: 8px; }
+.chips.filter + div > .fee-group:first-child, .chips.filter + div > .panel:first-child { margin-top: 14px; }
+.fee-group { margin-bottom: 14px; }
+.fee-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.fee-group-head h3 { font-size: 17px; margin: 0; }
+.fee-list { display: grid; gap: 6px; }
+.fee-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 4px; border-top: 1px solid var(--line); }
+.fee-row:first-child { border-top: 0; }
+.fee-row.left { opacity: .65; }
+.fee-name { display: grid; min-width: 0; }
+.fee-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fee-name .pill { margin-left: 6px; }
+.fee-note { margin-left: 4px; }
+.fee-btn {
+  flex: none; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  padding: 7px 14px; border-radius: 999px; border: 1.5px dashed #f0b37a; background: #fff8f1; color: #b45309;
+}
+.fee-btn:hover:not(:disabled) { border-style: solid; }
+.fee-btn.paid { border: 1.5px solid #bfe9da; background: #eafaf4; color: var(--brand-dark); }
+.fee-btn:disabled { opacity: .6; cursor: default; }
+.fee-box:empty { display: none; }
+.fee-box { margin-bottom: 8px; }
+.fee-mine.fee-due { border-color: #ffe0a3; background: #fffcf3; }
+.k-fee { background: #fff7d6; color: #8a6100; }
+@media (max-width: 760px) {
+  .class-table .col-teacher { display: none; }
+  .class-table th, .class-table td { padding: 10px 10px; }
+  .fee-row { padding: 10px 2px; }
+}

@@ -533,6 +533,7 @@
       case 'soan-de': return renderQuizEditor(parts[1], parts[2]);
       case 'giao-bai': return renderAssignmentEditor(parts[1], parts[2]);
       case 'tai-khoan': if (me.role === 'admin') return renderUsers(); break;
+      case 'hoc-phi': if (me.role === 'admin') return renderFees(parts[1]); break;
     }
     return renderHome();
   }
@@ -564,7 +565,10 @@
       return;
     }
     var links = [h('a', { href: '#/', class: 'nav-link' }, 'Khóa học')];
-    if (me.role === 'admin') links.push(h('a', { href: '#/tai-khoan', class: 'nav-link' }, 'Tài khoản'));
+    if (me.role === 'admin') {
+      links.push(h('a', { href: '#/hoc-phi', class: 'nav-link' }, 'Học phí'));
+      links.push(h('a', { href: '#/tai-khoan', class: 'nav-link' }, 'Tài khoản'));
+    }
     var closeMenu = function (e) { e.target.closest('details').open = false; };
     fill(navUser,
       h('nav', { class: 'nav-links' }, links),
@@ -574,6 +578,7 @@
           h('span', { class: 'role-badge role-' + me.role }, ROLE_LABEL[me.role] || me.role)),
         h('div', { class: 'user-menu-list' },
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/'); } }, 'Khóa học'),
+          me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/hoc-phi'); } }, 'Thống kê & học phí') : null,
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tai-khoan'); } }, 'Quản lý tài khoản') : null,
           h('button', { onclick: function (e) { closeMenu(e); changePassword(); } }, 'Đổi mật khẩu'),
           h('button', { onclick: logout }, 'Đăng xuất'))));
@@ -653,9 +658,11 @@
       student: 'Xem bài cần làm và vào lớp học của em.'
     }[me.role];
     var todoBox = h('div');
+    var feeBox = h('div', { class: 'fee-box' });
     var grid = h('div', { class: 'grid courses' }, loading());
     fill(app,
       h('div', { class: 'page-head' }, h('h1', null, 'Xin chào, ' + me.fullName), h('p', { class: 'muted' }, greet)),
+      feeBox,
       todoBox,
       h('h2', { class: 'section-title' }, 'Khóa học của ' + (me.role === 'student' ? 'em' : 'bạn')),
       grid);
@@ -668,7 +675,7 @@
         return;
       }
       fill(grid, list.map(courseCard));
-      api('todo').then(function (d) { renderTodo(todoBox, d.items); }, function () {});
+      api('todo').then(function (d) { renderFeeBox(feeBox, d); renderTodo(todoBox, d.items); }, function () {});
     }, function (e) { fill(grid, errorBox(e.message, renderHome)); });
   }
 
@@ -2516,6 +2523,227 @@
   }
 
   /* ═════════ Quản lý tài khoản (admin) ═════════ */
+
+  /* ═════════ Admin: thống kê sĩ số & học phí theo tháng ═════════ */
+
+  function monthLabel(m) {
+    var p = String(m || '').split('-');
+    return p.length === 2 ? 'Tháng ' + Number(p[1]) + '/' + p[0] : m;
+  }
+  function shiftMonth(m, d) {
+    var p = m.split('-').map(Number);
+    var t = new Date(p[0], p[1] - 1 + d, 1);
+    return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0');
+  }
+  function shortDate(iso) {
+    var d = new Date(iso);
+    return isNaN(d) ? '' : String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  var feeView = { course: '', status: 'all' };
+
+  function renderFees(month) {
+    if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) month = '';
+    fill(app, loading());
+    api('feeBoard', month ? { month: month } : {}).then(function (b) { drawFees(b); },
+      function (e) { fill(app, errorBox(e.message, function () { renderFees(month); })); });
+  }
+
+  function drawFees(b) {
+    var month = b.month;
+    var courses = b.courses;
+    if (feeView.course && !courses.some(function (c) { return c.id === feeView.course; })) feeView.course = '';
+    var cname = function (c) { return c.name + ' · ' + c.grade; };
+    var enrolled = function (c) { return c.students.filter(function (s) { return !s.left; }); };
+    var paidOf = function (c) { return enrolled(c).filter(function (s) { return s.paid; }).length; };
+
+    var statsBox = h('div', { class: 'stats' });
+    var classBody = h('tbody');
+    var listBox = h('div');
+    var courseChips = h('div', { class: 'chips filter' });
+    var statusChips = h('div', { class: 'chips filter' });
+    var search = h('input', { type: 'search', placeholder: 'Tìm học sinh…' });
+    search.addEventListener('input', drawList);
+
+    function drawStats() {
+      var total = 0;
+      var paid = 0;
+      courses.forEach(function (c) { total += enrolled(c).length; paid += paidOf(c); });
+      fill(statsBox,
+        h('div', { class: 'stat' }, h('strong', null, String(b.activeStudents)), h('span', null, 'Học sinh đang học')),
+        h('div', { class: 'stat' }, h('strong', null, String(total)), h('span', null, 'Lượt ghi danh (1 em học 2 lớp = 2)')),
+        h('div', { class: 'stat' }, h('strong', null, paid + '/' + total), h('span', null, 'Lượt đã đóng ' + monthLabel(month).toLowerCase())),
+        h('div', { class: 'stat' + (total - paid ? ' warn' : '') }, h('strong', null, String(total - paid)), h('span', null, 'Lượt chưa đóng')));
+      fill(classBody, courses.map(function (c) {
+        var n = enrolled(c).length;
+        var p = paidOf(c);
+        return h('tr', { class: 'click-row' + (feeView.course === c.id ? ' sel' : ''), onclick: function () { feeView.course = feeView.course === c.id ? '' : c.id; drawStats(); drawChips(); drawList(); } },
+          h('td', { 'data-label': 'Lớp' }, h('strong', null, cname(c))),
+          h('td', { class: 'col-teacher' }, c.teachers.length ? c.teachers.join(', ') : h('span', { class: 'muted' }, '—')),
+          h('td', { 'data-label': 'Học sinh', class: 'num' }, String(n), c.inactive ? h('span', { class: 'muted small' }, ' (+' + c.inactive + ' khóa)') : null),
+          h('td', { 'data-label': 'Đã đóng', class: 'num' }, h('span', { class: 'ok' }, String(p))),
+          h('td', { 'data-label': 'Chưa đóng', class: 'num' }, n - p ? h('span', { class: 'pill p-todo' }, String(n - p)) : h('span', { class: 'muted' }, '0')));
+      }));
+    }
+
+    function drawChips() {
+      fill(courseChips, [['', 'Tất cả lớp']].concat(courses.map(function (c) { return [c.id, cname(c)]; })).map(function (f) {
+        return h('button', { class: 'chip-btn' + (feeView.course === f[0] ? ' active' : ''), onclick: function () { feeView.course = f[0]; drawStats(); drawChips(); drawList(); } }, f[1]);
+      }));
+      fill(statusChips, [['all', 'Tất cả'], ['unpaid', 'Chưa đóng'], ['paid', 'Đã đóng']].map(function (f) {
+        return h('button', { class: 'chip-btn' + (feeView.status === f[0] ? ' active' : ''), onclick: function () { feeView.status = f[0]; drawChips(); drawList(); } }, f[1]);
+      }));
+    }
+
+    function shown(c) {
+      var q = search.value.trim().toLowerCase();
+      return c.students.filter(function (s) {
+        if (feeView.status === 'paid' && !s.paid) return false;
+        if (feeView.status === 'unpaid' && s.paid) return false;
+        return !q || s.fullName.toLowerCase().indexOf(q) >= 0 || s.username.indexOf(q) >= 0;
+      });
+    }
+
+    function drawList() {
+      var groups = courses.filter(function (c) { return !feeView.course || c.id === feeView.course; });
+      var any = false;
+      fill(listBox, groups.map(function (c) {
+        var list = shown(c);
+        if (!list.length && (search.value.trim() || feeView.status !== 'all' || !feeView.course)) return null;
+        any = true;
+        var n = enrolled(c).length;
+        return h('div', { class: 'panel fee-group' },
+          h('div', { class: 'fee-group-head' },
+            h('h3', null, cname(c)),
+            h('span', { class: 'muted small' }, n + ' học sinh · ' + paidOf(c) + ' đã đóng')),
+          list.length ? h('div', { class: 'fee-list' }, list.map(function (s) { return feeRow(c, s); }))
+            : h('p', { class: 'muted' }, n ? 'Không có học sinh phù hợp.' : 'Lớp chưa có học sinh.'));
+      }), any ? null : h('div', { class: 'panel empty' }, h('p', { class: 'muted' }, feeView.status === 'unpaid' ? '🎉 Tất cả đã đóng học phí ' + monthLabel(month).toLowerCase() + '.' : 'Không có học sinh phù hợp.')));
+    }
+
+    function feeRow(c, s) {
+      var btn = h('button', { type: 'button', class: 'fee-btn' + (s.paid ? ' paid' : '') },
+        s.paid ? '✓ Đã đóng' + (s.paidAt ? ' · ' + shortDate(s.paidAt) : '') : 'Chưa đóng');
+      btn.addEventListener('click', function () {
+        if (s.paid) return editPaid(c, s);
+        save(c, s, { paid: true }, btn).catch(function () { /* đã báo lỗi */ });
+      });
+      return h('div', { class: 'fee-row' + (s.left ? ' left' : '') },
+        h('div', { class: 'fee-name' },
+          h('strong', null, s.fullName),
+          h('span', { class: 'muted small' }, s.username,
+            s.left ? h('span', { class: 'pill p-wait' }, 'đã nghỉ / khóa') : null,
+            s.note ? h('span', { class: 'fee-note' }, '· ' + s.note) : null)),
+        btn);
+    }
+
+    function save(c, s, change, btn) {
+      if (btn) busy(btn, true, change.paid ? 'Đang lưu…' : 'Đang bỏ…');
+      return api('setFee', Object.assign({ username: s.username, courseId: c.id, month: month }, change)).then(function (r) {
+        s.paid = r.fee.paid;
+        s.paidAt = r.fee.paidAt;
+        s.note = r.fee.note;
+        if (!s.paid && s.left) c.students.splice(c.students.indexOf(s), 1);
+        drawStats();
+        drawList();
+      }, function (e) {
+        if (btn) busy(btn, false);
+        toast(e.message, 'error');
+        throw e;
+      });
+    }
+
+    function editPaid(c, s) {
+      var note = h('input', { value: s.note || '', maxlength: '200', placeholder: 'vd: chuyển khoản, tiền mặt, giảm 50%…' });
+      modal(s.fullName + ' · ' + cname(c), h('div', { class: 'form' },
+        h('p', null, 'Đã đóng học phí ' + monthLabel(month).toLowerCase() + (s.paidAt ? ' (ghi nhận ' + fmtDate(s.paidAt) + ')' : '') + '.'),
+        field('Ghi chú', note)), function (close) {
+        var undo = h('button', { class: 'btn btn-ghost danger-text' }, 'Bỏ đánh dấu (chưa đóng)');
+        var ok = h('button', { class: 'btn' }, 'Lưu ghi chú');
+        undo.addEventListener('click', function () { busy(undo, true); save(c, s, { paid: false }).then(close, function () { busy(undo, false); }); });
+        ok.addEventListener('click', function () { busy(ok, true); save(c, s, { paid: true, note: note.value }).then(close, function () { busy(ok, false); }); });
+        return [undo, ok];
+      });
+    }
+
+    function unpaidText() {
+      var lines = ['Danh sách chưa đóng học phí ' + monthLabel(month).toLowerCase()];
+      courses.forEach(function (c) {
+        if (feeView.course && c.id !== feeView.course) return;
+        var list = enrolled(c).filter(function (s) { return !s.paid; });
+        if (!list.length) return;
+        lines.push('', cname(c) + ' (' + list.length + ' em):');
+        list.forEach(function (s, i) { lines.push((i + 1) + '. ' + s.fullName); });
+      });
+      return lines.length > 1 ? lines.join('\n') : '';
+    }
+
+    function csv() {
+      var esc = function (v) { v = String(v == null ? '' : v); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+      var rows = [['Lớp', 'Khối', 'Họ tên', 'Tên đăng nhập', 'Tháng', 'Trạng thái', 'Ngày ghi nhận', 'Ghi chú']];
+      courses.forEach(function (c) {
+        if (feeView.course && c.id !== feeView.course) return;
+        c.students.forEach(function (s) {
+          rows.push([c.name, c.grade, s.fullName, s.username, monthLabel(month), s.paid ? 'Đã đóng' : 'Chưa đóng', s.paidAt ? fmtDate(s.paidAt) : '', (s.left ? '(đã nghỉ) ' : '') + (s.note || '')]);
+        });
+      });
+      var text = '﻿' + rows.map(function (r) { return r.map(esc).join(','); }).join('\r\n');
+      saveBlob('hoc-phi-' + month + '.csv', new Blob([text], { type: 'text/csv;charset=utf-8' }));
+    }
+
+    var monthBar = h('div', { class: 'month-bar' },
+      h('button', { class: 'icon-btn', 'aria-label': 'Tháng trước', onclick: function () { go('#/hoc-phi/' + shiftMonth(month, -1)); } }, '‹'),
+      h('strong', { class: 'month-name' }, monthLabel(month)),
+      h('button', { class: 'icon-btn', 'aria-label': 'Tháng sau', onclick: function () { go('#/hoc-phi/' + shiftMonth(month, 1)); } }, '›'),
+      month !== b.today ? h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { go('#/hoc-phi/' + b.today); } }, 'Về tháng này') : null);
+
+    fill(app,
+      h('div', { class: 'page-head' }, h('h1', null, 'Thống kê & học phí'),
+        h('p', { class: 'muted' }, 'Sĩ số từng lớp và danh sách đóng học phí theo tháng. Bấm "Chưa đóng" để đánh dấu đã đóng.')),
+      monthBar,
+      statsBox,
+      h('h2', { class: 'section-title' }, 'Sĩ số từng lớp'),
+      h('div', { class: 'table-wrap' }, h('table', { class: 'table class-table' },
+        h('thead', null, h('tr', null, h('th', null, 'Lớp'), h('th', { class: 'col-teacher' }, 'Giáo viên'), h('th', { class: 'num' }, 'Học sinh'), h('th', { class: 'num' }, 'Đã đóng'), h('th', { class: 'num' }, 'Chưa đóng'))),
+        classBody)),
+      h('p', { class: 'muted small' }, 'Chỉ đếm tài khoản học sinh đang mở; tài khoản bị khóa ghi riêng trong ngoặc. Bấm vào một lớp để xem danh sách lớp đó.'),
+      h('div', { class: 'section-row' },
+        h('h2', { class: 'section-title' }, 'Danh sách đóng học phí'),
+        h('div', { class: 'add-bar' },
+          h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { var t = unpaidText(); if (t) copy(t); else toast('Không có ai chưa đóng.', 'success'); } }, 'Sao chép DS chưa đóng'),
+          h('button', { class: 'btn btn-sm btn-ghost', onclick: csv }, 'Tải bảng (Excel)'))),
+      h('div', { class: 'toolbar' }, search),
+      courseChips,
+      statusChips,
+      listBox);
+    drawStats();
+    drawChips();
+    drawList();
+  }
+
+  /** Trang chủ học sinh: học phí tháng này của em. Trang chủ admin: tóm tắt cả trung tâm. */
+  function renderFeeBox(box, d) {
+    if (d.fees && d.fees.length) {
+      var month = d.fees[0].month;
+      var unpaid = d.fees.filter(function (f) { return !f.paid; }).length;
+      fill(box, h('div', { class: 'panel fee-mine' + (unpaid ? ' fee-due' : '') },
+        h('div', { class: 'fee-group-head' },
+          h('h3', null, 'Học phí ' + monthLabel(month).toLowerCase()),
+          h('span', { class: 'muted small' }, unpaid ? 'Em nhắc bố mẹ giúp thầy nhé.' : 'Cảm ơn em và gia đình!')),
+        h('div', { class: 'fee-list' }, d.fees.map(function (f) {
+          return h('div', { class: 'fee-row' },
+            h('div', { class: 'fee-name' }, h('strong', null, f.courseName), h('span', { class: 'muted small' }, f.courseGrade)),
+            f.paid ? h('span', { class: 'pill p-done' }, '✓ Đã đóng') : h('span', { class: 'pill p-todo' }, 'Chưa đóng'));
+        }))));
+    } else if (d.feeSummary) {
+      var s = d.feeSummary;
+      fill(box, h('a', { class: 'task fee-summary', href: '#/hoc-phi' },
+        h('span', { class: 'kind k-fee' }, 'HỌC PHÍ'),
+        h('div', { class: 'task-main' }, h('strong', null, monthLabel(s.month) + ': ' + s.paid + '/' + s.total + ' lượt đã đóng'),
+          h('span', { class: 'muted small' }, s.activeStudents + ' học sinh đang học · bấm để xem sĩ số và danh sách')),
+        s.total - s.paid ? h('span', { class: 'pill p-todo' }, (s.total - s.paid) + ' chưa đóng') : h('span', { class: 'pill p-done' }, 'Đủ')));
+    }
+  }
 
   function renderUsers() {
     fill(app, loading());

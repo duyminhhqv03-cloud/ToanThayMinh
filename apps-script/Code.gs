@@ -10,6 +10,7 @@
  *   BaiNop         – bài nộp của học sinh, điểm và nhận xét
  *   LuyenTap       – đề luyện tập tự chấm
  *   KetQua         – kết quả các lần làm bài luyện tập
+ *   HocPhi         – học phí đã đóng: mỗi dòng = một học sinh đã đóng một lớp trong một tháng
  *   PhienDangNhap  – phiên đăng nhập (tự dọn khi hết hạn)
  * File nằm trong Google Drive ở chế độ RIÊNG TƯ. Người dùng chỉ tải được qua script này,
  * sau khi đã kiểm tra đăng nhập và quyền khóa học.
@@ -25,7 +26,8 @@ var SHEET_NAMES = {
   submissions: 'BaiNop',
   quizzes: 'LuyenTap',
   attempts: 'KetQua',
-  sessions: 'PhienDangNhap'
+  sessions: 'PhienDangNhap',
+  fees: 'HocPhi'
 };
 var COLUMNS = {
   users: ['username', 'fullName', 'role', 'courses', 'active', 'salt', 'passwordHash', 'createdAt'],
@@ -35,10 +37,12 @@ var COLUMNS = {
   submissions: ['id', 'assignmentId', 'courseId', 'username', 'text', 'files', 'submittedAt', 'late', 'status', 'score', 'feedback', 'gradedBy', 'gradedAt', 'answers', 'itemScores', 'autoScore'],
   quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt', 'images'],
   attempts: ['id', 'quizId', 'courseId', 'username', 'answers', 'score', 'total', 'submittedAt'],
-  sessions: ['token', 'username', 'expiresAt']
+  sessions: ['token', 'username', 'expiresAt'],
+  fees: ['username', 'courseId', 'month', 'paidAt', 'markedBy', 'note']
 };
 // Các trang tự tạo khi chưa có (để cập nhật code mà không cần chạy lại setup).
-var AUTO_CREATE = ['docs', 'assignments', 'submissions', 'quizzes', 'attempts', 'sessions'];
+var AUTO_CREATE = ['docs', 'assignments', 'submissions', 'quizzes', 'attempts', 'sessions', 'fees'];
+var TIME_ZONE = 'Asia/Ho_Chi_Minh';
 
 var DEFAULT_COURSES = [
   ['toan4', 'Toán', 'Lớp 4', '1'],
@@ -160,6 +164,10 @@ function handle_(p) {
     case 'updateUser': return withLock_(function () { return updateUser_(me, p); });
     case 'resetPassword': return withLock_(function () { return resetPassword_(p); });
     case 'deleteUser': return withLock_(function () { return deleteUser_(me, p); });
+
+    // Thống kê & học phí
+    case 'feeBoard': return feeBoard_(String(p.month || thisMonth_()));
+    case 'setFee': return withLock_(function () { return setFee_(me, p); });
   }
   throw err_('Yêu cầu không hợp lệ.');
 }
@@ -336,7 +344,107 @@ function todo_(me) {
       items.push(base);
     }
   });
-  return { items: items };
+  var out = { items: items };
+  if (me.role === 'student') out.fees = myFees_(me, courses);
+  if (me.role === 'admin') out.feeSummary = feeSummary_(thisMonth_());
+  return out;
+}
+
+/* ───────────────────────── Thống kê & học phí ───────────────────────── */
+
+/** Tháng hiện tại theo giờ Việt Nam, dạng "2026-10". */
+function thisMonth_() {
+  return Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM');
+}
+function checkMonth_(month) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw err_('Tháng không hợp lệ.');
+  return month;
+}
+
+/**
+ * Bảng của admin cho một tháng: mỗi lớp có danh sách học sinh đang học (tài khoản không bị khóa)
+ * và ai đã đóng học phí; kèm số học sinh bị khóa / số giáo viên để thống kê.
+ * Học sinh đã đóng tháng đó nhưng nay đã nghỉ (bỏ ghi danh / khóa) vẫn hiện, đánh dấu "left".
+ */
+function feeBoard_(month) {
+  checkMonth_(month);
+  var users = rows_('users');
+  var byName = {};
+  users.forEach(function (u) { byName[u.username] = u; });
+  var paid = {};
+  rows_('fees').forEach(function (f) {
+    if (f.month === month) paid[f.courseId + '|' + f.username] = f;
+  });
+  var active = {};
+  var courses = rows_('courses').sort(function (a, b) { return Number(a.order || 0) - Number(b.order || 0); }).map(function (c) {
+    var students = [];
+    var inactive = 0;
+    var teachers = [];
+    users.forEach(function (u) {
+      if (courseIds_(u).indexOf(c.id) < 0) return;
+      if (u.role === 'teacher') { teachers.push(u.fullName); return; }
+      if (u.role !== 'student') return;
+      if (!isActive_(u)) { inactive++; return; }
+      active[u.username] = true;
+      var f = paid[c.id + '|' + u.username];
+      students.push({ username: u.username, fullName: u.fullName, paid: !!f, paidAt: f ? f.paidAt : '', note: f ? f.note : '' });
+    });
+    Object.keys(paid).forEach(function (k) {
+      var f = paid[k];
+      if (f.courseId !== c.id || students.some(function (s) { return s.username === f.username; })) return;
+      var u = byName[f.username];
+      students.push({ username: f.username, fullName: u ? u.fullName : f.username, paid: true, paidAt: f.paidAt, note: f.note, left: true });
+    });
+    students.sort(function (a, b) { return a.fullName.localeCompare(b.fullName, 'vi'); });
+    return { id: c.id, name: c.name, grade: c.grade, teachers: teachers, inactive: inactive, students: students };
+  });
+  return { month: month, today: thisMonth_(), courses: courses, activeStudents: Object.keys(active).length };
+}
+
+/** Số lượt đã đóng / phải đóng trong tháng (cho trang chủ admin). */
+function feeSummary_(month) {
+  var b = feeBoard_(month);
+  var total = 0;
+  var paid = 0;
+  b.courses.forEach(function (c) {
+    c.students.forEach(function (s) { if (!s.left) { total++; if (s.paid) paid++; } });
+  });
+  return { month: month, total: total, paid: paid, activeStudents: b.activeStudents };
+}
+
+/** Học phí tháng này của chính học sinh, theo từng lớp em đang học. */
+function myFees_(me, courses) {
+  var month = thisMonth_();
+  var mine = {};
+  rows_('fees').forEach(function (f) { if (f.username === me.username && f.month === month) mine[f.courseId] = f; });
+  return courseIds_(me).filter(function (id) { return courses[id]; }).map(function (id) {
+    var c = courses[id];
+    return { courseId: id, courseName: c.name, courseGrade: c.grade, month: month, paid: !!mine[id], paidAt: mine[id] ? mine[id].paidAt : '' };
+  });
+}
+
+/** Admin đánh dấu đã đóng / bỏ đánh dấu cho một học sinh, một lớp, một tháng. */
+function setFee_(me, p) {
+  var month = checkMonth_(String(p.month || ''));
+  var courseId = String(p.courseId || '');
+  if (!findCourse_(courseId)) throw err_('Khóa học không tồn tại.', 404);
+  var u = findUser_(String(p.username || ''));
+  if (!u) throw err_('Không tìm thấy tài khoản.', 404);
+  var row = rows_('fees').filter(function (f) { return f.username === u.username && f.courseId === courseId && f.month === month; })[0];
+  if (p.paid && u.role !== 'student') throw err_('Chỉ ghi học phí cho tài khoản học sinh.');
+  if (p.paid) {
+    var note = clean_(p.note, 200);
+    if (row) {
+      if (p.note !== undefined) update_('fees', row, { note: note });
+      row = rows_('fees').filter(function (f) { return f.username === u.username && f.courseId === courseId && f.month === month; })[0];
+    } else {
+      row = { username: u.username, courseId: courseId, month: month, paidAt: new Date().toISOString(), markedBy: me.username, note: note };
+      append_('fees', row);
+    }
+    return { fee: { username: u.username, courseId: courseId, month: month, paid: true, paidAt: row.paidAt, note: row.note } };
+  }
+  if (row) delete_('fees', row);
+  return { fee: { username: u.username, courseId: courseId, month: month, paid: false, paidAt: '', note: '' } };
 }
 
 /* ───────────────────────── Tài liệu ───────────────────────── */

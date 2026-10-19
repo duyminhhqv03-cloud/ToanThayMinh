@@ -51,9 +51,17 @@ window.API_URL = 'https://script.google.com/macros/s/…/exec';
 2. Trong Apps Script: chọn hết code cũ (Ctrl/Cmd + A), dán code mới đè lên, bấm **💾 Lưu**.
 3. **Triển khai → Quản lý các bản triển khai → ✏️ (Chỉnh sửa) → Phiên bản: Phiên bản mới → Triển khai**.
 
-URL giữ nguyên, không phải sửa trang web. Các trang mới trong Google Sheets (`BaiTap`, `BaiNop`, `LuyenTap`, `KetQua`) tự được tạo ở lần dùng đầu, không cần chạy lại `setup`.
+URL giữ nguyên, không phải sửa trang web. Các trang mới trong Google Sheets (`BaiTap`, `BaiNop`, `LuyenTap`, `KetQua`, `HocPhi`) tự được tạo ở lần dùng đầu, không cần chạy lại `setup`.
 
 Nếu trang web báo "Máy chủ chưa được cập nhật bản mới" thì nghĩa là bước 3 chưa làm.
+
+## Thống kê & học phí (chỉ admin)
+- Menu **Học phí**: sĩ số từng lớp (chỉ đếm học sinh đang mở tài khoản) và danh sách đóng học phí theo tháng.
+- Bấm **Chưa đóng** cạnh tên học sinh để đánh dấu đã đóng. Bấm vào ô **Đã đóng** để thêm ghi chú hoặc bỏ đánh dấu.
+- Học phí tính riêng từng lớp: em học 2 lớp có 2 ô.
+- **Sao chép DS chưa đóng** để dán vào Zalo nhắc phụ huynh. **Tải bảng (Excel)** tải file CSV mở bằng Excel.
+- Học sinh thấy học phí tháng này của chính em ở trang chủ (đã đóng / chưa đóng).
+- Dữ liệu nằm ở trang `HocPhi`: mỗi dòng là một lượt đã đóng (học sinh, lớp, tháng). Xóa dòng = chưa đóng.
 
 ## Quên mật khẩu admin
 Trong Apps Script, chọn hàm **resetAdminPassword** → **Chạy**. Mật khẩu mới hiện trong Nhật ký thực thi.
