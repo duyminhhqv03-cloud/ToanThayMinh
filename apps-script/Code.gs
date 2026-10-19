@@ -31,9 +31,9 @@ var COLUMNS = {
   users: ['username', 'fullName', 'role', 'courses', 'active', 'salt', 'passwordHash', 'createdAt'],
   courses: ['id', 'name', 'grade', 'order'],
   docs: ['id', 'courseId', 'title', 'description', 'type', 'fileId', 'fileName', 'mimeType', 'size', 'url', 'uploadedBy', 'uploadedAt', 'topic'],
-  assignments: ['id', 'courseId', 'topic', 'title', 'instructions', 'dueAt', 'maxScore', 'fileId', 'fileName', 'mimeType', 'size', 'createdBy', 'createdAt', 'source', 'questions'],
+  assignments: ['id', 'courseId', 'topic', 'title', 'instructions', 'dueAt', 'maxScore', 'fileId', 'fileName', 'mimeType', 'size', 'createdBy', 'createdAt', 'source', 'questions', 'images'],
   submissions: ['id', 'assignmentId', 'courseId', 'username', 'text', 'files', 'submittedAt', 'late', 'status', 'score', 'feedback', 'gradedBy', 'gradedAt', 'answers', 'itemScores', 'autoScore'],
-  quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt'],
+  quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt', 'images'],
   attempts: ['id', 'quizId', 'courseId', 'username', 'answers', 'score', 'total', 'submittedAt'],
   sessions: ['token', 'username', 'expiresAt']
 };
@@ -132,6 +132,7 @@ function handle_(p) {
     case 'updateDoc': return withLock_(function () { return updateDoc_(me, p); });
     case 'deleteDoc': return withLock_(function () { return deleteDoc_(me, id); });
     case 'file': return getFile_(me, id);
+    case 'qimage': return questionImage_(me, String(p.kind || ''), id, String(p.key || ''));
 
     // Bài tập về nhà
     case 'assignment': return assignmentDetail_(me, id);
@@ -445,7 +446,8 @@ function saveAssignment_(me, p, isNew) {
     dueAt: dueAt,
     maxScore: String(maxScore),
     source: questions.length ? String(p.source || '').slice(0, 45000) : '',
-    questions: questions.length ? JSON.stringify(questions) : ''
+    questions: questions.length ? JSON.stringify(questions) : '',
+    images: saveImages_(courseId, a ? a.images : '', questions, p.newImages)
   };
   if (data.questions.length > 48000) throw err_('Đề quá dài. Hãy tách thành nhiều bài tập.');
   if (p.data) {
@@ -481,6 +483,7 @@ function deleteAssignment_(me, id) {
     sheet_('submissions').deleteRow(subs[i]._row);
   }
   trash_(a.fileId);
+  trashImages_(a.images);
   delete_('assignments', findBy_('assignments', id));
   return {};
 }
@@ -500,7 +503,7 @@ function assignmentDetail_(me, id) {
     canEdit: edit,
     canSubmit: isStudentIn_(me, a.courseId),
     // Học sinh chỉ nhận đề, không nhận đáp án.
-    questions: questions.map(function (x) { return { type: x.type, text: x.text, options: x.options || null, points: x.points }; })
+    questions: questions.map(function (x) { return { type: x.type, text: x.text, options: x.options || null, points: x.points, image: x.image || null }; })
   };
   if (edit) {
     out.fullQuestions = questions;
@@ -631,7 +634,7 @@ function reviewHomework_(questions, s, reveal) {
   return questions.map(function (x, i) {
     var done = s.status === 'returned';
     var r = {
-      type: x.type, text: x.text, options: x.options || null, points: Number(x.points || 1),
+      type: x.type, text: x.text, options: x.options || null, points: Number(x.points || 1), image: x.image || null,
       answer: answers[i] === undefined ? null : answers[i],
       // Đúng/sai và điểm từng câu chỉ hiện khi bài đã chấm xong (tránh dò đáp án rồi nộp lại).
       earned: done && scores[i] !== undefined ? scores[i] : null
@@ -752,7 +755,8 @@ function saveQuiz_(me, p) {
     questions: JSON.stringify(questions),
     timeLimit: String(Math.round(limit)),
     showAnswers: p.showAnswers === false ? '0' : '1',
-    updatedAt: now
+    updatedAt: now,
+    images: saveImages_(courseId, q ? q.images : '', questions, p.newImages)
   };
   if (data.questions.length > 48000) throw err_('Đề quá dài. Hãy tách thành nhiều bài luyện tập.');
   if (q) {
@@ -779,6 +783,11 @@ function validateQuestions_(list, allowEssay) {
     var points = q.points === undefined || q.points === '' ? 1 : Number(q.points);
     if (!(points > 0 && points <= 100)) throw err_(n + 'số điểm không hợp lệ.');
     var out = { type: type, text: text, explain: clean_(q.explain, 3000), points: Math.round(points * 100) / 100 };
+    var img = String(q.image || '').trim();
+    if (img) {
+      if (!/^[A-Za-z0-9_-]{1,40}$/.test(img)) throw err_(n + 'tên hình không hợp lệ.');
+      out.image = img;
+    }
     if (out.type === 'essay') {
       // không có đáp án tự động
     } else if (out.type === 'mc') {
@@ -810,7 +819,7 @@ function quizDetail_(me, id) {
     course: { id: c.id, name: c.name, grade: c.grade },
     canEdit: edit,
     // Học sinh KHÔNG nhận đáp án trước khi nộp bài.
-    questions: questions.map(function (x) { return { type: x.type, text: x.text, options: x.options || null }; })
+    questions: questions.map(function (x) { return { type: x.type, text: x.text, options: x.options || null, image: x.image || null }; })
   };
   var attempts = rows_('attempts').filter(function (t) { return t.quizId === id; });
   out.myAttempts = attempts.filter(function (t) { return t.username === me.username; })
@@ -884,7 +893,7 @@ function reviewAttempt_(q, t) {
     attempt: { id: t.id, score: Number(t.score), total: Number(t.total), submittedAt: t.submittedAt },
     showAnswers: show,
     review: questions.map(function (x, i) {
-      var r = { type: x.type, text: x.text, options: x.options || null, answer: answers[i] === undefined ? null : answers[i], correct: isCorrect_(x, answers[i]) };
+      var r = { type: x.type, text: x.text, options: x.options || null, image: x.image || null, answer: answers[i] === undefined ? null : answers[i], correct: isCorrect_(x, answers[i]) };
       if (show) {
         r.correctAnswer = x.type === 'mc' ? x.correct : x.answers[0];
         r.explain = x.explain || '';
@@ -923,8 +932,54 @@ function deleteQuiz_(me, id) {
   requireEdit_(me, q.courseId);
   var ts = rows_('attempts').filter(function (t) { return t.quizId === id; });
   for (var i = ts.length - 1; i >= 0; i--) sheet_('attempts').deleteRow(ts[i]._row);
+  trashImages_(q.images);
   delete_('quizzes', findBy_('quizzes', id));
   return {};
+}
+
+/* ───────────────────────── Hình trong câu hỏi ───────────────────────── */
+
+/**
+ * Lưu hình mới (từ PDF hoặc giáo viên thêm) vào Drive, bỏ hình không còn dùng.
+ * Trả về JSON {key: fileId} để lưu trong cột images.
+ */
+function saveImages_(courseId, oldJson, questions, newImages) {
+  var map = parseJson_(oldJson, {});
+  var used = {};
+  questions.forEach(function (x) { if (x.image) used[x.image] = 1; });
+  var list = Array.isArray(newImages) ? newImages : [];
+  if (list.length > 60) throw err_('Quá nhiều hình trong một đề (tối đa 60).');
+  list.forEach(function (im) {
+    var key = String(im.key || '');
+    if (!used[key] || !/^[A-Za-z0-9_-]{1,40}$/.test(key)) return;
+    var bytes = Utilities.base64Decode(String(im.data || ''));
+    if (bytes.length > 4 * 1024 * 1024) throw err_('Hình "' + key + '" quá lớn (tối đa 4 MB).');
+    if (map[key]) trash_(map[key]);
+    var blob = Utilities.newBlob(bytes, String(im.mimeType || 'image/jpeg'), 'hinh-' + key + '.jpg');
+    map[key] = imagesFolder_(courseId).createFile(blob).getId();
+  });
+  Object.keys(map).forEach(function (k) { if (!used[k]) { trash_(map[k]); delete map[k]; } });
+  var missing = Object.keys(used).filter(function (k) { return !map[k]; });
+  if (missing.length) throw err_('Thiếu file hình: ' + missing.join(', ') + '. Hãy thêm lại hình cho câu đó.');
+  return Object.keys(map).length ? JSON.stringify(map) : '';
+}
+
+function trashImages_(json) {
+  var map = parseJson_(json, {});
+  Object.keys(map).forEach(function (k) { trash_(map[k]); });
+}
+
+function imagesFolder_(courseId) {
+  return storedFolder_('IMGFOLDER_' + courseId, function () { return courseFolder_(courseId).createFolder('Hình trong đề'); });
+}
+
+function questionImage_(me, kind, id, key) {
+  var row = kind === 'quiz' ? findBy_('quizzes', id) : findBy_('assignments', id);
+  if (!row) throw err_('Không tìm thấy đề.', 404);
+  if (!canSee_(me, row.courseId)) throw err_('Bạn chưa được ghi danh vào khóa học này.', 403);
+  var fileId = parseJson_(row.images, {})[key];
+  if (!fileId) throw err_('Không tìm thấy hình.', 404);
+  return fileData_(fileId, 'hinh-' + key + '.jpg', 'image/jpeg');
 }
 
 function bestAttempt_(list) {

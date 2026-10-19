@@ -845,24 +845,33 @@
 
   var TYPE_LABEL = { mc: 'Trắc nghiệm', short: 'Trả lời ngắn', essay: 'Tự luận' };
 
-  /** Đọc chữ trong PDF bằng PDF.js, ghép các mẩu chữ thành dòng theo toạ độ. */
-  function pdfText(file) {
+  /** Đọc PDF bằng PDF.js: dòng chữ (kèm toạ độ) và vị trí hình / bảng trên từng trang. */
+  function pdfAnalyze(file) {
     return loadPdfJs().then(function (lib) {
-      return file.arrayBuffer().then(function (buf) { return lib.getDocument({ data: buf }).promise; });
-    }).then(function (doc) {
-      var pages = [];
-      var chain = Promise.resolve();
-      for (var i = 1; i <= doc.numPages; i++) {
-        (function (n) {
-          chain = chain.then(function () { return doc.getPage(n); })
-            .then(function (p) { return p.getTextContent(); })
-            .then(function (tc) { pages.push(textLines(tc.items)); });
-        })(i);
-      }
-      return chain.then(function () { return pages.join('\n'); });
+      return file.arrayBuffer().then(function (buf) { return lib.getDocument({ data: buf }).promise; }).then(function (doc) {
+        var pages = [];
+        var chain = Promise.resolve();
+        for (var i = 1; i <= doc.numPages; i++) {
+          (function (n) {
+            chain = chain.then(function () { return doc.getPage(n); }).then(function (page) {
+              return Promise.all([page.getTextContent(), page.getOperatorList()]).then(function (res) {
+                pages.push({ page: page, rows: textRows(res[0].items), figs: figureBoxes(lib, res[1], page.view) });
+              });
+            });
+          })(i);
+        }
+        return chain.then(function () {
+          var lines = [];
+          pages.forEach(function (pg, pi) { pg.rows.forEach(function (r) { lines.push({ p: pi, y: r.y, str: window.QuizFormat.plainMath(r.str).normalize('NFC') }); }); });
+          return { pages: pages, lines: lines, text: lines.map(function (l) { return l.str; }).join('\n') };
+        });
+      });
     });
   }
-  function textLines(items) {
+  function pdfText(file) {
+    return pdfAnalyze(file).then(function (r) { return r.text; });
+  }
+  function textRows(items) {
     var rows = [];
     items.forEach(function (it) {
       if (!it.str || !it.transform) return;
@@ -883,8 +892,233 @@
         out += t.str;
         end = t.x + t.w;
       });
-      return out.replace(/\s+/g, ' ').trim();
-    }).filter(Boolean).join('\n').normalize('NFC');
+      return { y: r.y, str: out.replace(/\s+/g, ' ').trim() };
+    }).filter(function (r) { return r.str; });
+  }
+
+  /** Tìm khung của ảnh chèn và hình vẽ / bảng (nét kẻ thật, không tính vùng cắt vô hình) trên trang, theo toạ độ PDF. */
+  function figureBoxes(lib, ol, view) {
+    var OPS = lib.OPS;
+    var U = lib.Util;
+    var ctm = [1, 0, 0, 1, 0, 0];
+    var stack = [];
+    var imgs = [];
+    var paths = [];
+    var pw = view[2] - view[0];
+    var ph = view[3] - view[1];
+    function bbox(pts) {
+      var xs = pts.map(function (q) { return q[0]; });
+      var ys = pts.map(function (q) { return q[1]; });
+      return [Math.min.apply(null, xs), Math.min.apply(null, ys), Math.max.apply(null, xs), Math.max.apply(null, ys)];
+    }
+    function ok(b) { var w = b[2] - b[0]; var hh = b[3] - b[1]; return isFinite(w) && isFinite(hh) && w * hh < 0.8 * pw * ph; }
+    var IMG = [OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject, OPS.paintImageXObjectRepeat, OPS.paintInlineImageXObjectGroup, OPS.paintImageMaskXObjectGroup, OPS.paintImageMaskXObjectRepeat];
+    var PAINT = [OPS.stroke, OPS.closeStroke, OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke];
+    for (var i = 0; i < ol.fnArray.length; i++) {
+      var fn = ol.fnArray[i];
+      var a = ol.argsArray[i];
+      if (fn === OPS.save) stack.push(ctm.slice());
+      else if (fn === OPS.restore) { if (stack.length) ctm = stack.pop(); }
+      else if (fn === OPS.transform) ctm = U.transform(ctm, a);
+      else if (fn === OPS.paintFormXObjectBegin) { stack.push(ctm.slice()); if (a && a[0]) ctm = U.transform(ctm, a[0]); }
+      else if (fn === OPS.paintFormXObjectEnd) { if (stack.length) ctm = stack.pop(); }
+      else if (IMG.indexOf(fn) >= 0) {
+        var ib = bbox([[0, 0], [1, 0], [0, 1], [1, 1]].map(function (q) { return U.applyTransform(q, ctm); }));
+        if (ok(ib) && ib[2] - ib[0] >= 10 && ib[3] - ib[1] >= 10) imgs.push(ib);
+      } else if (fn === OPS.constructPath && a && a[2] && a[2].length === 4 && PAINT.indexOf(ol.fnArray[i + 1]) >= 0) {
+        var mm = a[2]; // [minX, maxX, minY, maxY]
+        var pb = bbox([[mm[0], mm[2]], [mm[1], mm[2]], [mm[0], mm[3]], [mm[1], mm[3]]].map(function (q) { return U.applyTransform(q, ctm); }));
+        if (ok(pb) && (pb[2] - pb[0] >= 3 || pb[3] - pb[1] >= 3)) paths.push(pb);
+      }
+    }
+    // Gộp các nét kẻ chạm nhau thành một hình (ví dụ: bảng = nhiều đường kẻ).
+    var merged = true;
+    while (merged) {
+      merged = false;
+      for (var x = 0; x < paths.length && !merged; x++) {
+        for (var y = x + 1; y < paths.length; y++) {
+          var A = paths[x];
+          var B = paths[y];
+          if (A[0] - 3 <= B[2] && B[0] - 3 <= A[2] && A[1] - 3 <= B[3] && B[1] - 3 <= A[3]) {
+            paths[x] = [Math.min(A[0], B[0]), Math.min(A[1], B[1]), Math.max(A[2], B[2]), Math.max(A[3], B[3])];
+            paths.splice(y, 1);
+            merged = true;
+            break;
+          }
+        }
+      }
+    }
+    return imgs.concat(paths.filter(function (b) { return b[2] - b[0] >= 30 && b[3] - b[1] >= 15; }));
+  }
+
+  /** Cắt hình của từng câu: hình nằm giữa dòng "Câu k" và "Câu k+1" thuộc về câu k. */
+  function cropFigures(an) {
+    var strs = an.lines.map(function (l) { return l.str; });
+    var starts = window.QuizFormat.questionStarts(strs);
+    var keyAt = strs.length;
+    if (starts.length) {
+      for (var i = starts[starts.length - 1] + 1; i < strs.length; i++) {
+        if (/^\s*(?:bảng\s+)?(?:đáp\s*án|hướng\s*dẫn\s*(?:giải|chấm)|lời\s*giải)\b/i.test(strs[i]) && strs[i].length < 60) { keyAt = i; break; }
+      }
+    }
+    var canvases = {};
+    function pageCanvas(pi) {
+      if (!canvases[pi]) {
+        var pg = an.pages[pi].page;
+        var vp = pg.getViewport({ scale: 2 });
+        var c = document.createElement('canvas');
+        c.width = Math.round(vp.width);
+        c.height = Math.round(vp.height);
+        var ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, c.width, c.height);
+        canvases[pi] = pg.render({ canvasContext: ctx, viewport: vp }).promise.then(function () { return { c: c, vp: vp }; });
+      }
+      return canvases[pi];
+    }
+    return Promise.all(starts.map(function (si, k) {
+      var s0 = an.lines[si];
+      var endIdx = k + 1 < starts.length ? starts[k + 1] : keyAt;
+      var e0 = endIdx < an.lines.length ? an.lines[endIdx] : null;
+      var parts = [];
+      for (var pi = s0.p; pi <= (e0 ? e0.p : an.pages.length - 1); pi++) {
+        var view = an.pages[pi].page.view;
+        var top = pi === s0.p ? s0.y + 14 : view[3];
+        var bottom = e0 && pi === e0.p ? e0.y + 12 : view[1];
+        var figs = an.pages[pi].figs.filter(function (b) { var cy = (b[1] + b[3]) / 2; return cy < top && cy > bottom; });
+        if (figs.length) {
+          var bx = [Math.min.apply(null, figs.map(function (b) { return b[0]; })), Math.min.apply(null, figs.map(function (b) { return b[1]; })),
+            Math.max.apply(null, figs.map(function (b) { return b[2]; })), Math.max.apply(null, figs.map(function (b) { return b[3]; }))];
+          // Nới rộng để lấy cả nhãn ghi sát hình (8 cm, A, B…), nhưng không lấn sang dòng câu hỏi trên / câu kế tiếp.
+          var ceil = pi === s0.p ? s0.y - 4 : view[3];
+          an.lines.forEach(function (l) {
+            // Dòng chữ dài ngay phía trên hình là nội dung câu hỏi → không cắt vào; nhãn ngắn (A, 5 cm…) thì giữ.
+            if (l.p === pi && l.y > bx[3] - 2 && l.y < ceil + 4 && l.str.length > 15) ceil = Math.min(ceil, l.y - 4);
+          });
+          var floor = e0 && pi === e0.p ? e0.y + 13 : view[1];
+          parts.push({ pi: pi, box: [Math.max(view[0], bx[0] - 54), Math.max(floor, bx[1] - 20), Math.min(view[2], bx[2] + 54), Math.min(ceil, Math.max(bx[3] + 14, bx[3]))] });
+        }
+      }
+      if (!parts.length) return null;
+      return Promise.all(parts.map(function (pt) {
+        return pageCanvas(pt.pi).then(function (pc) {
+          var r = pc.vp.convertToViewportRectangle(pt.box);
+          var x0 = Math.max(0, Math.floor(Math.min(r[0], r[2])));
+          var y0 = Math.max(0, Math.floor(Math.min(r[1], r[3])));
+          var x1 = Math.min(pc.c.width, Math.ceil(Math.max(r[0], r[2])));
+          var y1 = Math.min(pc.c.height, Math.ceil(Math.max(r[1], r[3])));
+          return { c: pc.c, x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+        });
+      })).then(function (cuts) {
+        var W = Math.max.apply(null, cuts.map(function (c) { return c.w; }));
+        var H = cuts.reduce(function (n, c) { return n + c.h + 10; }, -10);
+        var scale = Math.min(1, 1400 / W);
+        var out = document.createElement('canvas');
+        out.width = Math.round(W * scale);
+        out.height = Math.round(H * scale);
+        var ctx = out.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, out.width, out.height);
+        var yy = 0;
+        cuts.forEach(function (c) {
+          ctx.drawImage(c.c, c.x, c.y, c.w, c.h, 0, yy, c.w * scale, c.h * scale);
+          yy += (c.h + 10) * scale;
+        });
+        return out.toDataURL('image/jpeg', 0.85);
+      });
+    }));
+  }
+
+  /* —— Hình trong câu hỏi —— */
+
+  function dataUrlFetcher(url) {
+    return function () { return Promise.resolve({ name: 'hinh.jpg', mimeType: url.slice(5, url.indexOf(';')) || 'image/jpeg', data: url.split(',')[1] }); };
+  }
+
+  /** Ảnh minh họa dưới câu hỏi; bấm để phóng to. src: {url} (mới, chưa lưu) hoặc {kind, id, key} (đã lưu). */
+  function qImageEl(src) {
+    if (!src) return null;
+    var key = src.url ? 'qimgl:' + src.url.length + ':' + src.url.slice(-40) : 'qimg:' + src.kind + ':' + src.id + ':' + src.key;
+    var fetcher = src.url ? dataUrlFetcher(src.url) : function () { return api('qimage', { kind: src.kind, id: src.id, key: src.key }); };
+    var wrap = h('button', { type: 'button', class: 'q-img', 'aria-label': 'Phóng to hình', onclick: function () { openViewer('Hình minh họa', key, fetcher); } }, loading('Đang tải hình…'));
+    getBlob(key, fetcher).then(function (r) {
+      fill(wrap, h('img', { src: URL.createObjectURL(r.blob), alt: 'Hình minh họa' }), h('span', { class: 'q-img-zoom' }, '🔍 Phóng to'));
+    }, function () { fill(wrap, h('p', { class: 'err small' }, 'Không tải được hình.')); });
+    return wrap;
+  }
+
+  /** Kho hình của trình soạn đề: hình mới (dataURL) + hình đã lưu trên máy chủ. */
+  function imageStore(kind, id, savedKeys) {
+    var local = {};
+    var saved = {};
+    (savedKeys || []).forEach(function (k) { saved[k] = 1; });
+    return {
+      el: function (k) {
+        if (!k) return null;
+        if (local[k]) return qImageEl({ url: local[k] });
+        if (saved[k] && id) return qImageEl({ kind: kind, id: id, key: k });
+        return h('p', { class: 'err small' }, 'Thiếu hình "' + k + '" — bấm "Thêm hình" để chọn lại.');
+      },
+      put: function (k, url) { local[k] = url; },
+      newImages: function (questions) {
+        var out = [];
+        questions.forEach(function (q) {
+          if (q.image && local[q.image]) out.push({ key: q.image, mimeType: 'image/jpeg', data: local[q.image].split(',')[1] });
+        });
+        return out;
+      }
+    };
+  }
+
+  function newImageKey(i) {
+    return 'c' + (i + 1) + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  }
+
+  /** Gắn / thay / bỏ dòng [Hình: …] của câu thứ i trong ô soạn đề. */
+  function setQuestionImage(src, parsed, i, key) {
+    var lines = src.value.split('\n');
+    var heads = [];
+    lines.forEach(function (l, k) { if (/^\s*câu\s*\d+/i.test(l)) heads.push(k); });
+    if (heads.length === parsed.questions.length) {
+      var from = heads[i];
+      var to = i + 1 < heads.length ? heads[i + 1] : lines.length;
+      var body = lines.slice(from + 1, to).filter(function (l) { return !/^\s*\[\s*(?:hình|ảnh|hinh|anh)\b/i.test(l); });
+      if (key) body.unshift('[Hình: ' + key + ']');
+      src.value = lines.slice(0, from + 1).concat(body, lines.slice(to)).join('\n');
+    } else {
+      var qs = parsed.questions.map(function (q, k) { var c = Object.assign({}, q); if (k === i) { if (key) c.image = key; else delete c.image; } return c; });
+      src.value = window.QuizFormat.toSource(qs);
+    }
+  }
+
+  /** Chọn ảnh từ máy cho câu i (nén còn ≤1600px). */
+  function pickQuestionImage(onPicked) {
+    var input = h('input', { type: 'file', accept: 'image/*' });
+    input.addEventListener('change', function () {
+      var f = input.files[0];
+      if (!f) return;
+      compressImage(f).then(function (c) {
+        var r = new FileReader();
+        r.onload = function () { onPicked(String(r.result)); };
+        r.readAsDataURL(c);
+      });
+    });
+    input.click();
+  }
+
+  /** Nút thêm / đổi / bỏ hình dưới mỗi câu trong phần xem trước của trình soạn đề. */
+  function imageTools(src, parsed, store, i, onChange) {
+    var q = parsed.questions[i];
+    var add = h('button', { type: 'button', class: 'link-btn', onclick: function () {
+      pickQuestionImage(function (url) {
+        var k = newImageKey(i);
+        store.put(k, url);
+        setQuestionImage(src, parsed, i, k);
+        onChange();
+      });
+    } }, q.image ? '🖼 Đổi hình' : '🖼 Thêm hình');
+    var del = q.image ? h('button', { type: 'button', class: 'link-btn danger-text', onclick: function () { setQuestionImage(src, parsed, i, null); onChange(); } }, 'Bỏ hình') : null;
+    return h('div', { class: 'img-tools' }, add, del);
   }
 
   /** Hộp "Lấy đề từ PDF": đọc đề (+ đáp án), tự tách câu & phân loại, trả về bản soạn để xem lại. */
@@ -898,20 +1132,29 @@
       field('File đề (PDF)', de),
       field('File đáp án (PDF, không bắt buộc)', key, 'Bỏ trống nếu đáp án nằm cuối file đề, sau chữ "ĐÁP ÁN".'),
       field('Hoặc dán đáp án', keyText),
-      h('p', { class: 'notice' }, 'PDF xuất từ Word đọc tốt nhất. PDF là ảnh scan, dùng phông chữ cũ (.VnTime…) hoặc có phân số dạng công thức chồng thì máy không đọc được chữ — khi đó hãy dán đề dạng chữ.')),
+      h('p', { class: 'notice' }, 'Hình vẽ, bảng trong đề được tự cắt và gắn vào đúng câu. PDF xuất từ Word đọc tốt nhất. PDF là ảnh scan, dùng phông chữ cũ (.VnTime…) hoặc có phân số dạng công thức chồng thì máy không đọc được chữ — khi đó hãy dán đề dạng chữ.')),
     function (close) {
       var ok = h('button', { class: 'btn' }, 'Đọc đề');
       ok.addEventListener('click', function () {
         var f = de.files[0];
         if (!f) return toast('Hãy chọn file đề PDF.', 'error');
         busy(ok, true, 'Đang đọc PDF…');
-        Promise.all([pdfText(f), key.files[0] ? pdfText(key.files[0]) : Promise.resolve('')]).then(function (t) {
-          if (t[0].replace(/\s/g, '').length < 20) throw new Error('Không đọc được chữ trong file đề (có thể là ảnh scan). Hãy dán đề dạng chữ vào ô soạn đề.');
-          var k = (t[1] + '\n' + keyText.value).trim();
-          var r = window.QuizFormat.fromText(t[0], k || null);
-          if (!r.count) throw new Error('Không tìm thấy câu hỏi nào. Đề cần đánh số "Câu 1", "Câu 2"… (hoặc "1.", "2.").');
-          close();
-          onDone(r, f);
+        Promise.all([pdfAnalyze(f), key.files[0] ? pdfText(key.files[0]) : Promise.resolve('')]).then(function (t) {
+          var an = t[0];
+          if (an.text.replace(/\s/g, '').length < 20) throw new Error('Không đọc được chữ trong file đề (có thể là ảnh scan). Hãy dán đề dạng chữ vào ô soạn đề.');
+          ok.textContent = 'Đang cắt hình…';
+          return cropFigures(an).catch(function () { return []; }).then(function (crops) {
+            var figures = [];
+            var images = {};
+            crops.forEach(function (url, i) { if (url) { figures[i] = newImageKey(i); images[figures[i]] = url; } });
+            var k = (t[1] + '\n' + keyText.value).trim();
+            var r = window.QuizFormat.fromText(an.text, k || null, { figures: figures });
+            if (!r.count) throw new Error('Không tìm thấy câu hỏi nào. Đề cần đánh số "Câu 1", "Câu 2"… (hoặc "1.", "2.").');
+            r.images = images;
+            r.figureCount = Object.keys(images).length;
+            close();
+            onDone(r, f);
+          });
         }).catch(function (e) { busy(ok, false); toast(e.message || 'Không đọc được file PDF.', 'error'); });
       });
       return [h('button', { class: 'btn btn-ghost', onclick: close }, 'Hủy'), ok];
@@ -948,6 +1191,7 @@
     var preview = h('div', { class: 'quiz-preview' });
     var parsed = { questions: [], errors: [] };
     var dirty = false;
+    var store = imageStore('assignment', a ? a.id : null, ex && ex.fullQuestions ? ex.fullQuestions.map(function (q) { return q.image; }).filter(Boolean) : []);
 
     function update() {
       var empty = !src.value.trim();
@@ -973,7 +1217,8 @@
         parsed.errors.length ? h('div', { class: 'errors' }, h('strong', null, 'Cần sửa ' + parsed.errors.length + ' chỗ:'), h('ul', null, parsed.errors.map(function (e) { return h('li', null, e); }))) : null);
       fill(preview, parsed.questions.map(function (x, i) {
         return reviewItem({ type: x.type, text: x.text || '(thiếu nội dung)', options: x.options, points: x.points,
-          correctAnswer: x.type === 'mc' ? x.correct : (x.answers || []).join('  |  '), explain: x.explain }, i, true);
+          correctAnswer: x.type === 'mc' ? x.correct : (x.answers || []).join('  |  '), explain: x.explain,
+          imgEl: store.el(x.image), tools: imageTools(src, parsed, store, i, function () { dirty = true; update(); }) }, i, true);
       }));
     }
     function spread() {
@@ -990,6 +1235,7 @@
       importPdfDialog(true, function (r, f) {
         if (src.value.trim() && !confirm('Thay nội dung câu hỏi hiện tại bằng đề vừa đọc từ PDF?')) return;
         src.value = r.source;
+        Object.keys(r.images || {}).forEach(function (k) { store.put(k, r.images[k]); });
         dirty = true;
         if (!file.files[0]) {
           pickedFile = f;
@@ -997,7 +1243,7 @@
         }
         if (!title.value.trim()) title.value = f.name.replace(/\.pdf$/i, '');
         update();
-        toast('Đã đọc ' + r.count + ' câu' + (r.hasKey ? ', ' + r.keyed + ' câu có đáp án' : ', chưa thấy đáp án') + '. Hãy kiểm tra lại phần xem trước.', r.keyed === r.count ? 'success' : '');
+        toast('Đã đọc ' + r.count + ' câu' + (r.figureCount ? ', ' + r.figureCount + ' hình' : '') + (r.hasKey ? ', ' + r.keyed + ' câu có đáp án' : ', chưa thấy đáp án') + '. Hãy kiểm tra lại phần xem trước.', r.keyed === r.count ? 'success' : '');
       });
     }
 
@@ -1013,7 +1259,8 @@
         instructions: instr.value.trim(), maxScore: max.value,
         dueAt: due.value ? new Date(due.value).toISOString() : '',
         removeFile: removeFile.checked,
-        questions: parsed.questions, source: parsed.questions.length ? src.value : ''
+        questions: parsed.questions, source: parsed.questions.length ? src.value : '',
+        newImages: store.newImages(parsed.questions)
       };
       busy(saveBtn, true, f ? 'Đang tải file đề…' : 'Đang lưu…');
       (f ? readBase64(f).then(function (data) { return Object.assign(params, { data: data, fileName: f.name, mimeType: f.type || 'application/pdf' }); }) : Promise.resolve(params))
@@ -1142,7 +1389,7 @@
     fill(box,
       card,
       h('h2', { class: 'section-title' }, 'Bài em đã nộp'),
-      hasQ ? h('div', { class: 'review' }, d.review.map(function (r, i) { return hwReviewItem(r, i, s, graded); })) : null,
+      hasQ ? h('div', { class: 'review' }, d.review.map(function (r, i) { return hwReviewItem(r, i, s, graded, a.id); })) : null,
       s.text ? h('div', { class: 'panel prewrap' }, hasQ ? h('strong', null, 'Lời nhắn: ') : null, s.text) : null,
       general.length ? h('div', { class: 'file-grid' }, general.map(function (f) { return submissionFileTile(s, f); })) : null,
       !graded ? h('div', { class: 'actions-end' },
@@ -1150,7 +1397,7 @@
   }
 
   /** Xem lại một câu của bài tập đã nộp (phía học sinh). */
-  function hwReviewItem(r, i, s, graded) {
+  function hwReviewItem(r, i, s, graded, aid) {
     var head = h('div', { class: 'review-head' },
       h('span', { class: 'q-num' }, 'Câu ' + (i + 1) + ' · ' + TYPE_LABEL[r.type] + ' · ' + fmtScore(r.points) + ' điểm'),
       !graded ? h('span', { class: 'pill p-wait' }, 'Đã nộp')
@@ -1175,7 +1422,8 @@
         !r.answer && !photos.length ? h('p', { class: 'muted' }, '(bỏ trống)') : null];
     }
     var cls = 'panel review-item' + (graded && r.type !== 'essay' ? (r.correct ? ' is-ok' : ' is-bad') : '');
-    return h('div', { class: cls }, head, h('p', { class: 'q-text prewrap' }, r.text), body,
+    return h('div', { class: cls }, head, h('p', { class: 'q-text prewrap' }, r.text),
+      r.image ? qImageEl({ kind: 'assignment', id: aid, key: r.image }) : null, body,
       r.explain ? h('div', { class: 'explain' }, h('strong', null, (r.type === 'essay' ? 'Lời giải / hướng dẫn: ' : 'Lời giải: ')), h('span', { class: 'prewrap' }, r.explain)) : null);
   }
 
@@ -1283,6 +1531,7 @@
           h('span', { class: 'q-num' }, 'Câu ' + (i + 1)),
           h('span', { class: 'pill ' + (x.type === 'essay' ? 'p-todo' : 'p-blue') }, TYPE_LABEL[x.type] + ' · ' + fmtScore(x.points) + ' điểm')),
         h('p', { class: 'q-text prewrap' }, x.text),
+        x.image ? qImageEl({ kind: 'assignment', id: a.id, key: x.image }) : null,
         body);
     });
 
@@ -1429,7 +1678,8 @@
         h('summary', null, 'Đề & đáp án (' + d.fullQuestions.length + ' câu)'),
         h('div', { class: 'review' }, d.fullQuestions.map(function (x, i) {
           return reviewItem({ type: x.type, text: x.text, options: x.options, points: x.points,
-            correctAnswer: x.type === 'mc' ? x.correct : (x.answers || []).join('  |  '), explain: x.explain }, i, true);
+            correctAnswer: x.type === 'mc' ? x.correct : (x.answers || []).join('  |  '), explain: x.explain,
+            imgEl: x.image ? qImageEl({ kind: 'assignment', id: a.id, key: x.image }) : null }, i, true);
         }))) : null,
       h('div', { class: 'stats' },
         stat(count(isSub) + '/' + list.length, 'Đã nộp'),
@@ -1520,6 +1770,7 @@
             head.append(h('span', { class: 'pill ' + (ok ? 'p-done' : 'p-bad') }, (ok ? 'Đúng ' : 'Sai ') + fmtScore(earned) + 'đ'));
             return h('div', { class: 'panel review-item compact ' + (ok ? 'is-ok' : 'is-bad') }, head,
               h('p', { class: 'q-text sm prewrap' }, q.text),
+              q.image ? qImageEl({ kind: 'assignment', id: a.id, key: q.image }) : null,
               h('p', { class: 'small' }, 'Học sinh: ', h('strong', { class: ok ? 'ok' : 'err' }, said), ok ? null : [' · Đáp án: ', h('strong', { class: 'ok' }, right)]));
           }
           var inp = h('input', { type: 'text', inputmode: 'decimal', class: 'essay-score', placeholder: '0–' + fmtScore(q.points),
@@ -1529,6 +1780,7 @@
           var photos = s.files.filter(function (f) { return f.q === i; });
           return h('div', { class: 'panel review-item essay-grade' }, head,
             h('p', { class: 'q-text sm prewrap' }, q.text),
+            q.image ? qImageEl({ kind: 'assignment', id: a.id, key: q.image }) : null,
             q.explain ? h('div', { class: 'explain' }, h('strong', null, 'Hướng dẫn chấm: '), h('span', { class: 'prewrap' }, q.explain)) : null,
             ans ? h('div', { class: 'essay-answer prewrap' }, ans) : null,
             photos.map(function (f) { return workImage(s, f); }),
@@ -1695,6 +1947,7 @@
       fill(stage,
         h('p', { class: 'q-num' }, 'Câu ' + (cur + 1) + ' / ' + qs.length),
         h('h2', { class: 'q-text prewrap' }, x.text),
+        x.image ? qImageEl({ kind: 'quiz', id: q.id, key: x.image }) : null,
         body);
       prev.disabled = cur === 0;
       next.textContent = cur < qs.length - 1 ? 'Câu tiếp →' : 'Nộp bài';
@@ -1778,7 +2031,10 @@
             h('button', { class: 'btn btn-ghost', onclick: function () { renderQuiz(d.quiz.id); } }, 'Xong')))),
       h('h2', { class: 'section-title' }, 'Xem lại từng câu'),
       !r.showAnswers ? h('p', { class: 'muted small' }, 'Giáo viên đã ẩn đáp án của bài này. Em chỉ xem được câu nào đúng, câu nào sai.') : null,
-      h('div', { class: 'review' }, r.review.map(function (x, i) { return reviewItem(x, i); })));
+      h('div', { class: 'review' }, r.review.map(function (x, i) {
+        if (x.image) x.imgEl = qImageEl({ kind: 'quiz', id: d.quiz.id, key: x.image });
+        return reviewItem(x, i);
+      })));
   }
 
   /** Một câu khi xem lại. key = true: giáo viên xem đề & đáp án (không có bài làm của học sinh). */
@@ -1790,6 +2046,8 @@
         h('div', { class: 'review-head' }, h('span', { class: 'q-num' }, 'Câu ' + (i + 1)),
           h('span', { class: 'pill ' + (x.type === 'essay' ? 'p-todo' : 'p-blue') }, TYPE_LABEL[x.type] + (x.points != null ? ' · ' + fmtScore(x.points) + ' điểm' : ''))),
         h('p', { class: 'q-text prewrap' }, x.text),
+        x.imgEl || null,
+        x.tools || null,
         x.type === 'mc'
           ? h('div', { class: 'options review-opts' }, x.options.map(function (o, k) {
             return h('div', { class: 'option static' + (x.correctAnswer === k ? ' correct' : '') },
@@ -1817,6 +2075,7 @@
         h('span', { class: 'q-num' }, 'Câu ' + (i + 1)),
         h('span', { class: 'pill ' + (x.correct ? 'p-done' : 'p-bad') }, x.correct ? 'Đúng' : (x.answer == null || x.answer === '' ? 'Bỏ trống' : 'Sai'))),
       h('p', { class: 'q-text prewrap' }, x.text),
+      x.imgEl || null,
       yours, right,
       x.explain ? h('div', { class: 'explain' }, h('strong', null, 'Lời giải: '), h('span', { class: 'prewrap' }, x.explain)) : null);
   }
@@ -1857,7 +2116,8 @@
             })))));
       } else {
         fill(box, h('div', { class: 'review' }, d.fullQuestions.map(function (x, i) {
-          return reviewItem({ type: x.type, text: x.text, options: x.options, correctAnswer: x.type === 'mc' ? x.correct : x.answers.join('  |  '), explain: x.explain }, i, true);
+          return reviewItem({ type: x.type, text: x.text, options: x.options, correctAnswer: x.type === 'mc' ? x.correct : x.answers.join('  |  '), explain: x.explain,
+            imgEl: x.image ? qImageEl({ kind: 'quiz', id: q.id, key: x.image }) : null }, i, true);
         })));
       }
     }
@@ -1890,6 +2150,7 @@
     var status = h('div', { class: 'parse-status' });
     var parsed = { questions: [], errors: [] };
     var dirty = false;
+    var store = imageStore('quiz', q ? q.id : null, existing && existing.fullQuestions ? existing.fullQuestions.map(function (x) { return x.image; }).filter(Boolean) : []);
 
     function update() {
       parsed = window.QuizFormat.parse(src.value);
@@ -1903,7 +2164,8 @@
         : h('span', { class: 'ok' }, '✓ Đọc được ' + parsed.questions.length + ' câu, không có lỗi.'));
       fill(preview, parsed.questions.map(function (x, i) {
         return reviewItem({ type: x.type, text: x.text || '(thiếu nội dung)', options: x.options,
-          correctAnswer: x.type === 'mc' ? x.correct : (x.answers || []).join('  |  '), explain: x.explain }, i, true);
+          correctAnswer: x.type === 'mc' ? x.correct : (x.answers || []).join('  |  '), explain: x.explain,
+          imgEl: store.el(x.image), tools: imageTools(src, parsed, store, i, function () { dirty = true; update(); }) }, i, true);
       }));
     }
     var t = null;
@@ -1920,7 +2182,7 @@
       api('saveQuiz', {
         id: q ? q.id : undefined, courseId: c.id, title: title.value.trim(), topic: ti[0].value.trim(),
         description: desc.value.trim(), timeLimit: Number(limit.value || 0), showAnswers: show.checked,
-        source: src.value, questions: parsed.questions
+        source: src.value, questions: parsed.questions, newImages: store.newImages(parsed.questions)
       }).then(function (r) {
         dirty = false;
         leaveGuard = null;
@@ -1948,9 +2210,10 @@
                 importPdfDialog(false, function (r) {
                   if (src.value.trim() && !confirm('Thay nội dung đề hiện tại bằng đề vừa đọc từ PDF?')) return;
                   src.value = r.source;
+                  Object.keys(r.images || {}).forEach(function (k) { store.put(k, r.images[k]); });
                   dirty = true;
                   update();
-                  toast('Đã đọc ' + r.count + ' câu' + (r.hasKey ? ', ' + r.keyed + ' câu có đáp án' : ', chưa thấy đáp án') + '. Hãy kiểm tra lại.', r.keyed === r.count ? 'success' : '');
+                  toast('Đã đọc ' + r.count + ' câu' + (r.figureCount ? ', ' + r.figureCount + ' hình' : '') + (r.hasKey ? ', ' + r.keyed + ' câu có đáp án' : ', chưa thấy đáp án') + '. Hãy kiểm tra lại.', r.keyed === r.count ? 'success' : '');
                 });
               } }, '📄 Lấy đề từ PDF'),
               h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { formatHelp(false, src, function () { dirty = true; update(); }); } }, 'Xem mẫu'))),

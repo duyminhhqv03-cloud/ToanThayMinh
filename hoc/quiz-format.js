@@ -23,6 +23,12 @@
   var EXPLAIN = /^\s*(giải\s*thích|lời\s*giải|hướng\s*dẫn(?:\s*chấm)?|gợi\s*ý\s*chấm)\s*[:：]\s*(.*)$/i;
   var ESSAY_WORD = /tự\s*luận|essay/i;
   var POINTS = /(\d+(?:[.,]\d+)?)\s*(?:điểm|đ\b|đ$|d\b)/i;
+  var IMAGE = /^\s*\[\s*(?:hình|ảnh|hinh|anh)\s*:?\s*([A-Za-z0-9_-]{1,40})\s*\]\s*$/i;
+
+  /** Chữ nghiêng toán học trong PDF (𝑥, 𝑦…) → chữ thường để học sinh gõ được. */
+  function plainMath(t) {
+    return String(t).replace(/[\uD835][\uDC00-\uDFFF]/g, function (c) { return c.normalize('NFKC'); });
+  }
 
   function splitBlocks(text) {
     var lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
@@ -62,8 +68,10 @@
       var pm = POINTS.exec(block.meta);
       var points = pm ? Number(pm[1].replace(',', '.')) : 1;
 
+      var image = null;
       block.lines.forEach(function (line) {
         var m;
+        if ((m = IMAGE.exec(line))) { image = m[1]; return; }
         if ((m = EXPLAIN.exec(line))) { mode = 'explain'; if (m[2].trim()) explain.push(m[2].trim()); return; }
         if (mode === 'explain') { explain.push(line); return; }
         if ((m = ANSWER.exec(line))) {
@@ -84,6 +92,7 @@
       });
 
       var q = { text: qText.join('\n').trim(), explain: explain.join('\n').trim(), points: points };
+      if (image) q.image = image;
       if (!q.text) errors.push('Câu ' + n + ': thiếu nội dung câu hỏi.');
       if (!(points > 0 && points <= 100)) errors.push('Câu ' + n + ': số điểm không hợp lệ.');
 
@@ -168,6 +177,7 @@
       if (q.type === 'essay') meta.push('tự luận');
       if (q.points && q.points !== 1) meta.push(num(q.points) + ' điểm');
       var lines = ['Câu ' + (i + 1) + (meta.length ? ' (' + meta.join(', ') + ')' : '') + ': ' + (q.text || '')];
+      if (q.image) lines.push('[Hình: ' + q.image + ']');
       if (q.type === 'mc') {
         (q.options || []).forEach(function (o, k) { lines.push((k === q.correct ? '*' : '') + String.fromCharCode(65 + k) + '. ' + o); });
       } else if (q.type === 'short') {
@@ -259,8 +269,26 @@
     return String(s).replace(/^\s*(?:đáp\s*án|đáp\s*số|trả\s*lời)\s*[:：]?\s*/i, '').replace(/[.。]\s*$/, '').trim();
   }
 
-  /** text: chữ của file đề; keyText: chữ của file đáp án (nếu để riêng). */
-  function fromText(text, keyText) {
+  /** Vị trí (số thứ tự dòng) của các dòng mở đầu câu hỏi, cùng quy tắc với fromText. */
+  function questionStarts(lines) {
+    var useNum = !lines.some(function (l) { return QH.test(l); });
+    var out = [];
+    var seenQ = false;
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      var isQ = QH.test(l) || (useNum && NUMQ.test(l));
+      if (isQ) seenQ = true;
+      if (seenQ && KEY_HEAD.test(l) && l.length < 60) break;
+      if (isQ && !(SECTION.test(l) && l.length < 90 && !QH.test(l))) out.push(i);
+    }
+    return out;
+  }
+
+  /** text: chữ của file đề; keyText: chữ của file đáp án (nếu để riêng); opts.figures[i]: tên hình của câu thứ i. */
+  function fromText(text, keyText, opts) {
+    opts = opts || {};
+    text = plainMath(text);
+    keyText = keyText ? plainMath(keyText) : keyText;
     var lines = String(text || '').normalize('NFC').replace(/\r\n?/g, '\n').split('\n').map(function (l) { return l.replace(/\s+/g, ' ').trim(); }).filter(Boolean);
     var keyLines = keyText ? String(keyText).normalize('NFC').replace(/\r\n?/g, '\n').split('\n').map(function (l) { return l.replace(/\s+/g, ' ').trim(); }).filter(Boolean) : null;
     var useNum = !lines.some(function (l) { return QH.test(l); });
@@ -317,7 +345,14 @@
       var k = key[c.n] !== undefined ? String(key[c.n]).trim() : '';
       if (k) keyed++;
       var pm = POINTS.exec(c.meta);
-      var q = { text: c.text.join('\n').trim(), points: pm ? Number(pm[1].replace(',', '.')) : 1, explain: '' };
+      // Nối các dòng bị PDF ngắt giữa câu; giữ xuống dòng ở ý nhỏ a), b)… hoặc gạch đầu dòng.
+      var joined = c.text.reduce(function (acc, l, k) {
+        if (!k) return l;
+        return acc + (/^\s*(?:[a-hA-H]\s*[).]|\d+\s*\)|[-–•+*]\s)/.test(l) || /[:;?!.]\s*$/.test(c.text[k - 1]) && /^\s*[A-ZĐÀ-Ỹ(]/.test(l) ? '\n' : ' ') + l;
+      }, '');
+      var q = { text: joined.trim(), points: pm ? Number(pm[1].replace(',', '.')) : 1, explain: '' };
+      var fig = opts.figures && opts.figures[qs.indexOf(c)];
+      if (fig) q.image = fig;
       var essayMarked = ESSAY_WORD.test(c.meta) || c.section === 'essay';
       if (c.options.length >= 2 && !essayMarked) {
         q.type = 'mc';
@@ -347,7 +382,7 @@
     return { source: toSource(questions), count: questions.length, keyed: keyed, hasKey: !!keyLines };
   }
 
-  var api = { parse: parse, summary: summary, toSource: toSource, spreadPoints: spreadPoints, fromText: fromText, SAMPLE: SAMPLE, SAMPLE_HW: SAMPLE_HW };
+  var api = { parse: parse, summary: summary, toSource: toSource, spreadPoints: spreadPoints, fromText: fromText, questionStarts: questionStarts, plainMath: plainMath, SAMPLE: SAMPLE, SAMPLE_HW: SAMPLE_HW };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.QuizFormat = api;
 })(this);

@@ -80,7 +80,10 @@ Trong Apps Script, chọn hàm **resetAdminPassword** → **Chạy**. Mật kh�
 - Có thể chia phần: `PHẦN I. TRẮC NGHIỆM`, `PHẦN II. TRẢ LỜI NGẮN`, `PHẦN III. TỰ LUẬN` — câu trong phần tự luận được xếp là tự luận.
 - Điểm câu ghi trong ngoặc: `Câu 5 (2 điểm).` Không ghi thì mỗi câu 1 điểm; bấm **Chia lại cho tổng = 10** để quy về thang 10.
 - Đáp án đặt cuối file sau chữ `ĐÁP ÁN`, hoặc file riêng, hoặc dán vào ô. Hiểu được: `1.B 2.C 3-A`, `Câu 4: 4/5`, bảng `Câu | 1 | 2` / `Đáp án | B | C`, và lời giải nhiều dòng cho câu tự luận.
-- Không đọc được: PDF ảnh scan, phông chữ cũ (.VnTime, VNI…), phân số dạng công thức chồng. Khi đó dán đề dạng chữ.
+- **Hình vẽ, bảng** (ảnh chèn, hình vẽ bằng nét, bảng kẻ) được tự cắt và gắn vào đúng câu — hình nằm giữa "Câu k" và "Câu k+1" thuộc về câu k. Trong ô soạn đề, hình hiện thành dòng `[Hình: …]`.
+- Dưới mỗi câu ở phần xem trước có nút **🖼 Thêm hình / Đổi hình / Bỏ hình** để tự chèn hình (ảnh chụp, ảnh cắt màn hình) khi máy không tự nhận ra. Dùng được cho cả bài luyện tập.
+- Hình được lưu trong thư mục Drive `Hình trong đề` của từng khóa.
+- Không đọc được chữ: PDF ảnh scan, phông chữ cũ (.VnTime, VNI…), phân số dạng công thức chồng. Khi đó dán đề dạng chữ rồi dùng nút Thêm hình.
 - Luôn **xem lại phần "Học sinh sẽ thấy"** trước khi bấm Giao bài.
 
 ## Mẫu soạn đề luyện tập

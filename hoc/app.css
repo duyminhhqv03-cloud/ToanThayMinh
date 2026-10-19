@@ -526,3 +526,18 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
 .total-box { display: grid; gap: 2px; background: #f6fcf9; border: 1px solid #bfe9da; border-radius: 14px; padding: 14px 16px; }
 .total-score { font-size: 30px; font-weight: 800; color: var(--brand-dark); }
 .key-panel .review { margin-top: 4px; }
+
+/* ───────── v6: hình trong câu hỏi ───────── */
+.q-img {
+  display: block; position: relative; width: 100%; max-width: 640px; margin: 4px 0 14px; padding: 0; cursor: zoom-in;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-height: 60px;
+}
+.q-img img { display: block; width: 100%; height: auto; }
+.q-img .loading { padding: 18px; }
+.q-img-zoom {
+  position: absolute; right: 8px; bottom: 8px; font-size: 12px; font-weight: 600; color: #fff;
+  background: rgba(18,32,28,.65); padding: 3px 9px; border-radius: 999px; opacity: .85;
+}
+.review-item.compact .q-img, .essay-grade .q-img { max-width: 480px; }
+.img-tools { display: flex; gap: 6px; margin: -4px 0 10px; }
+.img-tools .link-btn { padding: 0 8px 0 0; font-size: 13.5px; }
