@@ -29,6 +29,49 @@
   var coursesCache = null;
   var leaveGuard = null; // hàm hỏi trước khi rời trang (đang làm bài)
 
+  /**
+   * Đặt cảnh báo rời trang. isDirty() chỉ trả lời "có đang dở việc không" (không hỏi gì),
+   * để dùng được cả khi chuyển trang trong web lẫn khi tải lại / đóng tab (beforeunload).
+   */
+  function setLeaveGuard(isDirty, message, onLeave) {
+    var g = function () {
+      var ok = !isDirty() || confirm(message);
+      if (ok && onLeave) onLeave();
+      return ok;
+    };
+    g.isDirty = isDirty;
+    g.onLeave = onLeave;
+    leaveGuard = g;
+  }
+
+  window.addEventListener('beforeunload', function (e) {
+    if (leaveGuard && leaveGuard.isDirty && leaveGuard.isDirty()) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
+  /** Nháp bài làm trong máy (theo từng tài khoản), giữ tối đa 3 ngày. */
+  var DRAFT_TTL = 3 * 24 * 3600 * 1000;
+  var draft = {
+    key: function (k) { return 'ttm_draft:' + (me ? me.username : '') + ':' + k; },
+    load: function (k) {
+      try {
+        var d = JSON.parse(store.get(draft.key(k)) || 'null');
+        if (!d || Date.now() - d.at > DRAFT_TTL) { store.set(draft.key(k), null); return null; }
+        return d;
+      } catch (e) { return null; }
+    },
+    save: function (k, data) { data.at = Date.now(); store.set(draft.key(k), JSON.stringify(data)); },
+    clear: function (k) { store.set(draft.key(k), null); }
+  };
+  /** Chép câu trả lời từ nháp nếu nháp khớp số câu. */
+  function restoreAnswers(answers, saved) {
+    if (!saved || !Array.isArray(saved.answers) || saved.answers.length !== answers.length) return false;
+    saved.answers.forEach(function (v, i) { answers[i] = v; });
+    return true;
+  }
+
   /* ═════════ Tiện ích DOM ═════════ */
 
   function h(tag, attrs) {
@@ -236,9 +279,18 @@
   }
 
   /** Ảnh chụp điện thoại thường 3–6 MB: thu nhỏ còn cạnh dài 1800px, JPEG ~ 300–600 KB. */
+  function isHeic(file) { return /hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name || ''); }
+  /**
+   * Thu nhỏ ảnh trước khi gửi. Ảnh HEIC (iPhone) luôn được đổi sang JPG để giáo viên mở được trên mọi máy;
+   * trình duyệt không đọc được HEIC (Chrome trên máy tính, Android) thì báo lỗi thay vì gửi file không xem được.
+   */
+  function heicError(file) {
+    return new Error('Máy này không đọc được ảnh "' + file.name + '" (định dạng HEIC của iPhone). Em hãy bấm 📷 Chụp ảnh, hoặc gửi ảnh JPG / PNG.');
+  }
   function compressImage(file) {
-    return new Promise(function (resolve) {
-      if (!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type) || file.size < 400 * 1024) return resolve(file);
+    var heic = isHeic(file);
+    return new Promise(function (resolve, reject) {
+      if (!heic && (!/^image\/(jpeg|png|webp)$/i.test(file.type) || file.size < 400 * 1024)) return resolve(file);
       var url = URL.createObjectURL(file);
       var img = new Image();
       img.onload = function () {
@@ -253,11 +305,12 @@
         ctx.drawImage(img, 0, 0, c.width, c.height);
         c.toBlob(function (b) {
           URL.revokeObjectURL(url);
-          if (!b || b.size >= file.size) return resolve(file);
+          if (!b) return heic ? reject(heicError(file)) : resolve(file);
+          if (!heic && b.size >= file.size) return resolve(file);
           resolve(new File([b], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }));
         }, 'image/jpeg', 0.82);
       };
-      img.onerror = function () { URL.revokeObjectURL(url); resolve(file); };
+      img.onerror = function () { URL.revokeObjectURL(url); if (heic) reject(heicError(file)); else resolve(file); };
       img.src = url;
     });
   }
@@ -278,6 +331,8 @@
     }
     return blobCache[key];
   }
+  /** Địa chỉ xem ảnh của một file đã tải: mỗi file chỉ tạo một lần, dùng lại khi vẽ lại giao diện. */
+  function blobUrl(r) { return r.url || (r.url = URL.createObjectURL(r.blob)); }
 
   function saveBlob(name, blob) {
     var url = URL.createObjectURL(blob);
@@ -331,7 +386,13 @@
         h('strong', { class: 'viewer-title' }, title),
         pageInfo, zoomOut, zoomIn, dlBtn),
       body);
-    function close() { overlay.remove(); document.removeEventListener('keydown', onKey); document.body.classList.remove('no-scroll'); }
+    function close() {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+      document.body.classList.remove('no-scroll');
+      if (observer) observer.disconnect();
+      if (pdfDoc) pdfDoc.destroy();
+    }
     function onKey(e) { if (e.key === 'Escape') close(); }
     document.addEventListener('keydown', onKey);
     document.body.classList.add('no-scroll');
@@ -342,8 +403,7 @@
       var type = r.blob.type;
       if (type === 'application/pdf' || /\.pdf$/i.test(r.name)) return showPdf(r.blob);
       if (/^image\//.test(type)) {
-        var url = URL.createObjectURL(r.blob);
-        fill(body, h('img', { class: 'viewer-img', src: url, alt: title }));
+        fill(body, h('img', { class: 'viewer-img', src: blobUrl(r), alt: title }));
         return;
       }
       if (/^text\//.test(type)) {
@@ -373,29 +433,60 @@
       });
     }
 
+    // Chỉ vẽ các trang đang ở gần chỗ đang xem; trang cuộn đi xa thì xóa hình để trả bộ nhớ
+    // (tài liệu 20–30 trang trên iPad / điện thoại cũ không bị văng).
+    var observer = null;
+    var renderGen = 0;
     function renderPages() {
+      if (observer) observer.disconnect();
+      var gen = ++renderGen;
       var width = Math.min(body.clientWidth - 24, 1000) * zoom;
       var pages = h('div', { class: 'viewer-pages' });
       fill(body, pages);
       var ratio = window.devicePixelRatio || 1;
-      var chain = Promise.resolve();
-      for (var i = 1; i <= pdfDoc.numPages; i++) {
-        (function (n) {
-          var canvas = h('canvas', { class: 'viewer-page' });
-          pages.append(canvas);
-          chain = chain.then(function () {
-            if (!overlay.isConnected) return;
-            return pdfDoc.getPage(n).then(function (page) {
-              var v1 = page.getViewport({ scale: 1 });
-              var vp = page.getViewport({ scale: (width / v1.width) * ratio });
-              canvas.width = vp.width;
-              canvas.height = vp.height;
-              canvas.style.width = (vp.width / ratio) + 'px';
-              return page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-            });
-          });
-        })(i);
+      function draw(canvas) {
+        if (canvas._tok) return;
+        var tok = canvas._tok = {};
+        return pdfDoc.getPage(canvas._n).then(function (page) {
+          if (canvas._tok !== tok || gen !== renderGen || !overlay.isConnected) return;
+          var v1 = page.getViewport({ scale: 1 });
+          var vp = page.getViewport({ scale: (width / v1.width) * ratio });
+          canvas.width = vp.width;
+          canvas.height = vp.height;
+          canvas.style.width = (vp.width / ratio) + 'px';
+          canvas.style.height = (vp.height / ratio) + 'px';
+          canvas._task = page.render({ canvasContext: canvas.getContext('2d'), viewport: vp });
+          return canvas._task.promise.then(function () { canvas._task = null; }, function () { /* đã hủy */ });
+        });
       }
+      function release(canvas) {
+        if (!canvas._tok) return;
+        canvas._tok = null;
+        if (canvas._task) { canvas._task.cancel(); canvas._task = null; }
+        canvas.width = canvas.height = 0;
+      }
+      pdfDoc.getPage(1).then(function (p1) {
+        if (gen !== renderGen) return;
+        var v1 = p1.getViewport({ scale: 1 });
+        var slots = [];
+        for (var n = 1; n <= pdfDoc.numPages; n++) {
+          var canvas = h('canvas', { class: 'viewer-page' });
+          canvas._n = n;
+          canvas.width = canvas.height = 0;
+          canvas.style.width = width + 'px';
+          canvas.style.height = (width * v1.height / v1.width) + 'px';
+          pages.append(canvas);
+          slots.push(canvas);
+        }
+        if (!('IntersectionObserver' in window)) {
+          slots.reduce(function (chain, c) { return chain.then(function () { return draw(c); }); }, Promise.resolve());
+          return;
+        }
+        observer = new IntersectionObserver(function (entries) {
+          entries.forEach(function (en) { if (en.isIntersecting) draw(en.target); else release(en.target); });
+        }, { root: body, rootMargin: '1500px 0px' });
+        slots.forEach(function (c) { observer.observe(c); });
+      });
     }
   }
 
@@ -427,6 +518,8 @@
   /* ═════════ Điều hướng ═════════ */
 
   function route() {
+    // Trang cũ có thể còn việc chạy ngầm (đồng hồ làm bài…) → dọn trước khi vẽ trang mới.
+    if (leaveGuard && leaveGuard.onLeave) leaveGuard.onLeave();
     leaveGuard = null;
     renderNav();
     if (!token) return renderLogin();
@@ -487,6 +580,8 @@
   }
 
   function logout() {
+    if (leaveGuard && !leaveGuard()) return;
+    leaveGuard = null;
     var t = token;
     setSession(null, null);
     location.hash = '';
@@ -871,18 +966,30 @@
               return !(b[3] - b[1] < 34 && rowsIn <= 1);
             });
           });
-          // 2) Đầu trang / chân trang lặp lại ở nhiều trang (bỏ số trang khi so sánh).
+          // 2) Đầu trang / chân trang: chỉ xét dòng ở sát mép trên / mép dưới (12% chiều cao trang)
+          //    và lặp lại ở trang khác cũng sát mép (bỏ số trang khi so sánh). Dòng giữa trang như
+          //    "Bài giải:", "Đáp số:" có lặp lại cũng không bị bỏ.
+          var atEdge = function (pg, r) {
+            var v = pg.page.view;
+            var band = 0.12 * (v[3] - v[1]);
+            return r.y > v[3] - band || r.y < v[1] + band;
+          };
+          var hfKey = function (r) { return r.str.replace(/\d+/g, '#'); };
           var seen = {};
           pages.forEach(function (pg, pi) {
-            pg.rows.forEach(function (r) { var k = r.str.replace(/\d+/g, '#'); (seen[k] = seen[k] || {})[pi] = 1; });
+            pg.rows.forEach(function (r) { if (atEdge(pg, r)) (seen[hfKey(r)] = seen[hfKey(r)] || {})[pi] = 1; });
           });
           var lines = [];
           pages.forEach(function (pg, pi) {
             if (pi) lines.push({ p: pi, y: pg.page.view[3], str: window.QuizFormat.PAGE_MARK, mark: true });
             pg.rows.forEach(function (r) {
-              if (pages.length > 1 && Object.keys(seen[r.str.replace(/\d+/g, '#')]).length > 1) return;
+              if (pages.length > 1 && atEdge(pg, r) && Object.keys(seen[hfKey(r)]).length > 1) return;
               // 3) Chữ nằm trong hình (nhãn của sơ đồ, chữ trong bảng vẽ) thuộc về hình, không phải câu hỏi.
+              //    Nhãn ngắn ngay sát ngoài hình (tên đỉnh A, B, C; "5 cm"; "60°") cũng thuộc về hình —
+              //    cùng vùng mà bước cắt hình nới ra để lấy nhãn.
+              var label = isFigureLabel(r.str);
               var inFig = pg.figs.some(function (b) {
+                if (label) return r.y > b[1] - 22 && r.y < b[3] + 16 && r.x1 > b[0] - 60 && r.x0 < b[2] + 60;
                 if (r.y < b[1] - 1 || r.y > b[3] + 1) return false;
                 var ov = Math.min(r.x1, b[2]) - Math.max(r.x0, b[0]);
                 return ov > 0.6 * Math.max(1, r.x1 - r.x0);
@@ -927,6 +1034,55 @@
   }
 
   /** Tìm khung của ảnh chèn và hình vẽ / bảng (nét kẻ thật, không tính vùng cắt vô hình) trên trang, theo toạ độ PDF. */
+  /** Dòng chỉ gồm nhãn hình: tên điểm (A, B', M1), số đo (5 cm, 60°, 3,5), trục x/y, "Hình 1". */
+  var LABEL_TOKEN = /^(?:[A-Za-zĐđ][0-9'’]?|[\d.,]+\s*(?:°|cm²?|dm²?|mm²?|km²?|m²?|kg|g|ml|l)?|°|cm²?|dm²?|mm²?|km²?|m²?|kg|ml|hình|h\.\d*)$/i;
+  function isFigureLabel(str) {
+    var t = str.trim();
+    if (!t || t.length > 14) return false;
+    if (/^\(?[A-Ha-h]\s*[.)]/.test(t) || /^\d{1,3}\s*[.)](\s|$)/.test(t) || /^(câu|bài)/i.test(t)) return false;
+    return t.split(/\s+/).every(function (w) { return LABEL_TOKEN.test(w); });
+  }
+
+  /**
+   * Gộp các khung chạm nhau (cách ≤ 3 điểm) thành một. Chia trang thành ô lưới để chỉ so các nét ở gần nhau,
+   * nên hình lưới ô vuông / hình GeoGebra hàng nghìn nét vẫn nhanh.
+   */
+  function mergeBoxes(list) {
+    var touch = function (A, B) { return A[0] - 3 <= B[2] && B[0] - 3 <= A[2] && A[1] - 3 <= B[3] && B[1] - 3 <= A[3]; };
+    var CELL = 40;
+    // Một lượt: nối các khung chạm nhau (qua ô lưới) rồi thay mỗi nhóm bằng khung bao của nhóm.
+    var pass = function (boxes) {
+      var parent = boxes.map(function (_, i) { return i; });
+      var find = function (i) { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+      var grid = {};
+      boxes.forEach(function (b, i) {
+        var x0 = Math.floor((b[0] - 3) / CELL), x1 = Math.floor((b[2] + 3) / CELL);
+        var y0 = Math.floor((b[1] - 3) / CELL), y1 = Math.floor((b[3] + 3) / CELL);
+        for (var cx = x0; cx <= x1; cx++) {
+          for (var cy = y0; cy <= y1; cy++) {
+            var cell = grid[cx + ',' + cy] || (grid[cx + ',' + cy] = []);
+            for (var k = 0; k < cell.length; k++) {
+              var ri = find(i), rj = find(cell[k]);
+              if (ri !== rj && touch(b, boxes[cell[k]])) parent[rj] = ri;
+            }
+            cell.push(i);
+          }
+        }
+      });
+      var groups = {};
+      boxes.forEach(function (b, i) {
+        var r = find(i);
+        var g = groups[r];
+        groups[r] = g ? [Math.min(g[0], b[0]), Math.min(g[1], b[1]), Math.max(g[2], b[2]), Math.max(g[3], b[3])] : b.slice();
+      });
+      return Object.keys(groups).map(function (k) { return groups[k]; });
+    };
+    // Khung đã gộp lớn ra có thể chạm thêm khung khác → lặp tới khi không gộp được nữa.
+    var out = list;
+    for (var n = -1; out.length !== n;) { n = out.length; out = pass(out); }
+    return out;
+  }
+
   function figureBoxes(lib, ol, view) {
     var OPS = lib.OPS;
     var U = lib.Util;
@@ -964,22 +1120,7 @@
       }
     }
     // Gộp các nét kẻ chạm nhau thành một hình (ví dụ: bảng = nhiều đường kẻ).
-    var merged = true;
-    while (merged) {
-      merged = false;
-      for (var x = 0; x < paths.length && !merged; x++) {
-        for (var y = x + 1; y < paths.length; y++) {
-          var A = paths[x];
-          var B = paths[y];
-          if (A[0] - 3 <= B[2] && B[0] - 3 <= A[2] && A[1] - 3 <= B[3] && B[1] - 3 <= A[3]) {
-            paths[x] = [Math.min(A[0], B[0]), Math.min(A[1], B[1]), Math.max(A[2], B[2]), Math.max(A[3], B[3])];
-            paths.splice(y, 1);
-            merged = true;
-            break;
-          }
-        }
-      }
-    }
+    paths = mergeBoxes(paths);
     return imgs.concat(paths.filter(function (b) { return b[2] - b[0] >= 30 && b[3] - b[1] >= 15; }));
   }
 
@@ -1139,7 +1280,7 @@
     var fetcher = src.url ? dataUrlFetcher(src.url) : function () { return api('qimage', { kind: src.kind, id: src.id, key: src.key }); };
     var wrap = h('button', { type: 'button', class: 'q-img', 'aria-label': 'Phóng to hình', onclick: function () { openViewer('Hình minh họa', key, fetcher); } }, loading('Đang tải hình…'));
     getBlob(key, fetcher).then(function (r) {
-      fill(wrap, h('img', { src: URL.createObjectURL(r.blob), alt: 'Hình minh họa' }), h('span', { class: 'q-img-zoom' }, '🔍 Phóng to'));
+      fill(wrap, h('img', { src: blobUrl(r), alt: 'Hình minh họa' }), h('span', { class: 'q-img-zoom' }, '🔍 Phóng to'));
     }, function () { fill(wrap, h('p', { class: 'err small' }, 'Không tải được hình.')); });
     return wrap;
   }
@@ -1202,7 +1343,7 @@
         var r = new FileReader();
         r.onload = function () { onPicked(String(r.result)); };
         r.readAsDataURL(c);
-      });
+      }, function (err) { toast(err.message, 'error'); });
     });
     input.click();
   }
@@ -1329,7 +1470,7 @@
     var t = null;
     src.addEventListener('input', function () { dirty = true; clearTimeout(t); t = setTimeout(update, 250); });
     file.addEventListener('change', function () { pickedFile = null; fileNote.textContent = ''; });
-    leaveGuard = function () { return !dirty || confirm('Bài tập chưa được lưu. Rời trang?'); };
+    setLeaveGuard(function () { return dirty; }, 'Bài tập chưa được lưu. Rời trang?');
 
     function importPdf() {
       importPdfDialog(true, function (r, f) {
@@ -1534,9 +1675,15 @@
     var cam = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true });
     function total() { return state.kept.length + state.picked.length; }
     function onPick(e) {
-      Array.prototype.forEach.call(e.target.files, function (f) {
+      var add = function (f) {
         if (total() >= MAX_FILES) return toast('Tối đa ' + MAX_FILES + ' ảnh/file cho cả bài.', 'error');
         state.picked.push({ file: f, q: q, url: /^image\//.test(f.type) ? URL.createObjectURL(f) : null });
+        draw();
+      };
+      Array.prototype.forEach.call(e.target.files, function (f) {
+        // Ảnh HEIC đổi sang JPG ngay khi chọn: xem trước được, và biết ngay nếu máy không đọc được.
+        if (isHeic(f)) compressImage(f).then(add, function (err) { toast(err.message, 'error'); });
+        else add(f);
       });
       e.target.value = '';
       draw();
@@ -1586,6 +1733,8 @@
       return api('submit', Object.assign({ assignmentId: a.id, keepFileIds: state.kept.map(function (f) { return f.id; }), files: files }, extra));
     }).then(function () {
       leaveGuard = null;
+      draft.clear('a:' + a.id);
+      state.picked.forEach(function (p) { if (p.url) URL.revokeObjectURL(p.url); });
       toast('Đã nộp bài!', 'success');
       renderAssignment(a.id);
     }, function (e) { busy(btn, false); toast(e.message, 'error'); });
@@ -1595,8 +1744,18 @@
   function questionForm(d, s) {
     var a = d.assignment;
     var qs = d.questions;
+    var hasEssay = qs.some(function (x) { return x.type === 'essay'; });
     var answers = qs.map(function (x, i) { return s && s.answers && s.answers[i] !== undefined ? s.answers[i] : null; });
     var state = { kept: s ? s.files.slice() : [], picked: [] };
+    // Nháp trong máy: tải lại trang / lỡ đóng tab vẫn giữ được phần đã gõ (ảnh thì phải chọn lại).
+    var dkey = 'a:' + a.id;
+    var saved = draft.load(dkey);
+    var touched = restoreAnswers(answers, saved);
+    var note;
+    function saveDraft() {
+      touched = true;
+      draft.save(dkey, { answers: answers, note: note ? note.value : '' });
+    }
     var progress = h('span', { class: 'muted small' });
     function done() { return answers.filter(function (v, i) { return qs[i].type !== 'essay' ? v !== null && v !== '' : true; }).length; }
     function drawProgress() {
@@ -1611,19 +1770,19 @@
         body = h('div', { class: 'options' });
         var drawOpts = function () {
           fill(body, x.options.map(function (o, k) {
-            return h('button', { type: 'button', class: 'option' + (answers[i] === k ? ' picked' : ''), onclick: function () { answers[i] = k; drawOpts(); drawProgress(); } },
+            return h('button', { type: 'button', class: 'option' + (answers[i] === k ? ' picked' : ''), onclick: function () { answers[i] = k; drawOpts(); drawProgress(); saveDraft(); } },
               h('span', { class: 'opt-letter' }, String.fromCharCode(65 + k)), h('span', { class: 'opt-text' }, o));
           }));
         };
         drawOpts();
       } else if (x.type === 'short') {
         var inp = h('input', { class: 'short-input', value: answers[i] || '', placeholder: 'Nhập đáp án…', autocomplete: 'off' });
-        inp.addEventListener('input', function () { answers[i] = inp.value; drawProgress(); });
+        inp.addEventListener('input', function () { answers[i] = inp.value; drawProgress(); saveDraft(); });
         body = inp;
       } else {
         var ta = h('textarea', { rows: '4', maxlength: '5000', placeholder: 'Gõ lời giải (không bắt buộc nếu em chụp ảnh bài làm bên dưới)' });
         ta.value = answers[i] || '';
-        ta.addEventListener('input', function () { answers[i] = ta.value; });
+        ta.addEventListener('input', function () { answers[i] = ta.value; saveDraft(); });
         body = [ta, h('p', { class: 'muted small photo-hint' }, 'Ảnh lời giải câu ' + (i + 1) + ':'), photoPicker(s, i, state)];
       }
       return h('div', { class: 'panel q-card' },
@@ -1635,8 +1794,10 @@
         body);
     });
 
-    var note = h('textarea', { rows: '2', maxlength: '5000', placeholder: 'Lời nhắn cho giáo viên (không bắt buộc)' });
-    note.value = s ? s.text : '';
+    note = h('textarea', { rows: '2', maxlength: '5000', placeholder: 'Lời nhắn cho giáo viên (không bắt buộc)' });
+    note.value = touched && typeof saved.note === 'string' ? saved.note : s ? s.text : '';
+    note.addEventListener('input', saveDraft);
+    if (touched) setTimeout(function () { toast('Đã khôi phục bài em đang làm dở trên máy này.' + (hasEssay ? ' Ảnh chụp chưa nộp cần chọn lại.' : ''), 'success'); }, 0);
     var btn = h('button', { class: 'btn btn-lg' }, s ? 'Nộp lại bài' : 'Nộp bài');
     btn.addEventListener('click', function () {
       var missing = qs.filter(function (x, i) { return x.type !== 'essay' && (answers[i] === null || answers[i] === ''); }).length;
@@ -1647,11 +1808,10 @@
         });
       } else go2();
     });
-    leaveGuard = function () { return confirm('Em chưa nộp bài. Rời trang này?'); };
+    setLeaveGuard(function () { return touched || state.picked.length > 0; }, 'Em chưa nộp bài. Phần đã làm vẫn được lưu nháp trên máy này. Rời trang?');
     drawProgress();
     void done;
 
-    var hasEssay = qs.some(function (x) { return x.type === 'essay'; });
     return h('div', { class: 'q-form' },
       h('div', { class: 'panel mode-note' },
         h('strong', null, s ? 'Sửa bài nộp' : 'Làm bài'), ' · ',
@@ -1661,7 +1821,7 @@
       h('div', { class: 'panel' },
         field('Lời nhắn', note),
         h('div', { class: 'actions-end' }, progress, h('span', { class: 'spacer' }),
-          s ? h('button', { class: 'btn btn-ghost', onclick: function () { leaveGuard = null; renderAssignment(a.id); } }, 'Hủy') : null,
+          s ? h('button', { class: 'btn btn-ghost', onclick: function () { leaveGuard = null; draft.clear(dkey); renderAssignment(a.id); } }, 'Hủy') : null,
           btn)));
   }
 
@@ -1673,7 +1833,7 @@
     if (isImg) {
       thumb.append(h('span', { class: 'spinner' }));
       getBlob(key, fetcher).then(function (r) {
-        fill(thumb, h('img', { src: URL.createObjectURL(r.blob), alt: f.name, loading: 'lazy' }));
+        fill(thumb, h('img', { src: blobUrl(r), alt: f.name, loading: 'lazy' }));
       }, function () { fill(thumb, h('span', { class: 'kind k-image' }, 'ẢNH')); });
     } else {
       var k = fileKind(f.mimeType, f.name);
@@ -1708,7 +1868,8 @@
       if (!state.kept.length && !state.picked.length && !note.value.trim()) return toast('Hãy chụp ảnh / chọn file bài làm hoặc viết câu trả lời.', 'error');
       sendSubmission(a, state, { text: note.value.trim() }, btn);
     });
-    leaveGuard = function () { return !state.picked.length || confirm('Em chưa nộp bài. Rời trang này?'); };
+    var note0 = note.value;
+    setLeaveGuard(function () { return state.picked.length > 0 || note.value !== note0; }, 'Em chưa nộp bài. Rời trang này?');
 
     return h('div', { class: 'panel submit-panel' },
       h('h2', null, s ? 'Sửa bài nộp' : 'Nộp bài'),
@@ -1809,7 +1970,7 @@
     if (/^image\//.test(f.mimeType)) {
       var holder = h('div', { class: 'work-img' }, loading('Đang tải ảnh…'));
       getBlob(key, fetcher).then(function (r) {
-        var img = h('img', { src: URL.createObjectURL(r.blob), alt: f.name });
+        var img = h('img', { src: blobUrl(r), alt: f.name });
         img.addEventListener('click', function () { openViewer(f.name, key, fetcher); });
         fill(holder, img);
       }, function (e) { fill(holder, h('p', { class: 'err' }, e.message)); });
@@ -2013,6 +2174,16 @@
     var timer = null;
     var deadline = q.timeLimit ? Date.now() + q.timeLimit * 60000 : 0;
     var submitted = false;
+    // Nháp: tải lại trang vẫn giữ câu đã chọn. Bài tính giờ giữ nguyên hạn cũ (không được cộng thêm giờ).
+    var dkey = 'q:' + q.id;
+    var saved = draft.load(dkey);
+    if (restoreAnswers(answers, saved)) {
+      if (deadline && saved.deadline) deadline = saved.deadline;
+      if (typeof saved.cur === 'number') cur = Math.min(qs.length - 1, Math.max(0, saved.cur));
+      setTimeout(function () { toast('Đã khôi phục bài em đang làm dở.', 'success'); }, 0);
+    }
+    function saveDraft() { draft.save(dkey, { answers: answers, cur: cur, deadline: deadline || 0 }); }
+    function stop() { clearInterval(timer); timer = null; }
 
     var progress = h('div', { class: 'progress' }, h('div', { class: 'progress-bar' }));
     var clock = h('span', { class: 'clock' });
@@ -2021,7 +2192,12 @@
     var prev = h('button', { class: 'btn btn-ghost', onclick: function () { show(cur - 1); } }, '← Câu trước');
     var next = h('button', { class: 'btn', onclick: function () { if (cur < qs.length - 1) show(cur + 1); else finish(); } });
 
-    leaveGuard = function () { return submitted || confirm('Em đang làm bài dở. Thoát sẽ mất bài làm này. Thoát?'); };
+    function startGuard() {
+      setLeaveGuard(function () { return !submitted; },
+        deadline ? 'Em đang làm bài dở và đồng hồ vẫn tính giờ. Thoát?' : 'Em đang làm bài dở. Phần đã làm vẫn được lưu trên máy này. Thoát?',
+        stop);
+    }
+    startGuard();
 
     function answered() { return answers.filter(function (a) { return a !== null && a !== ''; }).length; }
 
@@ -2032,14 +2208,18 @@
       if (x.type === 'mc') {
         body = h('div', { class: 'options' }, x.options.map(function (o, k) {
           return h('button', { class: 'option' + (answers[cur] === k ? ' picked' : ''), onclick: function () {
+            // Chỉ tự sang câu sau khi chọn lần đầu: đổi đáp án thì ở lại, chạm hai lần cũng không chọn nhầm câu sau.
+            var firstPick = answers[cur] === null;
+            var at = cur;
             answers[cur] = k;
+            saveDraft();
             show(cur);
-            if (cur < qs.length - 1) setTimeout(function () { if (!submitted) show(cur + 1); }, 250);
+            if (firstPick && at < qs.length - 1) setTimeout(function () { if (!submitted && cur === at && stage.isConnected) show(at + 1); }, 500);
           } }, h('span', { class: 'opt-letter' }, String.fromCharCode(65 + k)), h('span', { class: 'opt-text' }, o));
         }));
       } else {
         var inp = h('input', { class: 'short-input', value: answers[cur] || '', placeholder: 'Nhập đáp số…', autocomplete: 'off', inputmode: 'text' });
-        inp.addEventListener('input', function () { answers[cur] = inp.value; drawNav(); });
+        inp.addEventListener('input', function () { answers[cur] = inp.value; drawNav(); saveDraft(); });
         inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') next.click(); });
         body = h('div', null, inp);
         setTimeout(function () { inp.focus(); }, 0);
@@ -2064,12 +2244,14 @@
     }
 
     function tick() {
+      // Đã rời trang làm bài (bằng bất kỳ đường nào) → dừng hẳn, không tự nộp.
+      if (!clock.isConnected && !submitted) { stop(); return; }
       var left = Math.max(0, deadline - Date.now());
       var m = Math.floor(left / 60000);
       var s = Math.floor(left / 1000) % 60;
       clock.textContent = '⏱ ' + m + ':' + String(s).padStart(2, '0');
       clock.classList.toggle('low', left < 60000);
-      if (left <= 0) { clearInterval(timer); toast('Hết giờ! Bài được nộp tự động.', 'error'); send(); }
+      if (left <= 0) { stop(); toast('Hết giờ! Bài được nộp tự động.', 'error'); send(); }
     }
 
     function finish() {
@@ -2085,15 +2267,22 @@
     function send() {
       if (submitted) return;
       submitted = true;
-      clearInterval(timer);
-      fill(app, loading('Đang chấm bài…'));
+      stop();
+      var wait = loading('Đang chấm bài…');
+      fill(app, wait);
       api('submitQuiz', { quizId: q.id, answers: answers }).then(function (r) {
+        draft.clear(dkey);
+        if (!wait.isConnected) return toast('Bài luyện tập đã được nộp và chấm.', 'success');
         leaveGuard = null;
         drawResult(d, r, true);
       }, function (e) {
+        if (!wait.isConnected) return toast(e.message + ' Bài chưa nộp được, phần đã làm vẫn lưu trên máy.', 'error');
         submitted = false;
         toast(e.message + ' Bấm Nộp bài để thử lại.', 'error');
         draw();
+        startGuard();
+        // Hết giờ mà nộp lỗi thì chờ em bấm Nộp bài, không tự nộp lại liên tục.
+        if (deadline && !timer && deadline > Date.now()) { timer = setInterval(tick, 1000); tick(); }
       });
     }
 
@@ -2102,7 +2291,7 @@
         h('div', { class: 'quiz-top' },
           h('strong', { class: 'quiz-title' }, q.title),
           deadline ? clock : null,
-          h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { if (leaveGuard()) { leaveGuard = null; clearInterval(timer); renderQuiz(q.id); } } }, 'Thoát')),
+          h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { if (leaveGuard && leaveGuard()) { leaveGuard = null; renderQuiz(q.id); } } }, 'Thoát')),
         progress,
         h('div', { class: 'panel quiz-card' }, stage, h('div', { class: 'q-buttons' }, prev, next)),
         h('div', { class: 'q-nav-wrap' }, h('p', { class: 'muted small' }, 'Bảng câu hỏi (bấm để chuyển câu)'), nav,
@@ -2111,7 +2300,7 @@
     }
 
     draw();
-    if (deadline) { tick(); timer = setInterval(tick, 1000); }
+    if (deadline) { timer = setInterval(tick, 1000); tick(); }
   }
 
   function drawResult(d, r, fresh) {
@@ -2271,7 +2460,7 @@
     var t = null;
     src.addEventListener('input', function () { dirty = true; clearTimeout(t); t = setTimeout(update, 250); });
 
-    leaveGuard = function () { return !dirty || confirm('Đề chưa được lưu. Rời trang?'); };
+    setLeaveGuard(function () { return dirty; }, 'Đề chưa được lưu. Rời trang?');
 
     var saveBtn = h('button', { class: 'btn btn-lg' }, q ? 'Lưu thay đổi' : 'Lưu bài luyện tập');
     saveBtn.addEventListener('click', function () {
