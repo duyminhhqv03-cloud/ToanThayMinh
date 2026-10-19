@@ -861,9 +861,38 @@
           })(i);
         }
         return chain.then(function () {
+          // 1) Dải nền màu / khung tiêu đề không phải hình: chạm mép trang, hoặc chỉ cao một dòng chữ.
+          pages.forEach(function (pg) {
+            var v = pg.page.view;
+            pg.figs = pg.figs.filter(function (b) {
+              if (b.img) return true;
+              if (b[0] <= v[0] + 4 || b[2] >= v[2] - 4 || b[3] >= v[3] - 4) return false;
+              var rowsIn = pg.rows.filter(function (r) { return r.y > b[1] && r.y < b[3]; }).length;
+              return !(b[3] - b[1] < 34 && rowsIn <= 1);
+            });
+          });
+          // 2) Đầu trang / chân trang lặp lại ở nhiều trang (bỏ số trang khi so sánh).
+          var seen = {};
+          pages.forEach(function (pg, pi) {
+            pg.rows.forEach(function (r) { var k = r.str.replace(/\d+/g, '#'); (seen[k] = seen[k] || {})[pi] = 1; });
+          });
           var lines = [];
-          pages.forEach(function (pg, pi) { pg.rows.forEach(function (r) { lines.push({ p: pi, y: r.y, str: window.QuizFormat.plainMath(r.str).normalize('NFC') }); }); });
-          return { pages: pages, lines: lines, text: lines.map(function (l) { return l.str; }).join('\n') };
+          pages.forEach(function (pg, pi) {
+            if (pi) lines.push({ p: pi, y: pg.page.view[3], str: window.QuizFormat.PAGE_MARK, mark: true });
+            pg.rows.forEach(function (r) {
+              if (pages.length > 1 && Object.keys(seen[r.str.replace(/\d+/g, '#')]).length > 1) return;
+              // 3) Chữ nằm trong hình (nhãn của sơ đồ, chữ trong bảng vẽ) thuộc về hình, không phải câu hỏi.
+              var inFig = pg.figs.some(function (b) {
+                if (r.y < b[1] - 1 || r.y > b[3] + 1) return false;
+                var ov = Math.min(r.x1, b[2]) - Math.max(r.x0, b[0]);
+                return ov > 0.6 * Math.max(1, r.x1 - r.x0);
+              });
+              if (inFig) return;
+              lines.push({ p: pi, y: r.y, str: window.QuizFormat.plainMath(r.str).normalize('NFC') });
+            });
+          });
+          var textLines = lines.filter(function (l) { return !l.mark; });
+          return { pages: pages, lines: textLines, text: lines.map(function (l) { return l.str; }).join('\n') };
         });
       });
     });
@@ -892,7 +921,8 @@
         out += t.str;
         end = t.x + t.w;
       });
-      return { y: r.y, str: out.replace(/\s+/g, ' ').trim() };
+      var last = r.items[r.items.length - 1];
+      return { y: r.y, x0: r.items[0].x, x1: last.x + last.w, str: out.replace(/\s+/g, ' ').trim() };
     }).filter(function (r) { return r.str; });
   }
 
@@ -924,11 +954,13 @@
       else if (fn === OPS.paintFormXObjectEnd) { if (stack.length) ctm = stack.pop(); }
       else if (IMG.indexOf(fn) >= 0) {
         var ib = bbox([[0, 0], [1, 0], [0, 1], [1, 1]].map(function (q) { return U.applyTransform(q, ctm); }));
-        if (ok(ib) && ib[2] - ib[0] >= 10 && ib[3] - ib[1] >= 10) imgs.push(ib);
+        if (ok(ib) && ib[2] - ib[0] >= 10 && ib[3] - ib[1] >= 10) { ib.img = true; imgs.push(ib); }
       } else if (fn === OPS.constructPath && a && a[2] && a[2].length === 4 && PAINT.indexOf(ol.fnArray[i + 1]) >= 0) {
         var mm = a[2]; // [minX, maxX, minY, maxY]
         var pb = bbox([[mm[0], mm[2]], [mm[1], mm[2]], [mm[0], mm[3]], [mm[1], mm[3]]].map(function (q) { return U.applyTransform(q, ctm); }));
-        if (ok(pb) && (pb[2] - pb[0] >= 3 || pb[3] - pb[1] >= 3)) paths.push(pb);
+        // Bỏ dải nền chạm mép trang (băng tiêu đề, khung trang) trước khi gộp, để không dính vào hình thật.
+        var edge = pb[0] <= view[0] + 4 || pb[2] >= view[2] - 4 || pb[3] >= view[3] - 4 || pb[1] <= view[1] + 4;
+        if (ok(pb) && !edge && (pb[2] - pb[0] >= 3 || pb[3] - pb[1] >= 3)) paths.push(pb);
       }
     }
     // Gộp các nét kẻ chạm nhau thành một hình (ví dụ: bảng = nhiều đường kẻ).
@@ -951,16 +983,65 @@
     return imgs.concat(paths.filter(function (b) { return b[2] - b[0] >= 30 && b[3] - b[1] >= 15; }));
   }
 
-  /** Cắt hình của từng câu: hình nằm giữa dòng "Câu k" và "Câu k+1" thuộc về câu k. */
+  /**
+   * Gán hình cho câu rồi cắt thành ảnh:
+   *  - hình nằm dưới dòng "Câu k" trên cùng trang → thuộc câu k;
+   *  - hình ở đầu trang, trước câu đầu tiên của trang → thuộc các câu phía sau (thường là hình dùng chung),
+   *    trừ khi câu cuối trang trước nhắc tới hình và giữa chúng không có lời dẫn;
+   *  - lời dẫn kiểu "trả lời câu 11–15" → gắn cùng hình cho cả nhóm câu.
+   * Trả về mảng (theo thứ tự câu) các tên hình, và bảng tên hình → ảnh.
+   */
   function cropFigures(an) {
     var strs = an.lines.map(function (l) { return l.str; });
     var starts = window.QuizFormat.questionStarts(strs);
-    var keyAt = strs.length;
+    var heads = starts.map(function (si) {
+      var l = an.lines[si];
+      var m = /^\s*(?:câu|bài)?\s*(\d{1,3})/i.exec(l.str);
+      return { p: l.p, y: l.y, n: m ? Number(m[1]) : null, si: si };
+    });
+    var keyAt = { p: Infinity, y: -Infinity };
     if (starts.length) {
       for (var i = starts[starts.length - 1] + 1; i < strs.length; i++) {
-        if (/^\s*(?:bảng\s+)?(?:đáp\s*án|hướng\s*dẫn\s*(?:giải|chấm)|lời\s*giải)\b/i.test(strs[i]) && strs[i].length < 60) { keyAt = i; break; }
+        if (/^\s*(?:bảng\s+)?(?:đáp\s*án|hướng\s*dẫn\s*(?:giải|chấm)|lời\s*giải|answer\s*key)\b/i.test(strs[i]) && strs[i].length < 60) { keyAt = an.lines[i]; break; }
       }
     }
+    function before(a, b) { return a.p < b.p || (a.p === b.p && a.y > b.y); } // a đứng trước b trong tài liệu
+    var assign = heads.map(function () { return []; });
+    if (!heads.length) return Promise.resolve({ figures: [], images: {} });
+
+    an.pages.forEach(function (pg, pi) {
+      pg.figs.forEach(function (b) {
+        var pos = { p: pi, y: (b[1] + b[3]) / 2 };
+        if (!before(pos, keyAt)) return;                     // nằm trong phần đáp án
+        if (before(pos, heads[0])) return;                    // trước câu 1 (tiêu đề, khung họ tên)
+        var prevIdx = -1;
+        heads.forEach(function (h0, k) { if (before(h0, pos)) prevIdx = k; });
+        var target = prevIdx;
+        var prev = heads[prevIdx];
+        if (prev.p !== pi && prevIdx + 1 < heads.length) {
+          // Hình ở đầu trang, trước câu đầu tiên của trang.
+          var preText = an.lines.filter(function (l) { return l.p === pi && l.y > b[3]; }).length;
+          var prevText = strs.slice(prev.si, prevIdx + 1 < heads.length ? heads[prevIdx + 1].si : strs.length).join(' ');
+          var mentions = /hình|ảnh|sơ\s*đồ|biểu\s*đồ|bảng|dưới\s*đây|bên\s*dưới|figure|diagram|picture|below|chart|table/i.test(prevText);
+          if (preText || !mentions) target = prevIdx + 1;
+        }
+        assign[target].push({ p: pi, box: b });
+      });
+    });
+
+    // Lời dẫn "câu a–b" ngay trước câu đầu nhóm → hình dùng chung cho cả nhóm.
+    var share = heads.map(function (h0, k) { return [k]; });
+    heads.forEach(function (h0, k) {
+      if (!assign[k].length) return;
+      var from = k ? heads[k - 1].si + 1 : 0;
+      var near = strs.slice(Math.max(from, h0.si - 8), h0.si + 1).join(' ');
+      var rg = window.QuizFormat.RANGE.exec(near);
+      if (rg && h0.n !== null && Number(rg[1]) === h0.n) {
+        var lastN = Number(rg[2]);
+        share[k] = heads.map(function (x, j) { return j; }).filter(function (j) { return heads[j].n !== null && heads[j].n >= h0.n && heads[j].n <= lastN; });
+      }
+    });
+
     var canvases = {};
     function pageCanvas(pi) {
       if (!canvases[pi]) {
@@ -976,30 +1057,35 @@
       }
       return canvases[pi];
     }
-    return Promise.all(starts.map(function (si, k) {
-      var s0 = an.lines[si];
-      var endIdx = k + 1 < starts.length ? starts[k + 1] : keyAt;
-      var e0 = endIdx < an.lines.length ? an.lines[endIdx] : null;
-      var parts = [];
-      for (var pi = s0.p; pi <= (e0 ? e0.p : an.pages.length - 1); pi++) {
+
+    function cropOne(k) {
+      var byPage = {};
+      assign[k].forEach(function (f) { (byPage[f.p] = byPage[f.p] || []).push(f.box); });
+      var parts = Object.keys(byPage).map(Number).sort(function (x, y) { return x - y; }).map(function (pi) {
+        var figs = byPage[pi];
         var view = an.pages[pi].page.view;
-        var top = pi === s0.p ? s0.y + 14 : view[3];
-        var bottom = e0 && pi === e0.p ? e0.y + 12 : view[1];
-        var figs = an.pages[pi].figs.filter(function (b) { var cy = (b[1] + b[3]) / 2; return cy < top && cy > bottom; });
-        if (figs.length) {
-          var bx = [Math.min.apply(null, figs.map(function (b) { return b[0]; })), Math.min.apply(null, figs.map(function (b) { return b[1]; })),
-            Math.max.apply(null, figs.map(function (b) { return b[2]; })), Math.max.apply(null, figs.map(function (b) { return b[3]; }))];
-          // Nới rộng để lấy cả nhãn ghi sát hình (8 cm, A, B…), nhưng không lấn sang dòng câu hỏi trên / câu kế tiếp.
-          var ceil = pi === s0.p ? s0.y - 4 : view[3];
-          an.lines.forEach(function (l) {
-            // Dòng chữ dài ngay phía trên hình là nội dung câu hỏi → không cắt vào; nhãn ngắn (A, 5 cm…) thì giữ.
-            if (l.p === pi && l.y > bx[3] - 2 && l.y < ceil + 4 && l.str.length > 15) ceil = Math.min(ceil, l.y - 4);
-          });
-          var floor = e0 && pi === e0.p ? e0.y + 13 : view[1];
-          parts.push({ pi: pi, box: [Math.max(view[0], bx[0] - 54), Math.max(floor, bx[1] - 20), Math.min(view[2], bx[2] + 54), Math.min(ceil, Math.max(bx[3] + 14, bx[3]))] });
-        }
-      }
-      if (!parts.length) return null;
+        var bx = [Math.min.apply(null, figs.map(function (b) { return b[0]; })), Math.min.apply(null, figs.map(function (b) { return b[1]; })),
+          Math.max.apply(null, figs.map(function (b) { return b[2]; })), Math.max.apply(null, figs.map(function (b) { return b[3]; }))];
+        // Nới rộng để lấy nhãn ghi sát hình, nhưng không lấn vào dòng câu hỏi phía trên / câu kế tiếp phía dưới.
+        var ceil = view[3];
+        var floor = view[1];
+        heads.forEach(function (h0) {
+          if (h0.p !== pi) return;
+          if (h0.y > bx[3] - 2) ceil = Math.min(ceil, h0.y - 4);
+          if (h0.y < bx[1] + 2) floor = Math.max(floor, h0.y + 13);
+        });
+        an.lines.forEach(function (l) {
+          if (l.p === pi && l.y > bx[3] - 2 && l.y < ceil + 4 && l.str.length > 15) ceil = Math.min(ceil, l.y - 4);
+        });
+        // Chỉ nới về phía có nhãn chữ thật (ví dụ "5 cm" bên phải, "8 cm" bên dưới); không có thì cắt sát hình.
+        var rows = an.pages[pi].rows;
+        var near = function (fn) { return rows.some(fn); };
+        var padT = near(function (r) { return r.y > bx[3] && r.y < bx[3] + 16 && r.x1 > bx[0] && r.x0 < bx[2]; }) ? 14 : 1;
+        var padB = near(function (r) { return r.y < bx[1] && r.y > bx[1] - 22 && r.x1 > bx[0] && r.x0 < bx[2]; }) ? 20 : 2;
+        var padL = near(function (r) { return r.y > bx[1] - 20 && r.y < bx[3] + 14 && r.x1 <= bx[0] + 2 && r.x1 > bx[0] - 60; }) ? 54 : 2;
+        var padR = near(function (r) { return r.y > bx[1] - 20 && r.y < bx[3] + 14 && r.x0 >= bx[2] - 2 && r.x0 < bx[2] + 60; }) ? 54 : 2;
+        return { pi: pi, box: [Math.max(view[0], bx[0] - padL), Math.max(floor, bx[1] - padB), Math.min(view[2], bx[2] + padR), Math.min(ceil, bx[3] + padT)] };
+      });
       return Promise.all(parts.map(function (pt) {
         return pageCanvas(pt.pi).then(function (pc) {
           var r = pc.vp.convertToViewportRectangle(pt.box);
@@ -1026,7 +1112,18 @@
         });
         return out.toDataURL('image/jpeg', 0.85);
       });
-    }));
+    }
+
+    var figures = [];
+    var images = {};
+    return Promise.all(heads.map(function (h0, k) {
+      if (!assign[k].length) return null;
+      return cropOne(k).then(function (url) {
+        var key = newImageKey(k);
+        images[key] = url;
+        share[k].forEach(function (j) { if (!figures[j]) figures[j] = key; });
+      });
+    })).then(function () { return { figures: figures, images: images }; });
   }
 
   /* —— Hình trong câu hỏi —— */
@@ -1062,8 +1159,12 @@
       put: function (k, url) { local[k] = url; },
       newImages: function (questions) {
         var out = [];
+        var done = {};
         questions.forEach(function (q) {
-          if (q.image && local[q.image]) out.push({ key: q.image, mimeType: 'image/jpeg', data: local[q.image].split(',')[1] });
+          if (q.image && local[q.image] && !done[q.image]) {
+            done[q.image] = 1;
+            out.push({ key: q.image, mimeType: 'image/jpeg', data: local[q.image].split(',')[1] });
+          }
         });
         return out;
       }
@@ -1143,10 +1244,9 @@
           var an = t[0];
           if (an.text.replace(/\s/g, '').length < 20) throw new Error('Không đọc được chữ trong file đề (có thể là ảnh scan). Hãy dán đề dạng chữ vào ô soạn đề.');
           ok.textContent = 'Đang cắt hình…';
-          return cropFigures(an).catch(function () { return []; }).then(function (crops) {
-            var figures = [];
-            var images = {};
-            crops.forEach(function (url, i) { if (url) { figures[i] = newImageKey(i); images[figures[i]] = url; } });
+          return cropFigures(an).catch(function () { return { figures: [], images: {} }; }).then(function (cf) {
+            var figures = cf.figures;
+            var images = cf.images;
             var k = (t[1] + '\n' + keyText.value).trim();
             var r = window.QuizFormat.fromText(an.text, k || null, { figures: figures });
             if (!r.count) throw new Error('Không tìm thấy câu hỏi nào. Đề cần đánh số "Câu 1", "Câu 2"… (hoặc "1.", "2.").');

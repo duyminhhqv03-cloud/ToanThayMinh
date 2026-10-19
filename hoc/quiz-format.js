@@ -210,10 +210,14 @@
   var KEY_HEAD = /^\s*(?:bảng\s+)?(?:đáp\s*án|hướng\s*dẫn\s*(?:giải|chấm)|lời\s*giải|answer\s*key)\b/i;
   var OPT_MARK = /(^|\s)\(?([A-H])\s*[.)]\s*/g;
 
+  var PAGE_MARK = '⟦TRANG⟧';
+  var RANGE = /(?:questions?|câu|bài)\s*(\d{1,3})\s*(?:[-–—]|đến|tới|to)\s*(\d{1,3})/i;
+  var MARKS = /(\d+(?:[.,]\d+)?)\s*(?:điểm|marks?|points?|pts?)\b/i;
+
   function sectionType(line) {
-    if (/tự\s*luận/i.test(line)) return 'essay';
-    if (/trả\s*lời\s*ngắn|điền|đáp\s*số/i.test(line)) return 'short';
-    if (/trắc\s*nghiệm/i.test(line)) return 'mc';
+    if (/tự\s*luận|essay|written|open[-\s]*ended|extended/i.test(line)) return 'essay';
+    if (/trả\s*lời\s*ngắn|điền|đáp\s*số|short\s*answer|fill/i.test(line)) return 'short';
+    if (/trắc\s*nghiệm|multiple\s*choice/i.test(line)) return 'mc';
     return null;
   }
 
@@ -292,6 +296,8 @@
     var lines = String(text || '').normalize('NFC').replace(/\r\n?/g, '\n').split('\n').map(function (l) { return l.replace(/\s+/g, ' ').trim(); }).filter(Boolean);
     var keyLines = keyText ? String(keyText).normalize('NFC').replace(/\r\n?/g, '\n').split('\n').map(function (l) { return l.replace(/\s+/g, ' ').trim(); }).filter(Boolean) : null;
     var useNum = !lines.some(function (l) { return QH.test(l); });
+    // Câu dẫn khi gặp NUMQ: bỏ các số trang lẻ.
+    lines = lines.filter(function (l) { return l === PAGE_MARK || !/^\s*\d+\s*(?:\/|of|trên)\s*\d+\s*$/i.test(l); });
 
     if (!keyLines) {
       var seenQ = false;
@@ -307,17 +313,37 @@
 
     var qs = [];
     var section = null;
+    var sections = [];
+    var sec = null;
     var cur = null;
+    var afterBreak = false;
+    var preamble = [];
+    var groups = [];
     lines.forEach(function (line) {
+      if (line === PAGE_MARK) { afterBreak = true; return; }
       if (SECTION.test(line) && line.length < 90 && !QH.test(line)) {
         var t = sectionType(line);
         if (t) section = t;
+        var mk = MARKS.exec(line);
+        var rg = RANGE.exec(line);
+        sec = { marks: mk ? Number(mk[1].replace(',', '.')) : null, range: rg ? [Number(rg[1]), Number(rg[2])] : null, qs: [] };
+        sections.push(sec);
+        if (cur) afterBreak = true; // chữ ngay sau tiêu đề phần là lời dẫn cho các câu sau
         return;
       }
       var m = QH.exec(line);
       var nm = !m && useNum ? NUMQ.exec(line) : null;
       if (m || nm) {
         cur = { n: m ? Number(m[1]) : Number(nm[1]), meta: m ? (m[2] || m[3] || '') : '', text: [], options: [], section: section };
+        if (sec) sec.qs.push(cur);
+        if (preamble.length) {
+          // Lời dẫn đứng trước nhóm câu ("Quan sát hình, trả lời câu 11–15") → đặt lên đầu câu đầu nhóm.
+          var pr = RANGE.exec(preamble.join(' '));
+          cur.pre = preamble.slice();
+          if (pr) groups.push([Number(pr[1]), Number(pr[2])]);
+        }
+        preamble = [];
+        afterBreak = false;
         var rest = m ? m[4] : nm[2];
         var inline = rest ? splitOptions(rest, 0) : null;
         if (rest) {
@@ -333,10 +359,21 @@
         return;
       }
       if (!cur) return; // tiêu đề, họ tên… trước câu 1
+      if (afterBreak) { preamble.push(line); return; }
       var more = splitOptions(line, cur.options.length);
       if (more && more.length && (cur.options.length || /^\(?A\s*[.)]/.test(line))) { cur.options = cur.options.concat(more); return; }
       if (cur.options.length) cur.options[cur.options.length - 1] += ' ' + line;
       else cur.text.push(line);
+    });
+
+    // Lời dẫn còn lại ở cuối trang (không có câu nào theo sau) → trả về câu cuối.
+    if (preamble.length && cur) cur.text = cur.text.concat(preamble);
+
+    // Điểm theo tiêu đề phần: "PHẦN I (4 điểm)", "Questions 1–5 • 5 marks" → chia đều cho các câu của phần.
+    var perQ = {};
+    sections.forEach(function (sc) {
+      if (!sc.marks || !sc.qs.length) return;
+      sc.qs.forEach(function (c) { perQ[qs.indexOf(c)] = Math.round(sc.marks / sc.qs.length * 100) / 100; });
     });
 
     var key = keyLines ? parseKey(keyLines) : {};
@@ -345,12 +382,15 @@
       var k = key[c.n] !== undefined ? String(key[c.n]).trim() : '';
       if (k) keyed++;
       var pm = POINTS.exec(c.meta);
+      if (c.pre) c.text = c.pre.concat(c.text);
       // Nối các dòng bị PDF ngắt giữa câu; giữ xuống dòng ở ý nhỏ a), b)… hoặc gạch đầu dòng.
       var joined = c.text.reduce(function (acc, l, k) {
         if (!k) return l;
-        return acc + (/^\s*(?:[a-hA-H]\s*[).]|\d+\s*\)|[-–•+*]\s)/.test(l) || /[:;?!.]\s*$/.test(c.text[k - 1]) && /^\s*[A-ZĐÀ-Ỹ(]/.test(l) ? '\n' : ' ') + l;
+        var prevL = c.text[k - 1];
+        var heading = prevL.length > 3 && prevL === prevL.toUpperCase() && /[A-ZĐÀ-Ỹ]/.test(prevL);
+        return acc + (heading || /^\s*(?:[a-hA-H]\s*[).]|\d+\s*\)|[-–•+*]\s)/.test(l) || /[:;?!.]\s*$/.test(prevL) && /^\s*[A-ZĐÀ-Ỹ(]/.test(l) ? '\n' : ' ') + l;
       }, '');
-      var q = { text: joined.trim(), points: pm ? Number(pm[1].replace(',', '.')) : 1, explain: '' };
+      var q = { text: joined.trim(), points: pm ? Number(pm[1].replace(',', '.')) : (perQ[qs.indexOf(c)] || 1), explain: '' };
       var fig = opts.figures && opts.figures[qs.indexOf(c)];
       if (fig) q.image = fig;
       var essayMarked = ESSAY_WORD.test(c.meta) || c.section === 'essay';
@@ -379,10 +419,10 @@
       }
       return q;
     });
-    return { source: toSource(questions), count: questions.length, keyed: keyed, hasKey: !!keyLines };
+    return { source: toSource(questions), count: questions.length, keyed: keyed, hasKey: !!keyLines, groups: groups };
   }
 
-  var api = { parse: parse, summary: summary, toSource: toSource, spreadPoints: spreadPoints, fromText: fromText, questionStarts: questionStarts, plainMath: plainMath, SAMPLE: SAMPLE, SAMPLE_HW: SAMPLE_HW };
+  var api = { parse: parse, summary: summary, toSource: toSource, spreadPoints: spreadPoints, fromText: fromText, questionStarts: questionStarts, plainMath: plainMath, PAGE_MARK: PAGE_MARK, RANGE: RANGE, SAMPLE: SAMPLE, SAMPLE_HW: SAMPLE_HW };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.QuizFormat = api;
 })(this);
