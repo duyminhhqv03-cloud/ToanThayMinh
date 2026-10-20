@@ -40,6 +40,11 @@ var COLUMNS = {
   sessions: ['token', 'username', 'expiresAt'],
   fees: ['username', 'courseId', 'month', 'paidAt', 'markedBy', 'note']
 };
+// Đọc nhanh: chỉ lấy các cột đầu, bỏ các cột JSON nặng ở cuối (câu trả lời, điểm từng câu, hình).
+// Chỉ dùng ở các hàm CHỈ ĐỌC (danh sách, trang chủ) – không bao giờ update_ một dòng đọc thiếu cột.
+var LITE_COLS = { submissions: 13, quizzes: 12, assignments: 15 };
+// Kết quả các trang danh sách được nhớ trong CacheService tới khi có thao tác ghi (hoặc hết hạn).
+var RESULT_TTL = 300;
 // Các trang tự tạo khi chưa có (để cập nhật code mà không cần chạy lại setup).
 var AUTO_CREATE = ['docs', 'assignments', 'submissions', 'quizzes', 'attempts', 'sessions', 'fees'];
 var TIME_ZONE = 'Asia/Ho_Chi_Minh';
@@ -66,6 +71,7 @@ function setup() {
 
   if (sheet_('courses').getLastRow() === 1) {
     DEFAULT_COURSES.forEach(function (c) { sheet_('courses').appendRow(c); });
+    dirty_('courses');
   }
 
   rootFolder_();
@@ -126,9 +132,11 @@ function handle_(p) {
     case 'me': return { user: publicUser_(me) };
     case 'logout': return logout_(p.token);
     case 'changePassword': return changePassword_(me, p);
-    case 'courses': return { courses: visibleCourses_(me) };
-    case 'course': return courseContent_(me, String(p.courseId || ''));
-    case 'todo': return todo_(me);
+    case 'courses': return { courses: cached_('courses', me, '', function () { return visibleCourses_(me); }) };
+    case 'course': return cached_('course', me, String(p.courseId || ''), function () { return courseContent_(me, String(p.courseId || '')); });
+    case 'todo': return cached_('todo', me, thisMonth_(), function () { return todo_(me); });
+    // Trang chủ trong MỘT lần gọi: thông tin tài khoản + khóa học + bài cần làm/chấm + học phí.
+    case 'home': return home_(me);
 
     // Tài liệu
     case 'docs': return { docs: courseContent_(me, String(p.courseId || '')).docs };
@@ -166,8 +174,9 @@ function handle_(p) {
     case 'deleteUser': return withLock_(function () { return deleteUser_(me, p); });
 
     // Thống kê & học phí
-    case 'feeBoard': return feeBoard_(String(p.month || thisMonth_()));
+    case 'feeBoard': return cached_('feeBoard', me, String(p.month || thisMonth_()), function () { return feeBoard_(String(p.month || thisMonth_())); });
     case 'setFee': return withLock_(function () { return setFee_(me, p); });
+    case 'setFees': return withLock_(function () { return setFees_(me, p); });
   }
   throw err_('Yêu cầu không hợp lệ.');
 }
@@ -235,6 +244,7 @@ function cleanupSessions_() {
   var now = Date.now();
   var expired = rows_('sessions').filter(function (r) { return Number(r.expiresAt) < now; });
   for (var i = expired.length - 1; i >= 0; i--) sheet_('sessions').deleteRow(expired[i]._row);
+  dirty_('sessions');
 }
 
 function killSessions_(username) {
@@ -243,6 +253,7 @@ function killSessions_(username) {
   for (var i = mine.length - 1; i >= 0; i--) {
     cache.remove('s_' + mine[i].token);
     sheet_('sessions').deleteRow(mine[i]._row);
+    dirty_('sessions');
   }
 }
 
@@ -251,8 +262,8 @@ function killSessions_(username) {
 function visibleCourses_(me) {
   var users = rows_('users');
   var docs = rows_('docs');
-  var asg = rows_('assignments');
-  var quizzes = rows_('quizzes');
+  var asg = rows_('assignments', LITE_COLS.assignments);
+  var quizzes = rows_('quizzes', LITE_COLS.quizzes);
   return rows_('courses')
     .filter(function (c) { return canSee_(me, c.id); })
     .sort(function (a, b) { return Number(a.order) - Number(b.order); })
@@ -286,9 +297,9 @@ function courseContent_(me, courseId) {
     .sort(function (a, b) { return a.uploadedAt < b.uploadedAt ? 1 : -1; })
     .map(function (d) { return publicDoc_(d, names); });
 
-  var subs = rows_('submissions').filter(inCourse);
+  var subs = rows_('submissions', LITE_COLS.submissions).filter(inCourse);
   var nStudents = studentsOf_(courseId).length;
-  var assignments = rows_('assignments').filter(inCourse)
+  var assignments = rows_('assignments', LITE_COLS.assignments).filter(inCourse)
     .sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; })
     .map(function (a) {
       var o = publicAssignment_(a, names);
@@ -299,7 +310,7 @@ function courseContent_(me, courseId) {
     });
 
   var attempts = rows_('attempts').filter(inCourse);
-  var quizzes = rows_('quizzes').filter(inCourse)
+  var quizzes = rows_('quizzes', LITE_COLS.quizzes).filter(inCourse)
     .sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; })
     .map(function (q) {
       var o = publicQuizSummary_(q, names);
@@ -329,15 +340,17 @@ function courseContent_(me, courseId) {
 function todo_(me) {
   var courses = {};
   rows_('courses').forEach(function (c) { courses[c.id] = c; });
-  var subs = rows_('submissions');
+  var subs = rows_('submissions', LITE_COLS.submissions);
+  var nStudents = {};
   var items = [];
-  rows_('assignments').forEach(function (a) {
+  rows_('assignments', LITE_COLS.assignments).forEach(function (a) {
     if (!courses[a.courseId] || !canSee_(me, a.courseId)) return;
     var c = courses[a.courseId];
     var base = { id: a.id, title: a.title, dueAt: a.dueAt, courseId: c.id, courseName: c.name, courseGrade: c.grade, maxScore: Number(a.maxScore || 10) };
     var mine = subs.filter(function (s) { return s.assignmentId === a.id; });
     if (canEdit_(me, a.courseId)) {
-      base.stats = submissionStats_(mine, studentsOf_(a.courseId).length);
+      if (nStudents[a.courseId] === undefined) nStudents[a.courseId] = studentsOf_(a.courseId).length;
+      base.stats = submissionStats_(mine, nStudents[a.courseId]);
       if (base.stats.ungraded > 0) items.push(base);
     } else if (me.role === 'student') {
       base.my = summarizeSubmission_(mine.filter(function (s) { return s.username === me.username; })[0]);
@@ -348,6 +361,16 @@ function todo_(me) {
   if (me.role === 'student') out.fees = myFees_(me, courses);
   if (me.role === 'admin') out.feeSummary = feeSummary_(thisMonth_());
   return out;
+}
+
+/** Trang chủ trong một lần gọi (thay cho 3 lần me → courses → todo nối tiếp nhau). */
+function home_(me) {
+  return cached_('home', me, thisMonth_(), function () {
+    var t = todo_(me);
+    t.user = publicUser_(me);
+    t.courses = visibleCourses_(me);
+    return t;
+  });
 }
 
 /* ───────────────────────── Thống kê & học phí ───────────────────────── */
@@ -445,6 +468,80 @@ function setFee_(me, p) {
   }
   if (row) delete_('fees', row);
   return { fee: { username: u.username, courseId: courseId, month: month, paid: false, paidAt: '', note: '' } };
+}
+
+/**
+ * Nhiều thay đổi học phí trong MỘT lần gọi (admin bấm liên tục nhiều em):
+ * p.month, p.changes = [{username, courseId, paid, note?}]. Đọc bảng một lần, ghi gộp.
+ * Trả results theo đúng thứ tự: {fee} hoặc {error} cho từng thay đổi.
+ */
+function setFees_(me, p) {
+  var month = checkMonth_(String(p.month || ''));
+  var list = Array.isArray(p.changes) ? p.changes.slice(0, 500) : [];
+  var courses = {};
+  rows_('courses').forEach(function (c) { courses[c.id] = c; });
+  var users = {};
+  rows_('users').forEach(function (u) { users[u.username.toLowerCase()] = u; });
+  var existing = {};
+  rows_('fees').forEach(function (f) { if (f.month === month) existing[f.username + '|' + f.courseId] = f; });
+
+  // Thay đổi sau cùng cho cùng một ô (học sinh + lớp) là thay đổi có hiệu lực.
+  var last = {};
+  var results = list.map(function (ch, i) {
+    var courseId = String(ch && ch.courseId || '');
+    var u = users[String(ch && ch.username || '').toLowerCase()];
+    if (!courses[courseId]) return { error: 'Khóa học không tồn tại.' };
+    if (!u) return { error: 'Không tìm thấy tài khoản.' };
+    if (ch.paid && u.role !== 'student') return { error: 'Chỉ ghi học phí cho tài khoản học sinh.' };
+    last[u.username + '|' + courseId] = i;
+    return { key: u.username + '|' + courseId, username: u.username, courseId: courseId };
+  });
+
+  var now = new Date().toISOString();
+  var updates = [];
+  var deletes = [];
+  var appends = [];
+  Object.keys(last).forEach(function (key) {
+    var i = last[key];
+    var ch = list[i];
+    var r = results[i];
+    var row = existing[key];
+    if (ch.paid) {
+      var note = clean_(ch.note, 200);
+      if (row) {
+        if (ch.note !== undefined && note !== row.note) updates.push({ row: row, note: note });
+        r.fee = { paid: true, paidAt: row.paidAt, note: ch.note !== undefined ? note : row.note };
+      } else {
+        appends.push({ username: r.username, courseId: r.courseId, month: month, paidAt: now, markedBy: me.username, note: note });
+        r.fee = { paid: true, paidAt: now, note: note };
+      }
+    } else {
+      if (row) deletes.push(row);
+      r.fee = { paid: false, paidAt: '', note: '' };
+    }
+  });
+
+  var sh = sheet_('fees');
+  var cols = COLUMNS.fees;
+  updates.forEach(function (x) { update_('fees', x.row, { note: x.note }); });
+  deletes.sort(function (a, b) { return b._row - a._row; }).forEach(function (row) { sh.deleteRow(row._row); });
+  if (appends.length) {
+    var start = sh.getLastRow() + 1;
+    sh.getRange(start, 1, appends.length, cols.length).setValues(appends.map(function (o) {
+      return cols.map(function (c) { return o[c] === undefined ? '' : String(o[c]); });
+    }));
+  }
+  dirty_('fees');
+
+  return {
+    month: month,
+    results: results.map(function (r, i) {
+      if (r.error) return { error: r.error };
+      // Thay đổi bị thay đổi sau ghi đè: trả trạng thái cuối cùng.
+      var f = results[last[r.key]].fee;
+      return { fee: { username: r.username, courseId: r.courseId, month: month, paid: f.paid, paidAt: f.paidAt, note: f.note } };
+    })
+  };
 }
 
 /* ───────────────────────── Tài liệu ───────────────────────── */
@@ -589,6 +686,7 @@ function deleteAssignment_(me, id) {
   for (var i = subs.length - 1; i >= 0; i--) {
     parseFiles_(subs[i].files).forEach(function (f) { trash_(f.fileId); });
     sheet_('submissions').deleteRow(subs[i]._row);
+    dirty_('submissions');
   }
   trash_(a.fileId);
   trashImages_(a.images);
@@ -1040,6 +1138,7 @@ function deleteQuiz_(me, id) {
   requireEdit_(me, q.courseId);
   var ts = rows_('attempts').filter(function (t) { return t.quizId === id; });
   for (var i = ts.length - 1; i >= 0; i--) sheet_('attempts').deleteRow(ts[i]._row);
+  dirty_('attempts');
   trashImages_(q.images);
   delete_('quizzes', findBy_('quizzes', id));
   return {};
@@ -1259,10 +1358,38 @@ function parseFiles_(s) {
 
 /* ───────────────────────── Sheets ───────────────────────── */
 
+/*
+ * Bộ nhớ trong MỘT lần gọi máy chủ (Apps Script chạy lại script từ đầu ở mỗi request,
+ * nên các biến này tự trống ở request sau). Mỗi lần gọi Sheets tốn vài chục ms,
+ * nên đọc một trang tính một lần rồi dùng lại thay vì đọc lại nhiều lần.
+ */
 var checkedSheets_ = {};
+var SS_ = null;
+var SHEETS_ = {};
+var ROWS_ = {};
+var SCHEMA_PROPS_ = null;
+
+function ss_() {
+  return SS_ || (SS_ = SpreadsheetApp.getActiveSpreadsheet());
+}
+
+/** Dấu hiệu cấu trúc cột của một trang; lưu trong Script Properties khi đã kiểm tra xong. */
+function schemaSig_(k) {
+  return COLUMNS[k].join(',');
+}
+function schemaProps_() {
+  if (!SCHEMA_PROPS_) SCHEMA_PROPS_ = PropertiesService.getScriptProperties().getProperties();
+  return SCHEMA_PROPS_;
+}
+function markSchema_(k) {
+  try {
+    PropertiesService.getScriptProperties().setProperty('SCHEMA_' + k, schemaSig_(k));
+    if (SCHEMA_PROPS_) SCHEMA_PROPS_['SCHEMA_' + k] = schemaSig_(k);
+  } catch (e) { /* không bắt buộc */ }
+}
 
 function ensureSheet_(k) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = ss_();
   var sh = ss.getSheetByName(SHEET_NAMES[k]);
   if (!sh) sh = ss.insertSheet(SHEET_NAMES[k]);
   var cols = COLUMNS[k];
@@ -1277,35 +1404,58 @@ function ensureSheet_(k) {
   }
   sh.getRange(1, 1, 1, cols.length).setFontWeight('bold');
   checkedSheets_[k] = true;
+  SHEETS_[k] = sh;
+  dirty_(k);
+  markSchema_(k);
   return sh;
 }
 
 function sheet_(k) {
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES[k]);
+  if (SHEETS_[k]) return SHEETS_[k];
+  var sh = ss_().getSheetByName(SHEET_NAMES[k]);
   if (!sh) {
     if (AUTO_CREATE.indexOf(k) >= 0) return ensureSheet_(k);
     throw err_('Máy chủ chưa được cài đặt: hãy chạy hàm setup() trong Apps Script.', 500);
   }
-  if (!checkedSheets_[k]) {
+  // Kiểm tra cột tiêu đề chỉ khi cấu trúc cột thay đổi (lần đầu chạy bản code mới), không phải mọi request.
+  if (!checkedSheets_[k] && schemaProps_()['SCHEMA_' + k] !== schemaSig_(k)) {
     checkedSheets_[k] = true;
     var n = COLUMNS[k].length;
     if (sh.getLastColumn() < n || String(sh.getRange(1, n).getValue()) !== COLUMNS[k][n - 1]) return ensureSheet_(k);
+    markSchema_(k);
   }
+  checkedSheets_[k] = true;
+  SHEETS_[k] = sh;
   return sh;
 }
 
-function rows_(k) {
-  var sh = sheet_(k);
-  var n = sh.getLastRow();
-  if (n < 2) return [];
+/**
+ * Các dòng của một trang dưới dạng object. Đọc Sheets một lần mỗi request rồi nhớ lại.
+ * nCols (tùy chọn): chỉ đọc nCols cột đầu (xem LITE_COLS) – dòng đọc thiếu cột KHÔNG được update_.
+ * Mọi thao tác ghi phải gọi dirty_(k) (append_/update_/delete_ đã tự gọi).
+ */
+function rows_(k, nCols) {
   var cols = COLUMNS[k];
-  return sh.getRange(2, 1, n - 1, cols.length).getValues().map(function (v, i) {
-    var o = { _row: i + 2 };
-    cols.forEach(function (c, j) {
-      o[c] = v[j] instanceof Date ? v[j].toISOString() : String(v[j] === null || v[j] === undefined ? '' : v[j]);
-    });
+  var n = nCols && nCols < cols.length ? nCols : cols.length;
+  // Trả bản sao mảng: nơi gọi có thể sort() mà không làm đổi thứ tự cho nơi khác.
+  if (ROWS_[k + ':' + cols.length]) return ROWS_[k + ':' + cols.length].slice();
+  if (ROWS_[k + ':' + n]) return ROWS_[k + ':' + n].slice();
+  var sh = sheet_(k);
+  var last = sh.getLastRow();
+  var list = last < 2 ? [] : sh.getRange(2, 1, last - 1, n).getValues().map(function (v, i) {
+    var o = { _row: i + 2, _n: n };
+    for (var j = 0; j < n; j++) {
+      o[cols[j]] = v[j] instanceof Date ? v[j].toISOString() : String(v[j] === null || v[j] === undefined ? '' : v[j]);
+    }
     return o;
   });
+  ROWS_[k + ':' + n] = list;
+  return list.slice();
+}
+
+/** Dữ liệu trang k đã đổi → lần đọc sau trong request này phải đọc lại. */
+function dirty_(k) {
+  Object.keys(ROWS_).forEach(function (key) { if (key.split(':')[0] === k) delete ROWS_[key]; });
 }
 
 function findBy_(k, id) {
@@ -1315,16 +1465,20 @@ function findBy_(k, id) {
 
 function append_(k, obj) {
   sheet_(k).appendRow(COLUMNS[k].map(function (c) { return obj[c] === undefined ? '' : String(obj[c]); }));
+  dirty_(k);
 }
 
 function update_(k, row, changes) {
   var cols = COLUMNS[k];
+  if (row._n && row._n < cols.length) throw new Error('update_: dòng ' + k + ' được đọc thiếu cột.');
   var vals = cols.map(function (c) { return changes[c] !== undefined ? String(changes[c]) : row[c]; });
   sheet_(k).getRange(row._row, 1, 1, cols.length).setValues([vals]);
+  dirty_(k);
 }
 
 function delete_(k, row) {
   sheet_(k).deleteRow(row._row);
+  dirty_(k);
 }
 
 function findUser_(username) {
@@ -1474,7 +1628,50 @@ function clean_(v, max) {
 function withLock_(fn) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
-  try { return fn(); } finally { lock.releaseLock(); }
+  try {
+    return fn();
+  } finally {
+    // Ghi xong vào Sheets trước khi nhả khóa, rồi đổi "phiên bản dữ liệu" để
+    // các kết quả đã nhớ (cached_) của mọi người dùng không còn được dùng nữa.
+    try { SpreadsheetApp.flush(); } catch (e) { /* bỏ qua */ }
+    bumpDataVersion_();
+    lock.releaseLock();
+  }
+}
+
+/* ── Nhớ kết quả các trang danh sách giữa các request (CacheService) ──
+ * Khóa gồm phiên bản dữ liệu: mọi thao tác ghi (qua withLock_) đổi phiên bản → kết quả cũ tự bỏ.
+ * Sửa tay trực tiếp trong Google Sheets sẽ hiện lên web chậm tối đa RESULT_TTL giây.
+ */
+var DATA_VERSION_ = null;
+function dataVersion_() {
+  if (DATA_VERSION_) return DATA_VERSION_;
+  var cache = CacheService.getScriptCache();
+  var v = cache.get('dv');
+  if (!v) {
+    v = Utilities.getUuid().slice(0, 8);
+    cache.put('dv', v, 21600);
+  }
+  DATA_VERSION_ = v;
+  return v;
+}
+function bumpDataVersion_() {
+  DATA_VERSION_ = Utilities.getUuid().slice(0, 8);
+  try { CacheService.getScriptCache().put('dv', DATA_VERSION_, 21600); } catch (e) { /* bỏ qua */ }
+}
+function cached_(name, me, arg, fn) {
+  var cache = CacheService.getScriptCache();
+  var key = 'r' + dataVersion_() + '|' + name + '|' + me.username + '|' + me.role + '|' + me.courses + '|' + arg;
+  if (key.length > 240) key = key.slice(0, 200) + Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, key));
+  var hit = null;
+  try { hit = cache.get(key); } catch (e) { hit = null; }
+  if (hit) return JSON.parse(hit);
+  var out = fn();
+  try {
+    var json = JSON.stringify(out);
+    if (json.length < 95000) cache.put(key, json, RESULT_TTL);
+  } catch (e) { /* kết quả quá lớn để nhớ → bỏ qua */ }
+  return out;
 }
 
 function err_(message, code) {

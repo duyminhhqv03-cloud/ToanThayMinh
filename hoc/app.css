@@ -571,6 +571,23 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
 .fee-btn:hover:not(:disabled) { border-style: solid; }
 .fee-btn.paid { border: 1.5px solid #bfe9da; background: #eafaf4; color: var(--brand-dark); }
 .fee-btn:disabled { opacity: .6; cursor: default; }
+/* Đã đổi trên màn hình, đang lưu lên máy chủ ở phía sau */
+.fee-btn.saving { position: relative; opacity: .75; }
+.fee-btn.saving::after {
+  content: ''; position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%;
+  background: #f59e0b; box-shadow: 0 0 0 2px #fff; animation: fee-pulse 1s ease-in-out infinite;
+}
+@keyframes fee-pulse { 50% { opacity: .35; } }
+
+/* "Đang cập nhật…" khi đang hiện dữ liệu lần trước và chờ dữ liệu mới */
+.refreshing {
+  position: fixed; left: 50%; top: 74px; transform: translate(-50%, -10px); z-index: 60;
+  display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+  background: rgba(17, 24, 39, .82); color: #fff; font-size: 13px; font-weight: 500;
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+}
+.refreshing.show { opacity: 1; transform: translate(-50%, 0); }
+.refreshing .spinner { width: 13px; height: 13px; border-width: 2px; }
 .fee-box:empty { display: none; }
 .fee-box { margin-bottom: 8px; }
 .fee-mine.fee-due { border-color: #ffe0a3; background: #fffcf3; }

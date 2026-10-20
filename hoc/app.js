@@ -26,7 +26,11 @@
 
   var token = store.get('ttm_token');
   var me = null;
+  try { if (token) me = JSON.parse(store.get('ttm_me') || 'null'); } catch (e) { me = null; }
+  var meChecked = false; // đã hỏi lại máy chủ thông tin tài khoản trong lần mở trang này chưa
   var coursesCache = null;
+  var viewCache = {};    // dữ liệu lần trước của từng trang → vẽ ngay khi quay lại, rồi cập nhật ngầm
+  var routeSeq = 0;      // tăng mỗi lần chuyển trang: kết quả về muộn của trang cũ không vẽ đè trang mới
   var leaveGuard = null; // hàm hỏi trước khi rời trang (đang làm bài)
 
   /**
@@ -45,7 +49,8 @@
   }
 
   window.addEventListener('beforeunload', function (e) {
-    if (leaveGuard && leaveGuard.isDirty && leaveGuard.isDirty()) {
+    if (feeSync.dirty()) feeSync.flush();
+    if ((leaveGuard && leaveGuard.isDirty && leaveGuard.isDirty()) || feeSync.dirty()) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -246,9 +251,11 @@
           setTimeout(route, 0);
         }
         var msg = data.error || 'Có lỗi xảy ra.';
-        if (msg === 'Yêu cầu không hợp lệ.') msg = 'Máy chủ chưa được cập nhật bản mới. Admin cần dán lại Code.gs vào Apps Script và triển khai phiên bản mới.';
+        var oldServer = msg === 'Yêu cầu không hợp lệ.';
+        if (oldServer) msg = 'Máy chủ chưa được cập nhật bản mới. Admin cần dán lại Code.gs vào Apps Script và triển khai phiên bản mới.';
         var e = new Error(msg);
         e.code = data.code;
+        e.oldServer = oldServer;
         throw e;
       }
       return data;
@@ -256,10 +263,52 @@
   }
 
   function setSession(t, user) {
+    var sameUser = !!(t && me && user && me.username === user.username);
     token = t;
     me = user;
     coursesCache = null;
+    viewCache = {};
     store.set('ttm_token', t);
+    saveMe();
+    if (!sameUser) fileCache.clear();
+  }
+
+  var refreshEl = null;
+  function refreshing(on) {
+    if (!refreshEl) {
+      refreshEl = h('div', { class: 'refreshing', role: 'status' }, h('span', { class: 'spinner' }), 'Đang cập nhật…');
+      document.body.append(refreshEl);
+    }
+    refreshEl.classList.toggle('show', !!on);
+  }
+
+  function saveMe() {
+    store.set('ttm_me', me ? JSON.stringify(me) : null);
+  }
+
+  /**
+   * Vẽ trang từ dữ liệu lần trước (nếu có) NGAY LẬP TỨC, đồng thời hỏi máy chủ dữ liệu mới;
+   * dữ liệu mới khác thì vẽ lại. draw(d, fromCache). onError chỉ gọi khi chưa có gì để vẽ.
+   * skip(): trả true để bỏ qua lần vẽ lại (vd. đang có thay đổi chưa lưu xong).
+   */
+  function showCached(key, fetcher, draw, onError, skip) {
+    var seq = routeSeq;
+    var had = viewCache[key];
+    var before = had ? JSON.stringify(had) : null;
+    if (had) { draw(had, true); refreshing(true); }
+    return fetcher().then(function (d) {
+      viewCache[key] = d;
+      if (seq !== routeSeq) return;
+      refreshing(false);
+      if (before === JSON.stringify(d)) { viewCache[key] = had; return; }
+      if (had && skip && skip()) return;
+      draw(d, false);
+    }, function (e) {
+      if (seq !== routeSeq) return;
+      refreshing(false);
+      if (!had) onError(e);
+      else if (e.code !== 401) toast('Chưa cập nhật được dữ liệu mới: ' + e.message, 'error');
+    });
   }
 
   function getCourses(force) {
@@ -322,11 +371,62 @@
     return new Blob([bytes], { type: d.mimeType || 'application/octet-stream' });
   }
 
+  /**
+   * File đã tải (PDF, ảnh bài nộp…) được nhớ trong trình duyệt (Cache Storage) theo tài khoản,
+   * để lần sau mở lại không phải tải qua Apps Script (rất chậm với file lớn).
+   * Xóa sạch khi đăng xuất / đổi tài khoản; tự bỏ file quá 30 ngày.
+   */
+  var fileCache = {
+    NAME: 'ttm-files-v1',
+    MAX_BYTES: 30 * 1024 * 1024,
+    MAX_AGE: 30 * 24 * 3600 * 1000,
+    ok: function () { return !!(window.caches && window.isSecureContext); },
+    url: function (key) { return location.origin + '/__ttm_file__/' + encodeURIComponent((me ? me.username : '') + '|' + key); },
+    get: function (key) {
+      if (!fileCache.ok()) return Promise.resolve(null);
+      return caches.open(fileCache.NAME).then(function (c) { return c.match(fileCache.url(key)); }).then(function (res) {
+        if (!res) return null;
+        return res.blob().then(function (b) { return { name: decodeURIComponent(res.headers.get('x-name') || ''), blob: b }; });
+      }).catch(function () { return null; });
+    },
+    put: function (key, r) {
+      if (!fileCache.ok() || !r.blob || r.blob.size > fileCache.MAX_BYTES) return;
+      var res = new Response(r.blob, { headers: { 'content-type': r.blob.type || 'application/octet-stream', 'x-name': encodeURIComponent(r.name || ''), 'x-time': String(Date.now()) } });
+      caches.open(fileCache.NAME).then(function (c) { return c.put(fileCache.url(key), res); }).catch(function () { /* hết chỗ… bỏ qua */ });
+    },
+    clear: function () {
+      if (fileCache.ok()) caches.delete(fileCache.NAME).catch(function () {});
+    },
+    prune: function () {
+      if (!fileCache.ok()) return;
+      caches.open(fileCache.NAME).then(function (c) {
+        return c.keys().then(function (reqs) {
+          return Promise.all(reqs.map(function (req) {
+            return c.match(req).then(function (res) {
+              var t = Number(res && res.headers.get('x-time'));
+              if (!t || Date.now() - t > fileCache.MAX_AGE) return c.delete(req);
+            });
+          }));
+        });
+      }).catch(function () {});
+    }
+  };
+  // Chỉ nhớ lâu những file không đổi theo khóa (tài liệu, file đề có tên + dung lượng, ảnh bài nộp).
+  var PERSIST_KEY = /^(doc|asg|sub):/;
+
   var blobCache = {};
   /** fetcher: () => Promise<{name,mimeType,data}>; key dùng để nhớ, tránh tải lại. */
   function getBlob(key, fetcher) {
     if (!blobCache[key]) {
-      blobCache[key] = fetcher().then(function (d) { return { name: d.name, blob: base64ToBlob(d) }; });
+      var persist = PERSIST_KEY.test(key);
+      blobCache[key] = (persist ? fileCache.get(key) : Promise.resolve(null)).then(function (hit) {
+        if (hit) return hit;
+        return fetcher().then(function (d) {
+          var r = { name: d.name, blob: base64ToBlob(d) };
+          if (persist) fileCache.put(key, r);
+          return r;
+        });
+      });
       blobCache[key].catch(function () { delete blobCache[key]; });
     }
     return blobCache[key];
@@ -521,10 +621,14 @@
     // Trang cũ có thể còn việc chạy ngầm (đồng hồ làm bài…) → dọn trước khi vẽ trang mới.
     if (leaveGuard && leaveGuard.onLeave) leaveGuard.onLeave();
     leaveGuard = null;
+    routeSeq++;
+    refreshing(false);
+    feeSync.detach();
     renderNav();
     if (!token) return renderLogin();
     if (!me) return boot();
     var parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
+    if (parts[0] && ['khoa', 'bai', 'luyen', 'soan-de', 'giao-bai', 'tai-khoan', 'hoc-phi'].indexOf(parts[0]) >= 0) refreshMe();
     window.scrollTo(0, 0);
     switch (parts[0]) {
       case 'khoa': if (parts[1]) return renderCourse(parts[1]); break;
@@ -540,9 +644,31 @@
 
   function boot() {
     fill(app, loading());
-    api('me').then(function (d) { me = d.user; route(); }, function (e) {
+    meChecked = true;
+    api('me').then(function (d) { me = d.user; saveMe(); route(); }, function (e) {
       if (token) fill(app, errorBox(e.message, boot));
     });
+  }
+
+  /**
+   * Đã có thông tin tài khoản lưu trong máy → vẽ trang ngay, hỏi lại máy chủ ở phía sau
+   * (trang chủ không cần: lần gọi 'home' đã trả kèm thông tin tài khoản).
+   */
+  function refreshMe() {
+    if (meChecked || !token) return;
+    meChecked = true;
+    var t = token;
+    api('me').then(function (d) { if (t === token) updateMe(d.user); }, function () { /* 401 → api() tự đưa về đăng nhập */ });
+  }
+  function updateMe(user) {
+    meChecked = true;
+    if (!user || !token) return;
+    var changed = JSON.stringify(user) !== JSON.stringify(me);
+    var roleChanged = !me || me.role !== user.role || String(me.courses) !== String(user.courses);
+    me = user;
+    saveMe();
+    if (changed) renderNav();
+    if (roleChanged) { viewCache = {}; route(); }
   }
 
   function go(hash) {
@@ -587,6 +713,7 @@
   function logout() {
     if (leaveGuard && !leaveGuard()) return;
     leaveGuard = null;
+    feeSync.flush();
     var t = token;
     setSession(null, null);
     location.hash = '';
@@ -630,8 +757,10 @@
       busy(btn, true, 'Đang đăng nhập…');
       api('login', { username: u.value, password: p.value }).then(function (d) {
         setSession(d.token, d.user);
+        meChecked = true;
+        // Đổi hash đã tự gọi route() (hashchange) → không gọi thêm lần nữa (tránh tải trang chủ 2 lần).
         if (!location.hash || location.hash === '#') location.hash = '#/';
-        route();
+        else route();
       }, function (err) {
         busy(btn, false);
         toast(err.message, 'error');
@@ -667,16 +796,37 @@
       h('h2', { class: 'section-title' }, 'Khóa học của ' + (me.role === 'student' ? 'em' : 'bạn')),
       grid);
 
-    getCourses(true).then(function (list) {
-      if (!list.length) {
+    showCached('home', fetchHome, function (d) {
+      if (d.user) updateMe(d.user);
+      coursesCache = d.courses;
+      fill(feeBox);
+      fill(todoBox);
+      if (!d.courses.length) {
         fill(grid, h('div', { class: 'panel empty span-all' },
           h('p', null, 'Bạn chưa được ghi danh vào khóa học nào.'),
           h('p', { class: 'muted' }, 'Liên hệ ' + CONTACT + ' để được mở khóa học.')));
         return;
       }
-      fill(grid, list.map(courseCard));
-      api('todo').then(function (d) { renderFeeBox(feeBox, d); renderTodo(todoBox, d.items); }, function () {});
+      fill(grid, d.courses.map(courseCard));
+      renderFeeBox(feeBox, d);
+      renderTodo(todoBox, d.items || []);
     }, function (e) { fill(grid, errorBox(e.message, renderHome)); });
+  }
+
+  /** Trang chủ: một lần gọi 'home'. Máy chủ chưa cập nhật → gọi 'courses' và 'todo' song song. */
+  var homeAction = true;
+  function fetchHome() {
+    var fallback = function () {
+      return Promise.all([api('courses'), api('todo').catch(function () { return { items: [] }; })]).then(function (r) {
+        return Object.assign({}, r[1], { courses: r[0].courses });
+      });
+    };
+    if (!homeAction) return fallback();
+    return api('home').then(function (d) { delete d.ok; return d; }, function (e) {
+      if (!e.oldServer) throw e;
+      homeAction = false;
+      return fallback();
+    });
   }
 
   function renderTodo(box, items) {
@@ -737,10 +887,10 @@
   }
 
   function renderCourse(id) {
-    fill(app, loading());
-    Promise.all([api('course', { courseId: id }), getCourses()]).then(function (res) {
-      drawCourse(res[0]);
-    }, function (e) {
+    if (!viewCache['course:' + id]) fill(app, loading());
+    showCached('course:' + id, function () {
+      return Promise.all([api('course', { courseId: id }), getCourses()]).then(function (res) { delete res[0].ok; return res[0]; });
+    }, drawCourse, function (e) {
       fill(app, h('a', { href: '#/', class: 'back' }, '← Tất cả khóa học'), errorBox(e.message, function () { renderCourse(id); }));
     });
   }
@@ -748,7 +898,12 @@
   function drawCourse(d) {
     var c = d.course;
     var edit = c.canEdit;
-    var reload = function () { coursesCache = null; renderCourse(c.id); };
+    // Sau khi sửa: vẽ lại ngay (kèm thay đổi đã biết, vd. tài liệu vừa xóa) rồi lấy dữ liệu mới ở phía sau.
+    var reload = function (change) {
+      if (change) change(d);
+      coursesCache = null;
+      renderCourse(c.id);
+    };
 
     var filters = [['all', 'Tất cả'], ['doc', 'Tài liệu (' + d.docs.length + ')'], ['quiz', 'Luyện tập (' + d.quizzes.length + ')'], ['hw', 'Bài tập (' + d.assignments.length + ')']];
     var content = h('div');
@@ -820,7 +975,10 @@
         ['Sửa tên / chủ đề', function () { docForm({ id: doc.courseId }, topics, doc, reload); }],
         ['Xóa tài liệu', function () {
           confirmBox('Xóa tài liệu?', 'Tài liệu "' + doc.title + '" sẽ bị xóa khỏi khóa học. File gốc được chuyển vào Thùng rác của Google Drive.', 'Xóa', function () {
-            return api('deleteDoc', { id: doc.id }).then(function () { toast('Đã xóa tài liệu.', 'success'); reload(); });
+            return api('deleteDoc', { id: doc.id }).then(function () {
+              toast('Đã xóa tài liệu.', 'success');
+              reload(function (d) { d.docs = d.docs.filter(function (x) { return x.id !== doc.id; }); });
+            });
           });
         }, true]
       ]));
@@ -1599,7 +1757,7 @@
         a.file ? h('div', { class: 'file-row' },
           h('span', { class: 'kind sm ' + fileKind(a.file.mimeType, a.file.name)[1] }, fileKind(a.file.mimeType, a.file.name)[0]),
           h('span', { class: 'file-name' }, a.file.name),
-          fileButtons(a.title, a.file, 'asg:' + a.id, fetcher)) : null) : null
+          fileButtons(a.title, a.file, 'asg:' + a.id + ':' + a.file.size + ':' + a.file.name, fetcher)) : null) : null
     ];
   }
 
@@ -2542,11 +2700,99 @@
 
   var feeView = { course: '', status: 'all' };
 
+  /**
+   * Lưu học phí ở phía sau: bấm là đổi ngay trên màn hình, các lần bấm gần nhau được gộp
+   * thành MỘT lần gọi máy chủ (setFees). Lỗi → trả ô đó về trạng thái cũ và báo.
+   * Máy chủ chưa cập nhật (không có setFees) → gửi lần lượt từng setFee như trước.
+   */
+  var feeSync = {
+    queue: [],        // {month, change, s, c, v}
+    sending: false,
+    timer: null,
+    batch: true,
+    view: null,       // {redraw} của trang học phí đang mở
+    DELAY: 700,
+    dirty: function () { return feeSync.queue.length > 0 || feeSync.sending; },
+    detach: function () { feeSync.view = null; if (feeSync.queue.length) feeSync.flush(); },
+    add: function (month, c, s, change) {
+      if (s._server === undefined) s._server = { paid: s.paid, paidAt: s.paidAt, note: s.note };
+      s._v = (s._v || 0) + 1;
+      s.saving = true;
+      s.paid = !!change.paid;
+      if (s.paid && !s.paidAt) s.paidAt = new Date().toISOString();
+      if (!s.paid) { s.paidAt = ''; s.note = ''; }
+      if (change.note !== undefined) s.note = change.note;
+      feeSync.queue.push({ month: month, c: c, s: s, v: s._v, change: Object.assign({ username: s.username, courseId: c.id }, change) });
+      clearTimeout(feeSync.timer);
+      feeSync.timer = setTimeout(feeSync.flush, feeSync.queue.length >= 30 ? 0 : feeSync.DELAY);
+    },
+    flush: function () {
+      clearTimeout(feeSync.timer);
+      if (feeSync.sending || !feeSync.queue.length) return;
+      var items = feeSync.queue;
+      feeSync.queue = [];
+      feeSync.sending = true;
+      var months = {};
+      items.forEach(function (it) { (months[it.month] = months[it.month] || []).push(it); });
+      var jobs = Object.keys(months).map(function (m) { return feeSync.send(m, months[m]); });
+      Promise.all(jobs).then(function () {
+        feeSync.sending = false;
+        if (feeSync.view) feeSync.view.redraw();
+        if (feeSync.queue.length) feeSync.timer = setTimeout(feeSync.flush, 0);
+      });
+    },
+    send: function (month, items) {
+      var done = function (it, fee, err) {
+        var s = it.s;
+        if (s._v !== it.v) return; // đã bấm tiếp sau đó → kết quả của lần bấm sau mới có hiệu lực
+        s.saving = false;
+        if (err) {
+          s.paid = s._server.paid; s.paidAt = s._server.paidAt; s.note = s._server.note;
+          return;
+        }
+        s.paid = fee.paid; s.paidAt = fee.paidAt; s.note = fee.note;
+        s._server = { paid: s.paid, paidAt: s.paidAt, note: s.note };
+        if (!s.paid && s.left) {
+          var i = it.c.students.indexOf(s);
+          if (i >= 0) it.c.students.splice(i, 1);
+        }
+      };
+      var one = function (it) {
+        return api('setFee', Object.assign({ month: month }, it.change)).then(function (r) { done(it, r.fee); }, function (e) { done(it, null, e); throw e; });
+      };
+      var sequential = function (list) {
+        var errors = 0;
+        return list.reduce(function (p, it) {
+          return p.then(function () { return one(it).catch(function () { errors++; }); });
+        }, Promise.resolve()).then(function () {
+          if (errors) toast('Có ' + errors + ' thay đổi học phí chưa lưu được, đã trả lại như cũ.', 'error');
+        });
+      };
+      if (!feeSync.batch) return sequential(items);
+      return api('setFees', { month: month, changes: items.map(function (it) { return it.change; }) }).then(function (r) {
+        var bad = [];
+        items.forEach(function (it, i) {
+          var x = r.results[i] || { error: 'Không có kết quả.' };
+          if (x.error) bad.push(it.s.fullName + ': ' + x.error);
+          done(it, x.fee, x.error);
+        });
+        if (bad.length) toast(bad.join(' · '), 'error');
+      }, function (e) {
+        if (e.oldServer) { feeSync.batch = false; return sequential(items); }
+        items.forEach(function (it) { done(it, null, e); });
+        toast('Chưa lưu được học phí: ' + e.message, 'error');
+      });
+    }
+  };
+
   function renderFees(month) {
     if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) month = '';
-    fill(app, loading());
-    api('feeBoard', month ? { month: month } : {}).then(function (b) { drawFees(b); },
-      function (e) { fill(app, errorBox(e.message, function () { renderFees(month); })); });
+    var key = 'fees:' + (month || 'now');
+    if (!viewCache[key]) fill(app, loading());
+    showCached(key, function () {
+      return api('feeBoard', month ? { month: month } : {}).then(function (b) { delete b.ok; return b; });
+    }, drawFees, function (e) { fill(app, errorBox(e.message, function () { renderFees(month); })); },
+    function () { return feeSync.dirty(); });
   }
 
   function drawFees(b) {
@@ -2622,11 +2868,11 @@
     }
 
     function feeRow(c, s) {
-      var btn = h('button', { type: 'button', class: 'fee-btn' + (s.paid ? ' paid' : '') },
+      var btn = h('button', { type: 'button', class: 'fee-btn' + (s.paid ? ' paid' : '') + (s.saving ? ' saving' : ''), title: s.saving ? 'Đang lưu…' : '' },
         s.paid ? '✓ Đã đóng' + (s.paidAt ? ' · ' + shortDate(s.paidAt) : '') : 'Chưa đóng');
       btn.addEventListener('click', function () {
         if (s.paid) return editPaid(c, s);
-        save(c, s, { paid: true }, btn).catch(function () { /* đã báo lỗi */ });
+        save(c, s, { paid: true });
       });
       return h('div', { class: 'fee-row' + (s.left ? ' left' : '') },
         h('div', { class: 'fee-name' },
@@ -2637,20 +2883,11 @@
         btn);
     }
 
-    function save(c, s, change, btn) {
-      if (btn) busy(btn, true, change.paid ? 'Đang lưu…' : 'Đang bỏ…');
-      return api('setFee', Object.assign({ username: s.username, courseId: c.id, month: month }, change)).then(function (r) {
-        s.paid = r.fee.paid;
-        s.paidAt = r.fee.paidAt;
-        s.note = r.fee.note;
-        if (!s.paid && s.left) c.students.splice(c.students.indexOf(s), 1);
-        drawStats();
-        drawList();
-      }, function (e) {
-        if (btn) busy(btn, false);
-        toast(e.message, 'error');
-        throw e;
-      });
+    /** Đổi ngay trên màn hình; lưu lên máy chủ ở phía sau (gộp nhiều lần bấm). */
+    function save(c, s, change) {
+      feeSync.add(month, c, s, change);
+      drawStats();
+      drawList();
     }
 
     function editPaid(c, s) {
@@ -2660,8 +2897,8 @@
         field('Ghi chú', note)), function (close) {
         var undo = h('button', { class: 'btn btn-ghost danger-text' }, 'Bỏ đánh dấu (chưa đóng)');
         var ok = h('button', { class: 'btn' }, 'Lưu ghi chú');
-        undo.addEventListener('click', function () { busy(undo, true); save(c, s, { paid: false }).then(close, function () { busy(undo, false); }); });
-        ok.addEventListener('click', function () { busy(ok, true); save(c, s, { paid: true, note: note.value }).then(close, function () { busy(ok, false); }); });
+        undo.addEventListener('click', function () { close(); save(c, s, { paid: false }); });
+        ok.addEventListener('click', function () { close(); save(c, s, { paid: true, note: note.value }); });
         return [undo, ok];
       });
     }
@@ -2697,6 +2934,7 @@
       h('button', { class: 'icon-btn', 'aria-label': 'Tháng sau', onclick: function () { go('#/hoc-phi/' + shiftMonth(month, 1)); } }, '›'),
       month !== b.today ? h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { go('#/hoc-phi/' + b.today); } }, 'Về tháng này') : null);
 
+    feeSync.view = { redraw: function () { drawStats(); drawList(); } };
     fill(app,
       h('div', { class: 'page-head' }, h('h1', null, 'Thống kê & học phí'),
         h('p', { class: 'muted' }, 'Sĩ số từng lớp và danh sách đóng học phí theo tháng. Bấm "Chưa đóng" để đánh dấu đã đóng.')),
@@ -2930,4 +3168,5 @@
   }
 
   route();
+  setTimeout(fileCache.prune, 8000);
 })();
