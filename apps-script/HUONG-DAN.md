@@ -63,6 +63,25 @@ Nếu trang web báo "Máy chủ chưa được cập nhật bản mới" thì n
 - Học sinh thấy học phí tháng này của chính em ở trang chủ (đã đóng / chưa đóng).
 - Dữ liệu nằm ở trang `HocPhi`: mỗi dòng là một lượt đã đóng (học sinh, lớp, tháng). Xóa dòng = chưa đóng.
 
+## Gemini gợi ý điểm bài tự luận
+Gemini đọc ảnh bài làm, đề, đáp án và **Hướng dẫn chấm** của từng câu tự luận. Sau đó Gemini điền sẵn điểm và nhận xét vào màn chấm. Điểm **chưa được lưu**: thầy xem lại, sửa nếu cần rồi bấm **Lưu điểm** như bình thường. Học sinh không thấy gợi ý của Gemini, chỉ thấy điểm và nhận xét thầy đã lưu.
+
+Cài một lần:
+1. Vào **aistudio.google.com** bằng tài khoản Google của web, bấm **Get API key → Create API key**, rồi sao chép khóa.
+2. Trong Apps Script, vào **⚙️ Cài đặt dự án → Thuộc tính tập lệnh → Thêm thuộc tính**. Đặt tên `GEMINI_API_KEY` và dán khóa vào ô giá trị.
+3. Dán Code.gs mới vào trình soạn. Chọn hàm **`kiemTraGemini`** ở thanh trên rồi bấm **▶ Chạy**. Lần đầu Google sẽ hỏi quyền *kết nối với dịch vụ bên ngoài*, thầy bấm cho phép. Nhật ký hiện "Gemini hoạt động…" là xong.
+4. Triển khai **Phiên bản mới** như mục *Khi cập nhật code máy chủ*.
+
+Dùng: mở bài cần chấm, bấm **✨ Gemini gợi ý điểm**. Mỗi lần Gemini đọc bài mất khoảng 10–60 giây. Câu nào có nhãn **Cần xem kỹ** thì thầy tự xem lại, thường do ảnh mờ hoặc Gemini không chắc.
+
+Lưu ý:
+- Hướng dẫn chấm càng rõ thì Gemini chấm càng sát, ví dụ: *đúng phép tính 2đ, đúng đáp số 1đ, thiếu đơn vị trừ 0,5đ*.
+- Ảnh hoặc file trên 7 MB, hay file không phải ảnh/PDF, sẽ không được gửi cho Gemini. Màn chấm sẽ báo khi có file như vậy.
+- Tên học sinh không được gửi cho Gemini. Với **gói miễn phí**, Google dùng dữ liệu gửi lên (gồm ảnh bài làm) để cải thiện sản phẩm và có thể cho người xem xét đọc. **Gói trả phí** thì không. Vì đây là bài làm của trẻ em, nên bật thanh toán cho khóa trong AI Studio (chấm vài trăm bài mỗi tháng tốn rất ít).
+- Điều khoản Gemini API yêu cầu người dùng từ 18 tuổi và không dùng trong ứng dụng hướng tới người dưới 18 tuổi. Ở web này chỉ giáo viên/admin bấm được nút Gemini, học sinh không gọi được — thầy tự cân nhắc điều khoản này.
+- Báo "hết lượt" nghĩa là đã vượt giới hạn của gói miễn phí, thầy đợi vài phút rồi bấm lại.
+- Mặc định web dùng mô hình `gemini-flash-latest`, tức bản Flash mới nhất. Muốn đổi mô hình thì thêm thuộc tính `GEMINI_MODEL`, ví dụ `gemini-3.6-flash`.
+
 ## Quên mật khẩu admin
 Trong Apps Script, chọn hàm **resetAdminPassword** → **Chạy**. Mật khẩu mới hiện trong Nhật ký thực thi.
 

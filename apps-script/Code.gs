@@ -34,7 +34,7 @@ var COLUMNS = {
   courses: ['id', 'name', 'grade', 'order'],
   docs: ['id', 'courseId', 'title', 'description', 'type', 'fileId', 'fileName', 'mimeType', 'size', 'url', 'uploadedBy', 'uploadedAt', 'topic'],
   assignments: ['id', 'courseId', 'topic', 'title', 'instructions', 'dueAt', 'maxScore', 'fileId', 'fileName', 'mimeType', 'size', 'createdBy', 'createdAt', 'source', 'questions', 'images'],
-  submissions: ['id', 'assignmentId', 'courseId', 'username', 'text', 'files', 'submittedAt', 'late', 'status', 'score', 'feedback', 'gradedBy', 'gradedAt', 'answers', 'itemScores', 'autoScore'],
+  submissions: ['id', 'assignmentId', 'courseId', 'username', 'text', 'files', 'submittedAt', 'late', 'status', 'score', 'feedback', 'gradedBy', 'gradedAt', 'answers', 'itemScores', 'autoScore', 'aiSuggest'],
   quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt', 'images'],
   attempts: ['id', 'quizId', 'courseId', 'username', 'answers', 'score', 'total', 'submittedAt'],
   sessions: ['token', 'username', 'expiresAt'],
@@ -155,6 +155,7 @@ function handle_(p) {
     case 'submit': return withLock_(function () { return submit_(me, p); });
     case 'submissionFile': return submissionFile_(me, String(p.submissionId || ''), String(p.fileId || ''));
     case 'grade': return withLock_(function () { return grade_(me, p); });
+    case 'aiGrade': return aiGrade_(me, String(p.submissionId || ''));
 
     // Luyện tập
     case 'quiz': return quizDetail_(me, id);
@@ -718,10 +719,10 @@ function assignmentDetail_(me, id) {
     var list = studentsOf_(a.courseId).map(function (u) {
       seen[u.username] = 1;
       var s = subs.filter(function (x) { return x.username === u.username; })[0];
-      return { username: u.username, fullName: u.fullName, submission: s ? publicSubmission_(s, names) : null };
+      return { username: u.username, fullName: u.fullName, submission: s ? withAi_(publicSubmission_(s, names), s) : null };
     });
     subs.forEach(function (s) {
-      if (!seen[s.username]) list.push({ username: s.username, fullName: names[s.username] || s.username, submission: publicSubmission_(s, names), left: true });
+      if (!seen[s.username]) list.push({ username: s.username, fullName: names[s.username] || s.username, submission: withAi_(publicSubmission_(s, names), s), left: true });
     });
     list.sort(function (x, y) { return x.fullName.localeCompare(y.fullName, 'vi'); });
     out.students = list;
@@ -816,7 +817,8 @@ function submit_(me, p) {
     gradedAt: autoOnly ? now.toISOString() : '',
     answers: questions.length ? JSON.stringify(answers) : '',
     itemScores: questions.length ? JSON.stringify(itemScores) : '',
-    autoScore: questions.length ? String(autoScore) : ''
+    autoScore: questions.length ? String(autoScore) : '',
+    aiSuggest: ''
   };
   if (existing) {
     update_('submissions', existing, data);
@@ -922,7 +924,166 @@ function grade_(me, p) {
     changes.score = String(Math.round(score * 100) / 100);
   }
   update_('submissions', s, changes);
-  return { submission: publicSubmission_(findBy_('submissions', s.id), userNames_()) };
+  var s2 = findBy_('submissions', s.id);
+  return { submission: withAi_(publicSubmission_(s2, userNames_()), s2) };
+}
+
+/* ───────────────────────── Gemini gợi ý điểm ─────────────────────────
+ * Giáo viên bấm nút trong màn chấm → máy chủ gửi đề, hướng dẫn chấm và ảnh bài làm
+ * cho Gemini, nhận lại điểm gợi ý + nhận xét từng câu tự luận. KHÔNG tự lưu điểm:
+ * gợi ý chỉ điền sẵn vào ô, giáo viên duyệt rồi bấm Lưu điểm như bình thường.
+ * Không gửi tên học sinh. Khóa API để trong Script Property GEMINI_API_KEY.
+ */
+var GEMINI_DEFAULT_MODEL = 'gemini-flash-latest';
+var AI_FILE_MAX = 7 * 1024 * 1024;   // mỗi ảnh/file gửi Gemini
+var AI_TOTAL_MAX = 16 * 1024 * 1024; // tổng một lần gọi (giới hạn của Gemini khoảng 20 MB)
+var AI_MIME = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/;
+
+/** Gợi ý của Gemini chỉ gắn vào bài nộp khi trả cho giáo viên (học sinh không bao giờ nhận). */
+function withAi_(pub, row) {
+  pub.ai = parseJson_(row && row.aiSuggest, null);
+  return pub;
+}
+
+function aiGrade_(me, submissionId) {
+  var s = findBy_('submissions', submissionId);
+  if (!s) throw err_('Không tìm thấy bài nộp.', 404);
+  requireEdit_(me, s.courseId);
+  var a = findBy_('assignments', s.assignmentId);
+  if (!a) throw err_('Không tìm thấy bài tập.', 404);
+  var c = findCourse_(a.courseId) || {};
+  var questions = parseQuestions_(a);
+  var answers = parseJson_(s.answers, []);
+  var files = parseFiles_(s.files);
+  var budget = { left: AI_TOTAL_MAX, skipped: [] };
+  var parts = [];
+  var targets = []; // [{q: chỉ số câu (null = cả bài), max: điểm tối đa}]
+
+  parts.push({ text: 'Môn/lớp: ' + (c.name || '') + ' – ' + (c.grade || 'tiểu học') +
+    '\nBài tập: ' + a.title + (a.instructions ? '\nYêu cầu chung của giáo viên: ' + a.instructions : '') });
+
+  if (questions.length) {
+    var essays = questions.map(function (x, i) { return { x: x, i: i }; }).filter(function (o) { return o.x.type === 'essay'; });
+    if (!essays.length) throw err_('Bài này không có câu tự luận – máy đã chấm hết.');
+    var imgs = parseJson_(a.images, {});
+    essays.forEach(function (o) {
+      var x = o.x, i = o.i;
+      targets.push({ q: i, max: Number(x.points || 1) });
+      parts.push({ text: '\n### CÂU ' + (i + 1) + ' (tối đa ' + x.points + ' điểm)\nĐề: ' + x.text +
+        '\nĐáp án / hướng dẫn chấm của giáo viên: ' + (x.explain || '(không có – hãy tự giải cẩn thận rồi chấm)') +
+        (answers[i] ? '\nHọc sinh gõ câu trả lời: ' + answers[i] : '') });
+      if (x.image && imgs[x.image]) addAiFile_(parts, budget, imgs[x.image], 'image/jpeg', 'Hình trong đề câu ' + (i + 1));
+      var photos = files.filter(function (f) { return f.q === i; });
+      var lost = 0;
+      photos.forEach(function (f, k) { if (!addAiFile_(parts, budget, f.fileId, f.mimeType, 'Bài làm câu ' + (i + 1) + (photos.length > 1 ? ' (ảnh ' + (k + 1) + ')' : ''), f.name)) lost++; });
+      if (lost) parts.push({ text: '(Học sinh có ' + lost + ' ảnh bài làm câu ' + (i + 1) + ' nhưng không gửi được cho bạn – KHÔNG coi là bỏ trống; chấm phần thấy được và đặt "unsure": true.)' });
+      if (!answers[i] && !photos.length) parts.push({ text: '(Không có ảnh riêng cho câu ' + (i + 1) + ' – có thể nằm trong ảnh bài làm chung bên dưới, nếu không thấy thì coi là bỏ trống.)' });
+    });
+    var general = files.filter(function (f) { return f.q === null || f.q === undefined; });
+    if (general.length) {
+      parts.push({ text: '\n### ẢNH BÀI LÀM CHUNG (có thể chứa lời giải của nhiều câu – tự tìm phần của từng câu tự luận ở trên)' });
+      general.forEach(function (f, k) { addAiFile_(parts, budget, f.fileId, f.mimeType, 'Ảnh chung ' + (k + 1), f.name); });
+    }
+  } else {
+    var max = Number(a.maxScore || 10);
+    targets.push({ q: null, max: max });
+    parts.push({ text: '\nChấm CẢ BÀI theo thang ' + max + ' điểm (mục "q" trong kết quả để null).' });
+    if (a.fileId) addAiFile_(parts, budget, a.fileId, a.mimeType, 'ĐỀ BÀI (file của giáo viên)', a.fileName);
+    if (s.text) parts.push({ text: 'Học sinh viết: ' + s.text });
+    files.forEach(function (f, k) { addAiFile_(parts, budget, f.fileId, f.mimeType, 'Bài làm của học sinh (file ' + (k + 1) + ')', f.name); });
+    if (!s.text && !files.length) throw err_('Bài nộp trống.');
+  }
+  if (budget.skipped.length) parts.push({ text: '(Có ' + budget.skipped.length + ' file không gửi được vì quá lớn hoặc không phải ảnh/PDF.)' });
+
+  var sys = 'Bạn là giáo viên tiểu học Việt Nam đang chấm bài tự luận của học sinh. ' +
+    'Đọc kỹ chữ viết tay trong ảnh. Chấm theo đáp án/hướng dẫn chấm của giáo viên; cho điểm từng phần hợp lý, điểm là bội số của 0,25, không vượt điểm tối đa của câu. ' +
+    'Học sinh làm cách khác nhưng đúng vẫn cho điểm. Không đọc được chữ, ảnh mờ hoặc không chắc chắn thì đặt "unsure": true và nói rõ trong "reason". ' +
+    'Chỉ trả về JSON đúng dạng: {"items":[{"q":<số thứ tự câu như trong đề, ví dụ 3>,"score":<số>,"reason":"<1 câu ngắn cho giáo viên: vì sao cho điểm này, sai ở đâu>","comment":"<1–2 câu nhận xét gửi học sinh: xưng em, nhẹ nhàng, khen phần làm đúng, chỉ rõ chỗ cần sửa, không nêu điểm số>","unsure":<true|false>}],' +
+    '"feedback":"<1–2 câu nhận xét chung gửi học sinh>"}. Mỗi câu tự luận đúng một mục trong items.';
+
+  var res = callGemini_(sys, parts);
+  var byQ = {};
+  (Array.isArray(res.items) ? res.items : []).forEach(function (it) {
+    var q = it && it.q !== null && it.q !== undefined && it.q !== '' ? Number(it.q) - 1 : null;
+    byQ[q === null || isNaN(q) ? 'all' : q] = it;
+  });
+  var items = targets.map(function (t) {
+    var it = byQ[t.q === null ? 'all' : t.q] || (targets.length === 1 ? (res.items || [])[0] : null);
+    if (!it) return { q: t.q, score: null, reason: 'Gemini không trả lời câu này.', comment: '', unsure: true };
+    var n = Number(String(it.score).replace(',', '.'));
+    n = isNaN(n) ? null : Math.max(0, Math.min(t.max, Math.round(n * 4) / 4));
+    return { q: t.q, score: n, reason: clean_(it.reason, 400), comment: clean_(it.comment, 400), unsure: !!it.unsure || n === null };
+  });
+  var out = { items: items, feedback: clean_(res.feedback, 600), model: res._model, at: new Date().toISOString(), skipped: budget.skipped.length };
+
+  // Lưu lại để mở lại màn chấm vẫn thấy (khóa chỉ giữ lúc ghi, không giữ trong lúc chờ Gemini).
+  withLock_(function () {
+    dirty_('submissions');
+    var cur = findBy_('submissions', s.id);
+    if (cur && cur.submittedAt === s.submittedAt) update_('submissions', cur, { aiSuggest: JSON.stringify(out) });
+  });
+  return { ai: out };
+}
+
+function addAiFile_(parts, budget, fileId, mimeType, label, name) {
+  var mt = String(mimeType || '').toLowerCase();
+  if (mt === 'image/jpg') mt = 'image/jpeg';
+  if (!AI_MIME.test(mt)) { budget.skipped.push(name || label); return false; }
+  var bytes;
+  try { bytes = DriveApp.getFileById(fileId).getBlob().getBytes(); } catch (e) { budget.skipped.push(name || label); return false; }
+  if (bytes.length > AI_FILE_MAX || bytes.length > budget.left) { budget.skipped.push(name || label); return false; }
+  budget.left -= bytes.length;
+  parts.push({ text: label + ':' });
+  parts.push({ inline_data: { mime_type: mt, data: Utilities.base64Encode(bytes) } });
+  return true;
+}
+
+function callGemini_(system, parts) {
+  var props = PropertiesService.getScriptProperties();
+  var key = String(props.getProperty('GEMINI_API_KEY') || '').trim();
+  if (!key) throw err_('Chưa có khóa Gemini. Admin vào Apps Script → Cài đặt dự án → Thuộc tính tập lệnh, thêm GEMINI_API_KEY (lấy ở aistudio.google.com).');
+  var model = String(props.getProperty('GEMINI_MODEL') || GEMINI_DEFAULT_MODEL).trim();
+  var body = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: 'user', parts: parts }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.2 }
+  };
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+      method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key },
+      payload: JSON.stringify(body), muteHttpExceptions: true
+    });
+  } catch (e) {
+    throw err_('Không gọi được Gemini: ' + e.message);
+  }
+  var code = resp.getResponseCode();
+  var data = parseJson_(resp.getContentText(), {});
+  if (code !== 200) {
+    var m = (data.error && data.error.message) || ('mã ' + code);
+    if (code === 429) throw err_('Gemini đang hết lượt (giới hạn gói miễn phí). Thử lại sau ít phút.');
+    if (code === 400 && /api key/i.test(m)) throw err_('Khóa GEMINI_API_KEY không đúng. Kiểm tra lại trong Thuộc tính tập lệnh.');
+    if (code === 403) throw err_('Khóa Gemini không có quyền dùng (' + m + ').');
+    if (code === 404) throw err_('Không có mô hình "' + model + '". Đặt Thuộc tính tập lệnh GEMINI_MODEL thành tên mô hình khác.');
+    if (code >= 500) throw err_('Gemini đang bận, thử lại sau ít phút.');
+    throw err_('Gemini báo lỗi: ' + m);
+  }
+  var cand = (data.candidates || [])[0];
+  if (!cand || !cand.content) {
+    var why = (data.promptFeedback && data.promptFeedback.blockReason) || (cand && cand.finishReason) || 'không rõ';
+    throw err_('Gemini không trả lời (' + why + ').');
+  }
+  var text = (cand.content.parts || []).filter(function (x) { return x.text && !x.thought; }).map(function (x) { return x.text; }).join('');
+  var out = parseJson_(text, null) || parseJson_((text.match(/\{[\s\S]*\}/) || [''])[0], null);
+  if (!out) throw err_('Gemini trả kết quả không đọc được. Bấm thử lại.');
+  out._model = data.modelVersion || model;
+  return out;
+}
+
+/** Chạy hàm này MỘT LẦN trong trình soạn Apps Script để cấp quyền gọi Gemini và thử khóa. */
+function kiemTraGemini() {
+  var r = callGemini_('Trả lời bằng JSON {"ok":true,"loiChao":"..."}', [{ text: 'Chào thầy Minh bằng một câu tiếng Việt.' }]);
+  Logger.log('Gemini hoạt động (' + r._model + '): ' + JSON.stringify(r));
 }
 
 function submissionStats_(subs, nStudents) {

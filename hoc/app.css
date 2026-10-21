@@ -597,3 +597,16 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
   .class-table th, .class-table td { padding: 10px 10px; }
   .fee-row { padding: 10px 2px; }
 }
+
+/* Gemini gợi ý điểm */
+.ai-panel { display: grid; gap: 6px; }
+.ai-panel p { margin: 0; }
+.btn.btn-ai { background: linear-gradient(135deg, #4c6ef5, #9b5de5); color: #fff; border: none; }
+.btn.btn-ai:disabled { opacity: .75; }
+.ai-fb { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ai-fb p { margin: 0; flex-basis: 100%; }
+.ai-note { margin-top: 12px; background: #f5f2ff; border: 1px solid #ddd3ff; border-radius: 12px; padding: 10px 14px; }
+.ai-note p { margin: 4px 0 0; }
+.ai-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ai-head .chip-btn { padding: 4px 10px; margin-left: auto; }
+.essay-grade input.ai-filled, .grade-side input.ai-filled { border-color: #9b5de5; background: #faf7ff; }

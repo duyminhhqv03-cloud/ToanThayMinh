@@ -2165,6 +2165,7 @@
 
     var score = null;
     var essayInputs = {};
+    var aiBoxes = {}; // ô hiện gợi ý của Gemini: theo chỉ số câu, hoặc 'all' khi chấm cả bài
     var totalEl = h('strong', { class: 'total-score' });
     var work;
     var side;
@@ -2204,6 +2205,7 @@
           inp.addEventListener('input', drawTotal);
           essayInputs[i] = inp;
           var photos = s.files.filter(function (f) { return f.q === i; });
+          aiBoxes[i] = h('div', { class: 'ai-note', hidden: true });
           return h('div', { class: 'panel review-item essay-grade' }, head,
             h('p', { class: 'q-text sm prewrap' }, q.text),
             q.image ? qImageEl({ kind: 'assignment', id: a.id, key: q.image }) : null,
@@ -2211,6 +2213,7 @@
             ans ? h('div', { class: 'essay-answer prewrap' }, ans) : null,
             photos.map(function (f) { return workImage(s, f); }),
             !ans && !photos.length ? h('p', { class: 'muted' }, 'Học sinh bỏ trống câu này.') : null,
+            aiBoxes[i],
             h('div', { class: 'essay-score-row' },
               h('span', null, 'Điểm câu ' + (i + 1) + ':'), inp, h('span', { class: 'muted' }, '/ ' + fmtScore(q.points)),
               [q.points, q.points / 2, 0].map(function (v) {
@@ -2220,6 +2223,7 @@
       side = h('div', { class: 'grade-side' },
         h('div', { class: 'total-box' }, h('span', { class: 'muted small' }, 'Tổng điểm'), totalEl,
           h('span', { class: 'muted small' }, 'Máy chấm ' + fmtScore(s.autoScore || 0) + 'đ + tự luận')),
+        Object.keys(essayInputs).length ? aiPanel() : null,
         field('Nhận xét', fb),
         s.status === 'returned' ? h('p', { class: 'muted small' }, 'Đã chấm ' + fmtDateTime(s.gradedAt) + ' · ' + s.gradedBy) : null);
       drawTotal();
@@ -2234,9 +2238,68 @@
         h('div', { class: 'quick-scores' }, quickScores(a.maxScore).map(function (v) {
           return h('button', { type: 'button', class: 'chip-btn', onclick: function () { score.value = String(v).replace('.', ','); } }, fmtScore(v));
         })),
+        (aiBoxes.all = h('div', { class: 'ai-note', hidden: true })),
+        aiPanel(),
         field('Nhận xét', fb),
         s.status === 'returned' ? h('p', { class: 'muted small' }, 'Đã chấm ' + fmtDateTime(s.gradedAt) + ' bởi ' + s.gradedBy) : null);
     }
+
+    /* ── Gemini gợi ý điểm: chỉ điền sẵn, giáo viên xem lại rồi bấm Lưu điểm ── */
+    var aiFeedback = '';
+    var aiFbBox;
+    function aiPanel() {
+      var btn = h('button', { type: 'button', class: 'btn btn-ai' }, s.ai ? '✨ Gemini chấm lại' : '✨ Gemini gợi ý điểm');
+      aiFbBox = h('div', { class: 'ai-fb', hidden: true });
+      btn.addEventListener('click', function () {
+        busy(btn, true, 'Gemini đang đọc bài… (10–60 giây)');
+        api('aiGrade', { submissionId: s.id }).then(function (r) {
+          s.ai = r.ai;
+          busy(btn, false);
+          btn.textContent = '✨ Gemini chấm lại';
+          applyAi(r.ai, true);
+          toast('Đã điền điểm Gemini gợi ý. Thầy xem lại từng câu rồi bấm Lưu điểm.', 'success');
+        }, function (e) { busy(btn, false); toast(e.message, 'error'); });
+      });
+      return h('div', { class: 'ai-panel' }, btn,
+        h('p', { class: 'muted small' }, 'Gemini đọc ảnh bài làm và hướng dẫn chấm rồi điền sẵn điểm. Thầy xem lại trước khi lưu.'),
+        aiFbBox);
+    }
+    function scoreInput(q) { return q === null || q === undefined ? score : essayInputs[q]; }
+    function applyAi(ai, force) {
+      var lines = [];
+      (ai.items || []).forEach(function (it) {
+        var key = it.q === null || it.q === undefined ? 'all' : it.q;
+        var box = aiBoxes[key];
+        var inp = scoreInput(it.q);
+        if (!box || !inp) return;
+        if (!inp._aiWatch) { inp._aiWatch = true; inp.addEventListener('input', function () { inp.classList.remove('ai-filled'); }); }
+        if (it.score !== null && (force || (!inp.value && s.status !== 'returned'))) {
+          inp.value = String(it.score).replace('.', ',');
+          inp.classList.add('ai-filled');
+        }
+        var useBtn = it.score === null ? null : h('button', { type: 'button', class: 'chip-btn', onclick: function () {
+          inp.value = String(it.score).replace('.', ','); inp.classList.add('ai-filled'); if (hasQ) drawTotal();
+        } }, 'Dùng ' + fmtScore(it.score) + 'đ');
+        fill(box,
+          h('div', { class: 'ai-head' }, h('strong', null, '✨ Gemini: ' + (it.score === null ? 'chưa chấm được' : fmtScore(it.score) + 'đ')),
+            it.unsure ? h('span', { class: 'pill p-wait' }, 'Cần xem kỹ') : null, useBtn),
+          it.reason ? h('p', { class: 'small' }, it.reason) : null,
+          it.comment ? h('p', { class: 'small muted' }, 'Nhận xét: ' + it.comment) : null);
+        box.hidden = false;
+        if (it.comment) lines.push((hasQ && (ai.items || []).length > 1 ? 'Câu ' + (it.q + 1) + ': ' : '') + it.comment);
+      });
+      aiFeedback = [ai.feedback].concat(lines).filter(Boolean).join('\n');
+      if (aiFeedback && (force || !fb.value.trim()) && !(s.status === 'returned' && !force)) fb.value = aiFeedback;
+      if (aiFbBox) {
+        fill(aiFbBox,
+          ai.skipped ? h('p', { class: 'small err' }, ai.skipped + ' file không gửi được cho Gemini (quá lớn hoặc không phải ảnh/PDF) – thầy tự xem phần đó.') : null,
+          aiFeedback ? h('button', { type: 'button', class: 'chip-btn', onclick: function () { fb.value = aiFeedback; } }, 'Dùng nhận xét của Gemini') : null,
+          h('span', { class: 'muted small' }, 'Gợi ý lúc ' + fmtDateTime(ai.at)));
+        aiFbBox.hidden = false;
+      }
+      if (hasQ) drawTotal();
+    }
+    if (s.ai) applyAi(s.ai, false);
 
     var title = x.fullName + ' · nộp ' + fmtDateTime(s.submittedAt) + (s.late ? ' (muộn)' : '');
     modal(title, h('div', { class: 'grade' }, work, side), function (close) {
@@ -2249,6 +2312,7 @@
         } else params.score = score.value;
         busy(btn, true, 'Đang lưu…');
         return api('grade', params).then(function (r) {
+          if (r.submission.ai === undefined) r.submission.ai = s.ai || null;
           x.submission = r.submission;
           close();
           toast('Đã lưu điểm cho ' + x.fullName + '.', 'success');
