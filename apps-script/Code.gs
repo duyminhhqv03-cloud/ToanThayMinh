@@ -934,7 +934,8 @@ function grade_(me, p) {
  * gợi ý chỉ điền sẵn vào ô, giáo viên duyệt rồi bấm Lưu điểm như bình thường.
  * Không gửi tên học sinh. Khóa API để trong Script Property GEMINI_API_KEY.
  */
-var GEMINI_DEFAULT_MODEL = 'gemini-flash-latest';
+// gemini-flash-latest (= 3.8-flash, 21/10/2026) trả lời rất chậm: 40–145 giây cho một câu chào; 3.6-flash chỉ ~2 giây.
+var GEMINI_DEFAULT_MODEL = 'gemini-3.6-flash';
 var AI_FILE_MAX = 7 * 1024 * 1024;   // mỗi ảnh/file gửi Gemini
 var AI_TOTAL_MAX = 16 * 1024 * 1024; // tổng một lần gọi (giới hạn của Gemini khoảng 20 MB)
 var AI_MIME = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/;

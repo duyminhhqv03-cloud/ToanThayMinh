@@ -81,7 +81,7 @@ Lưu ý:
 - Điều khoản Gemini API yêu cầu người dùng từ 18 tuổi và không dùng trong ứng dụng hướng tới người dưới 18 tuổi. Ở web này chỉ giáo viên/admin bấm được nút Gemini, học sinh không gọi được — thầy tự cân nhắc điều khoản này.
 - Báo "hết lượt" nghĩa là đã vượt giới hạn của gói miễn phí, thầy đợi vài phút rồi bấm lại.
 - Gemini mặc định "suy nghĩ" ở mức thấp (`low`) cho nhanh. Muốn chấm kỹ hơn nhưng chậm hơn thì thêm thuộc tính `GEMINI_THINKING` = `medium` hoặc `high`.
-- Mặc định web dùng mô hình `gemini-flash-latest`, tức bản Flash mới nhất. Muốn đổi mô hình thì thêm thuộc tính `GEMINI_MODEL`, ví dụ `gemini-3.6-flash`.
+- Mặc định web dùng mô hình `gemini-3.6-flash` (bản 3.8 mới hơn nhưng trả lời rất chậm, có khi vài phút). Muốn đổi mô hình thì thêm thuộc tính `GEMINI_MODEL`, ví dụ `gemini-flash-latest` (luôn là bản Flash mới nhất).
 
 ## Quên mật khẩu admin
 Trong Apps Script, chọn hàm **resetAdminPassword** → **Chạy**. Mật khẩu mới hiện trong Nhật ký thực thi.
