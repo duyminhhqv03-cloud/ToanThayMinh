@@ -80,6 +80,7 @@ Lưu ý:
 - Tên học sinh không được gửi cho Gemini. Với **gói miễn phí**, Google dùng dữ liệu gửi lên (gồm ảnh bài làm) để cải thiện sản phẩm và có thể cho người xem xét đọc. **Gói trả phí** thì không. Vì đây là bài làm của trẻ em, nên bật thanh toán cho khóa trong AI Studio (chấm vài trăm bài mỗi tháng tốn rất ít).
 - Điều khoản Gemini API yêu cầu người dùng từ 18 tuổi và không dùng trong ứng dụng hướng tới người dưới 18 tuổi. Ở web này chỉ giáo viên/admin bấm được nút Gemini, học sinh không gọi được — thầy tự cân nhắc điều khoản này.
 - Báo "hết lượt" nghĩa là đã vượt giới hạn của gói miễn phí, thầy đợi vài phút rồi bấm lại.
+- Gemini mặc định "suy nghĩ" ở mức thấp (`low`) cho nhanh. Muốn chấm kỹ hơn nhưng chậm hơn thì thêm thuộc tính `GEMINI_THINKING` = `medium` hoặc `high`.
 - Mặc định web dùng mô hình `gemini-flash-latest`, tức bản Flash mới nhất. Muốn đổi mô hình thì thêm thuộc tính `GEMINI_MODEL`, ví dụ `gemini-3.6-flash`.
 
 ## Quên mật khẩu admin

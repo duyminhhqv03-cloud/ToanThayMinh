@@ -1014,7 +1014,7 @@ function aiGrade_(me, submissionId) {
     n = isNaN(n) ? null : Math.max(0, Math.min(t.max, Math.round(n * 4) / 4));
     return { q: t.q, score: n, reason: clean_(it.reason, 400), comment: clean_(it.comment, 400), unsure: !!it.unsure || n === null };
   });
-  var out = { items: items, feedback: clean_(res.feedback, 600), model: res._model, at: new Date().toISOString(), skipped: budget.skipped.length };
+  var out = { items: items, feedback: clean_(res.feedback, 600), model: res._model, secs: res._secs, at: new Date().toISOString(), skipped: budget.skipped.length };
 
   // Lưu lại để mở lại màn chấm vẫn thấy (khóa chỉ giữ lúc ghi, không giữ trong lúc chờ Gemini).
   withLock_(function () {
@@ -1043,29 +1043,51 @@ function callGemini_(system, parts) {
   var key = String(props.getProperty('GEMINI_API_KEY') || '').trim();
   if (!key) throw err_('Chưa có khóa Gemini. Admin vào Apps Script → Cài đặt dự án → Thuộc tính tập lệnh, thêm GEMINI_API_KEY (lấy ở aistudio.google.com).');
   var model = String(props.getProperty('GEMINI_MODEL') || GEMINI_DEFAULT_MODEL).trim();
+  // Mức "suy nghĩ" của Gemini: mặc định 'low' cho nhanh (mặc định của Google là high → chấm 1 bài mất vài phút).
+  // Đổi bằng Thuộc tính tập lệnh GEMINI_THINKING = minimal / low / medium / high, hoặc 'off' để không gửi.
+  var thinking = String(props.getProperty('GEMINI_THINKING') || 'low').trim().toLowerCase();
   var body = {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: 'user', parts: parts }],
     generationConfig: { responseMimeType: 'application/json', temperature: 0.2 }
   };
-  var resp;
-  try {
-    resp = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
-      method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key },
-      payload: JSON.stringify(body), muteHttpExceptions: true
-    });
-  } catch (e) {
-    throw err_('Không gọi được Gemini: ' + e.message);
+  if (thinking && thinking !== 'off') body.generationConfig.thinkingConfig = { thinkingLevel: thinking };
+
+  var started = Date.now();
+  var code, data, tries = 0;
+  while (true) {
+    tries++;
+    var resp;
+    try {
+      resp = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+        method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key },
+        payload: JSON.stringify(body), muteHttpExceptions: true
+      });
+    } catch (e) {
+      throw err_('Không gọi được Gemini: ' + e.message);
+    }
+    code = resp.getResponseCode();
+    data = parseJson_(resp.getContentText(), {});
+    var msg = (data.error && data.error.message) || '';
+    // Mô hình không hỗ trợ mức suy nghĩ → gửi lại không kèm thinkingConfig.
+    if (code === 400 && body.generationConfig.thinkingConfig && /think/i.test(msg)) {
+      delete body.generationConfig.thinkingConfig;
+      continue;
+    }
+    // Gemini bận / hết lượt tạm thời → đợi chút rồi thử lại (tối đa 2 lần, khi còn thời gian).
+    if ((code === 429 || code >= 500) && tries < 3 && Date.now() - started < 120000) {
+      Utilities.sleep(tries * 4000);
+      continue;
+    }
+    break;
   }
-  var code = resp.getResponseCode();
-  var data = parseJson_(resp.getContentText(), {});
   if (code !== 200) {
     var m = (data.error && data.error.message) || ('mã ' + code);
     if (code === 429) throw err_('Gemini đang hết lượt (giới hạn gói miễn phí). Thử lại sau ít phút.');
     if (code === 400 && /api key/i.test(m)) throw err_('Khóa GEMINI_API_KEY không đúng. Kiểm tra lại trong Thuộc tính tập lệnh.');
     if (code === 403) throw err_('Khóa Gemini không có quyền dùng (' + m + ').');
     if (code === 404) throw err_('Không có mô hình "' + model + '". Đặt Thuộc tính tập lệnh GEMINI_MODEL thành tên mô hình khác.');
-    if (code >= 500) throw err_('Gemini đang bận, thử lại sau ít phút.');
+    if (code >= 500) throw err_('Gemini đang bận (mã ' + code + '), thử lại sau ít phút.');
     throw err_('Gemini báo lỗi: ' + m);
   }
   var cand = (data.candidates || [])[0];
@@ -1077,13 +1099,14 @@ function callGemini_(system, parts) {
   var out = parseJson_(text, null) || parseJson_((text.match(/\{[\s\S]*\}/) || [''])[0], null);
   if (!out) throw err_('Gemini trả kết quả không đọc được. Bấm thử lại.');
   out._model = data.modelVersion || model;
+  out._secs = Math.round((Date.now() - started) / 1000);
   return out;
 }
 
 /** Chạy hàm này MỘT LẦN trong trình soạn Apps Script để cấp quyền gọi Gemini và thử khóa. */
 function kiemTraGemini() {
   var r = callGemini_('Trả lời bằng JSON {"ok":true,"loiChao":"..."}', [{ text: 'Chào thầy Minh bằng một câu tiếng Việt.' }]);
-  Logger.log('Gemini hoạt động (' + r._model + '): ' + JSON.stringify(r));
+  Logger.log('Gemini hoạt động (' + r._model + ', ' + r._secs + ' giây): ' + JSON.stringify(r));
 }
 
 function submissionStats_(subs, nStudents) {

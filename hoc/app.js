@@ -2251,17 +2251,20 @@
       var btn = h('button', { type: 'button', class: 'btn btn-ai' }, s.ai ? '✨ Gemini chấm lại' : '✨ Gemini gợi ý điểm');
       aiFbBox = h('div', { class: 'ai-fb', hidden: true });
       btn.addEventListener('click', function () {
-        busy(btn, true, 'Gemini đang đọc bài… (10–60 giây)');
+        busy(btn, true, 'Gemini đang đọc bài…');
+        var t0 = Date.now();
+        var timer = setInterval(function () { btn.textContent = 'Gemini đang đọc bài… ' + Math.round((Date.now() - t0) / 1000) + ' giây'; }, 1000);
+        var stop = function () { clearInterval(timer); busy(btn, false); };
         api('aiGrade', { submissionId: s.id }).then(function (r) {
           s.ai = r.ai;
-          busy(btn, false);
+          stop();
           btn.textContent = '✨ Gemini chấm lại';
           applyAi(r.ai, true);
           toast('Đã điền điểm Gemini gợi ý. Thầy xem lại từng câu rồi bấm Lưu điểm.', 'success');
-        }, function (e) { busy(btn, false); toast(e.message, 'error'); });
+        }, function (e) { stop(); toast(e.message, 'error'); });
       });
       return h('div', { class: 'ai-panel' }, btn,
-        h('p', { class: 'muted small' }, 'Gemini đọc ảnh bài làm và hướng dẫn chấm rồi điền sẵn điểm. Thầy xem lại trước khi lưu.'),
+        h('p', { class: 'muted small' }, 'Gemini đọc ảnh bài làm và hướng dẫn chấm rồi điền sẵn điểm (thường 20–60 giây, đừng đóng cửa sổ). Thầy xem lại trước khi lưu.'),
         aiFbBox);
     }
     function scoreInput(q) { return q === null || q === undefined ? score : essayInputs[q]; }
@@ -2294,7 +2297,7 @@
         fill(aiFbBox,
           ai.skipped ? h('p', { class: 'small err' }, ai.skipped + ' file không gửi được cho Gemini (quá lớn hoặc không phải ảnh/PDF) – thầy tự xem phần đó.') : null,
           aiFeedback ? h('button', { type: 'button', class: 'chip-btn', onclick: function () { fb.value = aiFeedback; } }, 'Dùng nhận xét của Gemini') : null,
-          h('span', { class: 'muted small' }, 'Gợi ý lúc ' + fmtDateTime(ai.at)));
+          h('span', { class: 'muted small' }, 'Gợi ý lúc ' + fmtDateTime(ai.at) + (ai.secs ? ' · ' + ai.secs + ' giây' : '')));
         aiFbBox.hidden = false;
       }
       if (hasQ) drawTotal();
