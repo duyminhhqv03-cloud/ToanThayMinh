@@ -155,6 +155,7 @@ function handle_(p) {
     case 'submit': return withLock_(function () { return submit_(me, p); });
     case 'submissionFile': return submissionFile_(me, String(p.submissionId || ''), String(p.fileId || ''));
     case 'grade': return withLock_(function () { return grade_(me, p); });
+    case 'finalizeAll': return withLock_(function () { return finalizeAll_(me, p); });
     case 'aiGrade': return aiGrade_(me, String(p.submissionId || ''));
 
     // Luyện tập
@@ -719,10 +720,10 @@ function assignmentDetail_(me, id) {
     var list = studentsOf_(a.courseId).map(function (u) {
       seen[u.username] = 1;
       var s = subs.filter(function (x) { return x.username === u.username; })[0];
-      return { username: u.username, fullName: u.fullName, submission: s ? withAi_(publicSubmission_(s, names), s) : null };
+      return { username: u.username, fullName: u.fullName, submission: s ? withAuto_(withAi_(publicSubmission_(s, names), s), s, questions) : null };
     });
     subs.forEach(function (s) {
-      if (!seen[s.username]) list.push({ username: s.username, fullName: names[s.username] || s.username, submission: withAi_(publicSubmission_(s, names), s), left: true });
+      if (!seen[s.username]) list.push({ username: s.username, fullName: names[s.username] || s.username, submission: withAuto_(withAi_(publicSubmission_(s, names), s), s, questions), left: true });
     });
     list.sort(function (x, y) { return x.fullName.localeCompare(y.fullName, 'vi'); });
     out.students = list;
@@ -751,7 +752,11 @@ function submit_(me, p) {
   if (!isStudentIn_(me, a.courseId)) throw err_('Chỉ học sinh của khóa này mới nộp bài được.', 403);
   var existing = rows_('submissions').filter(function (s) { return s.assignmentId === a.id && s.username === me.username; })[0];
   if (existing && existing.status === 'returned') {
-    throw err_('Bài đã được chấm nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
+    throw err_('Bài đã được chốt điểm nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
+  }
+  // Nộp lại thoải mái khi còn hạn; sau hạn chỉ nộp lại được khi giáo viên đã bấm "Cho nộp lại" (status 'reopened').
+  if (existing && existing.status !== 'reopened' && a.dueAt && Date.now() > new Date(a.dueAt).getTime()) {
+    throw err_('Đã hết hạn nộp nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
   }
 
   var questions = parseQuestions_(a);
@@ -800,8 +805,8 @@ function submit_(me, p) {
   oldFiles.forEach(function (f) { if (keep.indexOf(f.fileId) < 0) trash_(f.fileId); });
 
   var now = new Date();
-  var hasEssay = questions.some(function (x) { return x.type === 'essay'; });
-  var autoOnly = questions.length && !hasEssay;
+  // Máy chấm ngay phần trắc nghiệm/trả lời ngắn nhưng KHÔNG công bố: bài luôn chờ giáo viên chốt điểm
+  // (máy có thể chấm sai cách viết đúng mà đáp án chưa liệt kê).
   var data = {
     assignmentId: a.id,
     courseId: a.courseId,
@@ -809,12 +814,14 @@ function submit_(me, p) {
     text: text,
     files: JSON.stringify(files),
     submittedAt: now.toISOString(),
-    late: a.dueAt && now.getTime() > new Date(a.dueAt).getTime() ? '1' : '0',
-    status: autoOnly ? 'returned' : 'submitted',
-    score: autoOnly ? String(autoScore) : '',
+    // Giáo viên cho nộp lại sau hạn: giữ nguyên dấu đúng hạn/muộn của lần nộp trước.
+    late: existing && existing.status === 'reopened' ? existing.late
+      : a.dueAt && now.getTime() > new Date(a.dueAt).getTime() ? '1' : '0',
+    status: 'submitted',
+    score: '',
     feedback: existing ? existing.feedback : '',
-    gradedBy: autoOnly ? 'auto' : '',
-    gradedAt: autoOnly ? now.toISOString() : '',
+    gradedBy: '',
+    gradedAt: '',
     answers: questions.length ? JSON.stringify(answers) : '',
     itemScores: questions.length ? JSON.stringify(itemScores) : '',
     autoScore: questions.length ? String(autoScore) : '',
@@ -829,7 +836,7 @@ function submit_(me, p) {
   }
   var out = { submission: forStudent_(publicSubmission_(data, userNames_())) };
   if (questions.length) {
-    out.reveal = autoOnly && (!a.dueAt || Date.now() > new Date(a.dueAt).getTime());
+    out.reveal = false;
     out.review = reviewHomework_(questions, data, out.reveal);
   }
   return out;
@@ -847,7 +854,8 @@ function reviewHomework_(questions, s, reveal) {
       // Đúng/sai và điểm từng câu chỉ hiện khi bài đã chấm xong (tránh dò đáp án rồi nộp lại).
       earned: done && scores[i] !== undefined ? scores[i] : null
     };
-    if (x.type !== 'essay' && done) r.correct = isCorrect_(x, answers[i]);
+    // Theo điểm giáo viên đã chốt (thầy có thể sửa điểm khi máy chấm sai).
+    if (x.type !== 'essay' && done) r.correct = r.earned !== null ? Number(r.earned) >= Number(x.points || 1) : isCorrect_(x, answers[i]);
     if (reveal) {
       if (x.type === 'mc') r.correctAnswer = x.correct;
       if (x.type === 'short') r.correctAnswer = x.answers[0];
@@ -891,11 +899,13 @@ function grade_(me, p) {
   requireEdit_(me, s.courseId);
   var a = findBy_('assignments', s.assignmentId);
   var max = Number((a && a.maxScore) || 10);
-  if (p.reopen) {
-    update_('submissions', s, { status: 'submitted', score: '', gradedBy: '', gradedAt: '' });
-    return { submission: publicSubmission_(findBy_('submissions', s.id), userNames_()) };
-  }
   var questions = parseQuestions_(a);
+  if (p.reopen) {
+    // 'reopened': học sinh được sửa và nộp lại kể cả khi đã quá hạn.
+    update_('submissions', s, { status: 'reopened', score: '', gradedBy: '', gradedAt: '' });
+    var s1 = findBy_('submissions', s.id);
+    return { submission: withAuto_(withAi_(publicSubmission_(s1, userNames_()), s1), s1, questions) };
+  }
   var changes = {
     status: 'returned',
     feedback: clean_(p.feedback, 3000),
@@ -903,12 +913,14 @@ function grade_(me, p) {
     gradedAt: new Date().toISOString()
   };
   if (questions.length && s.itemScores) {
-    // Bài có câu hỏi: phần trắc nghiệm/trả lời ngắn đã chấm tự động, giáo viên chấm từng câu tự luận.
+    // Bài có câu hỏi: máy đã chấm trắc nghiệm/trả lời ngắn; giáo viên chấm tự luận và có thể sửa điểm máy chấm.
+    // p.scores: điểm từng câu (mọi loại); p.essayScores: kiểu cũ, chỉ câu tự luận.
     var items = parseJson_(s.itemScores, []);
-    var given = p.essayScores || {};
+    var given = p.scores || p.essayScores || {};
     questions.forEach(function (x, i) {
-      if (x.type !== 'essay') return;
-      var v = String(given[i] === undefined || given[i] === null ? '' : given[i]).replace(',', '.').trim();
+      var has = given[i] !== undefined && given[i] !== null;
+      if (x.type !== 'essay' && !has) return; // giữ điểm máy chấm
+      var v = String(has ? given[i] : '').replace(',', '.').trim();
       var n = Number(v);
       if (v === '' || isNaN(n) || n < 0 || n > Number(x.points)) {
         throw err_('Câu ' + (i + 1) + ': điểm phải là số từ 0 đến ' + x.points + '.');
@@ -925,7 +937,46 @@ function grade_(me, p) {
   }
   update_('submissions', s, changes);
   var s2 = findBy_('submissions', s.id);
-  return { submission: withAi_(publicSubmission_(s2, userNames_()), s2) };
+  return { submission: withAuto_(withAi_(publicSubmission_(s2, userNames_()), s2), s2, questions) };
+}
+
+/**
+ * Chốt điểm một loạt bài cùng lúc (bài chỉ có trắc nghiệm/trả lời ngắn): điểm = điểm máy chấm hiện có.
+ * Bài có câu tự luận chưa chấm thì bỏ qua. p.ids: danh sách submissionId (bỏ trống = mọi bài đang chờ).
+ */
+function finalizeAll_(me, p) {
+  var a = findBy_('assignments', String(p.assignmentId || ''));
+  if (!a) throw err_('Không tìm thấy bài tập.', 404);
+  requireEdit_(me, a.courseId);
+  var questions = parseQuestions_(a);
+  if (!questions.length) throw err_('Bài tập không có câu hỏi nên không chốt tự động được.');
+  var ids = Array.isArray(p.ids) ? p.ids.map(String) : null;
+  var now = new Date().toISOString();
+  var done = [];
+  var skipped = 0;
+  rows_('submissions').filter(function (s) {
+    return s.assignmentId === a.id && s.status === 'submitted' && (!ids || ids.indexOf(s.id) >= 0);
+  }).forEach(function (s) {
+    var items = parseJson_(s.itemScores, []);
+    var ready = questions.every(function (x, i) { return items[i] !== null && items[i] !== undefined; });
+    if (!ready) { skipped++; return; }
+    update_('submissions', s, {
+      status: 'returned',
+      score: String(Math.round(items.reduce(function (t, v) { return t + Number(v || 0); }, 0) * 100) / 100),
+      gradedBy: me.username,
+      gradedAt: now
+    });
+    done.push(s.id);
+  });
+  return { finalized: done, skipped: skipped };
+}
+
+/** Giáo viên: máy chấm từng câu đúng/sai thế nào (để biết câu nào thầy đã sửa điểm). */
+function withAuto_(pub, row, questions) {
+  if (!questions || !questions.length || !row.answers) return pub;
+  var answers = parseJson_(row.answers, []);
+  pub.auto = questions.map(function (x, i) { return x.type === 'essay' ? null : isCorrect_(x, answers[i]) ? Number(x.points || 1) : 0; });
+  return pub;
 }
 
 /* ───────────────────────── Gemini gợi ý điểm ─────────────────────────
@@ -1112,7 +1163,9 @@ function kiemTraGemini() {
 
 function submissionStats_(subs, nStudents) {
   var graded = subs.filter(function (s) { return s.status === 'returned'; }).length;
-  return { students: nStudents, submitted: subs.length, graded: graded, ungraded: subs.length - graded };
+  // 'reopened' = đang chờ học sinh nộp lại, chưa cần giáo viên chấm.
+  var waiting = subs.filter(function (s) { return s.status === 'reopened'; }).length;
+  return { students: nStudents, submitted: subs.length, graded: graded, ungraded: subs.length - graded - waiting };
 }
 
 function summarizeSubmission_(s) {

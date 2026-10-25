@@ -199,13 +199,6 @@
   function fmtScore(n) {
     return Number(n).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
   }
-  function toLocalInput(iso) {
-    if (!iso) return '';
-    var d = new Date(iso);
-    if (isNaN(d)) return '';
-    var p = function (x) { return String(x).padStart(2, '0'); };
-    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
-  }
   function loginUrl() {
     return location.origin + location.pathname;
   }
@@ -223,9 +216,192 @@
     return h('span', { class: cls }, prefix + fmtDateTime(dueAt));
   }
 
+  var WEEKDAYS = ['Chủ nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+  function pad2(x) { return String(x).padStart(2, '0'); }
+
+  /** "1 ngày 02:15:30" / "02:15:30" — thời gian còn lại dạng đồng hồ số. */
+  function fmtLeft(ms) {
+    var s = Math.max(0, Math.floor(ms / 1000));
+    var d = Math.floor(s / 86400);
+    s -= d * 86400;
+    return (d ? d + ' ngày ' : '') + pad2(Math.floor(s / 3600)) + ':' + pad2(Math.floor(s % 3600 / 60)) + ':' + pad2(s % 60);
+  }
+
+  /** "2 ngày 3 giờ 5 phút" */
+  function leftWords(ms) {
+    var m = Math.max(0, Math.round(ms / 60000));
+    var d = Math.floor(m / 1440), H = Math.floor(m % 1440 / 60), M = m % 60;
+    return [d ? d + ' ngày' : '', H ? H + ' giờ' : '', !d && (M || !H) ? M + ' phút' : ''].filter(Boolean).join(' ');
+  }
+
+  /** Đồng hồ đếm ngược tới hạn nộp (tự dừng khi không còn trên trang). */
+  function countdownEl(dueAt) {
+    var end = new Date(dueAt).getTime();
+    if (!dueAt || isNaN(end) || end <= Date.now()) return null;
+    var digits = h('span', { class: 'cd-digits' });
+    var el = h('span', { class: 'countdown', title: 'Thời gian còn lại đến hạn nộp' }, h('span', { class: 'cd-label' }, 'Còn'), digits);
+    var timer;
+    function tick() {
+      var left = end - Date.now();
+      if (left <= 0) {
+        clearInterval(timer);
+        el.className = 'countdown over';
+        fill(el, 'Đã hết hạn nộp');
+        return;
+      }
+      if (timer && !el.isConnected) { clearInterval(timer); return; }
+      el.classList.toggle('soon', left < 24 * 3600 * 1000);
+      digits.textContent = fmtLeft(left);
+    }
+    tick();
+    timer = setInterval(tick, 1000);
+    return el;
+  }
+
+  /**
+   * Chọn hạn nộp kiểu đồng hồ số: giờ : phút to, bấm ▲▼ hoặc gõ thẳng; ngày chọn bằng ◀ ▶,
+   * nút nhanh hoặc lịch. Không dùng ô datetime-local (trên điện thoại hiện bánh xe cuộn khó chỉnh).
+   * Trả về { el, value() → ISO hoặc '' khi không có hạn, onChange }.
+   */
+  function deadlinePicker(iso, onChange) {
+    var init = iso ? new Date(iso) : null;
+    if (init && isNaN(init)) init = null;
+    var day = init ? new Date(init) : null; // ngày đang chọn (giờ trong đối tượng này bỏ qua)
+    var hh = init ? init.getHours() : 21;
+    var mm = init ? init.getMinutes() : 0;
+    var on = h('input', { type: 'checkbox', checked: !!init });
+    var body = h('div', { class: 'dl-body', hidden: !init });
+    var dayLabel = h('strong', { class: 'dl-day' });
+    var calInput = h('input', { type: 'date', class: 'dl-cal-input', tabindex: '-1', 'aria-hidden': 'true' });
+    var hIn = h('input', { class: 'dl-num', inputmode: 'numeric', maxlength: '2', 'aria-label': 'Giờ' });
+    var mIn = h('input', { class: 'dl-num', inputmode: 'numeric', maxlength: '2', 'aria-label': 'Phút' });
+    var note = h('p', { class: 'dl-note' });
+    var dayChips = h('span', { class: 'dl-chips-in' });
+    var timeChips = h('div', { class: 'dl-chips' });
+    var noteTimer;
+
+    function today() { var d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+    function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
+    function sameDay(a, b) { return a && b && a.toDateString() === b.toDateString(); }
+    function current() {
+      if (!on.checked || !day) return null;
+      var d = new Date(day);
+      d.setHours(hh, mm, 0, 0);
+      return d;
+    }
+    function changed() { draw(); if (onChange) onChange(); }
+    function setDay(d) { day = d; changed(); }
+    function setTime(H, M) { hh = (H + 24) % 24; mm = (M + 60) % 60; changed(); }
+
+    function drawNote() {
+      var d = current();
+      if (!d) return;
+      var left = d.getTime() - Date.now();
+      note.className = 'dl-note' + (left <= 0 ? ' over' : left < 24 * 3600 * 1000 ? ' soon' : '');
+      note.textContent = left <= 0 ? 'Thời điểm này đã qua — học sinh nộp sẽ bị tính là nộp muộn.'
+        : 'Hạn nộp: ' + pad2(hh) + ':' + pad2(mm) + ' ' + WEEKDAYS[d.getDay()].toLowerCase() + ', ' + fmtDate(d) + ' · còn ' + leftWords(left);
+    }
+    function draw() {
+      body.hidden = !on.checked;
+      if (!on.checked) return;
+      dayLabel.textContent = WEEKDAYS[day.getDay()] + ', ' + fmtDate(day);
+      calInput.value = day.getFullYear() + '-' + pad2(day.getMonth() + 1) + '-' + pad2(day.getDate());
+      if (document.activeElement !== hIn) hIn.value = pad2(hh);
+      if (document.activeElement !== mIn) mIn.value = pad2(mm);
+      var t = today();
+      var sat = addDays(t, (6 - t.getDay() + 7) % 7 || 7);
+      fill(dayChips, [['Hôm nay', t], ['Ngày mai', addDays(t, 1)], ['Thứ Bảy này', sat], ['1 tuần nữa', addDays(t, 7)]].map(function (c) {
+        return h('button', { type: 'button', class: 'chip-btn' + (sameDay(day, c[1]) ? ' active' : ''), onclick: function () { setDay(c[1]); } }, c[0]);
+      }));
+      fill(timeChips, [[7, 0], [17, 0], [20, 0], [21, 0], [22, 0], [23, 59]].map(function (c) {
+        return h('button', { type: 'button', class: 'chip-btn' + (hh === c[0] && mm === c[1] ? ' active' : ''), onclick: function () { setTime(c[0], c[1]); } }, pad2(c[0]) + ':' + pad2(c[1]));
+      }));
+      drawNote();
+    }
+
+    // Nút ▲▼: bấm một lần đổi 1 giờ / 5 phút; giữ nút thì chạy liên tục.
+    function stepBtn(label, fn) {
+      var b = h('button', { type: 'button', class: 'dl-step', 'aria-label': label }, label.indexOf('Tăng') === 0 ? '▲' : '▼');
+      var t1, t2;
+      var stop = function () { clearTimeout(t1); clearInterval(t2); };
+      b.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        fn();
+        t1 = setTimeout(function () { t2 = setInterval(fn, 110); }, 450);
+      });
+      ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { b.addEventListener(ev, stop); });
+      b.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } });
+      return b;
+    }
+    function minuteStep(dir) {
+      var m = dir > 0 ? Math.floor(mm / 5) * 5 + 5 : Math.ceil(mm / 5) * 5 - 5;
+      if (m >= 60) setTime(hh + 1, m - 60); else if (m < 0) setTime(hh - 1, m + 60); else setTime(hh, m);
+    }
+    function typed(inp, max, set) {
+      inp.addEventListener('focus', function () { inp.select(); });
+      inp.addEventListener('input', function () {
+        inp.value = inp.value.replace(/\D/g, '').slice(0, 2);
+        var n = Number(inp.value);
+        if (inp.value !== '' && n <= max) { set(n); }
+        if (inp.value.length === 2 && inp === hIn) { mIn.focus(); }
+      });
+      inp.addEventListener('blur', function () { draw(); });
+      inp.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          var dir = e.key === 'ArrowUp' ? 1 : -1;
+          if (inp === hIn) setTime(hh + dir, mm); else minuteStep(dir);
+          inp.value = pad2(inp === hIn ? hh : mm);
+          inp.select();
+        }
+      });
+    }
+    typed(hIn, 23, function (n) { hh = n; changed(); });
+    typed(mIn, 59, function (n) { mm = n; changed(); });
+
+    calInput.addEventListener('change', function () {
+      var p = calInput.value.split('-').map(Number);
+      if (p.length === 3 && p[0]) setDay(new Date(p[0], p[1] - 1, p[2]));
+    });
+    var calBtn = h('button', { type: 'button', class: 'chip-btn', title: 'Chọn ngày trên lịch', onclick: function () {
+      try { if (calInput.showPicker) { calInput.showPicker(); return; } } catch (e) { /* trình duyệt cũ */ }
+      calInput.focus(); calInput.click();
+    } }, '📅 Ngày khác');
+
+    on.addEventListener('change', function () {
+      if (on.checked && !day) day = addDays(today(), 1);
+      changed();
+    });
+
+    fill(body,
+      h('div', { class: 'dl-date' },
+        h('button', { type: 'button', class: 'dl-icon', 'aria-label': 'Ngày trước', onclick: function () { setDay(addDays(day, -1)); } }, '◀'),
+        dayLabel,
+        h('button', { type: 'button', class: 'dl-icon', 'aria-label': 'Ngày sau', onclick: function () { setDay(addDays(day, 1)); } }, '▶')),
+      h('div', { class: 'dl-chips' }, dayChips, h('span', { class: 'dl-cal' }, calBtn, calInput)),
+      h('div', { class: 'dl-clock' },
+        h('div', { class: 'dl-unit' }, stepBtn('Tăng giờ', function () { setTime(hh + 1, mm); }), hIn, stepBtn('Giảm giờ', function () { setTime(hh - 1, mm); })),
+        h('span', { class: 'dl-colon' }, ':'),
+        h('div', { class: 'dl-unit' }, stepBtn('Tăng phút', function () { minuteStep(1); }), mIn, stepBtn('Giảm phút', function () { minuteStep(-1); }))),
+      timeChips,
+      note);
+    draw();
+    // Cập nhật "còn … nữa" mỗi phút khi còn trên trang.
+    noteTimer = setInterval(function () { if (!el.isConnected) { clearInterval(noteTimer); return; } drawNote(); }, 30000);
+
+    var el = h('div', { class: 'deadline' },
+      h('label', { class: 'check' }, on, 'Có hạn nộp'),
+      body);
+    return {
+      el: el,
+      value: function () { var d = current(); return d ? d.toISOString() : ''; }
+    };
+  }
+
   function statusPill(my, maxScore) {
     if (!my || my.status === 'todo') return h('span', { class: 'pill p-todo' }, 'Chưa nộp');
     if (my.status === 'returned') return h('span', { class: 'pill p-done' }, 'Điểm ' + fmtScore(my.score) + '/' + fmtScore(maxScore));
+    if (my.status === 'reopened') return h('span', { class: 'pill p-todo' }, 'Được nộp lại');
     return h('span', { class: 'pill p-wait' }, my.late ? 'Đã nộp muộn' : 'Đã nộp');
   }
 
@@ -831,7 +1007,7 @@
 
   function renderTodo(box, items) {
     if (me.role === 'student') {
-      var todo = items.filter(function (i) { return i.my.status === 'todo'; })
+      var todo = items.filter(function (i) { return i.my.status === 'todo' || i.my.status === 'reopened'; })
         .sort(function (a, b) { return (a.dueAt || '9') < (b.dueAt || '9') ? -1 : 1; });
       var graded = items.filter(function (i) { return i.my.status === 'returned'; }).slice(0, 3);
       if (!todo.length && !graded.length) return;
@@ -1016,7 +1192,7 @@
     } else {
       right = statusPill(a.my, a.maxScore);
     }
-    var done = edit || (a.my && a.my.status !== 'todo');
+    var done = edit || (a.my && a.my.status !== 'todo' && a.my.status !== 'reopened');
     return h('a', { class: 'item link', href: '#/bai/' + a.id },
       h('span', { class: 'kind k-hw' }, 'BÀI TẬP'),
       h('div', { class: 'item-main' },
@@ -1584,7 +1760,7 @@
     var title = h('input', { maxlength: '200', value: a ? a.title : '', placeholder: 'VD: Bài tập về nhà – Chủ đề 4' });
     var instr = h('textarea', { rows: '2', maxlength: '5000', placeholder: 'Lời dặn, ví dụ: Làm hết các câu. Phần tự luận chụp ảnh rõ nét từng câu.' });
     instr.value = a ? a.instructions : '';
-    var due = h('input', { type: 'datetime-local', value: a ? toLocalInput(a.dueAt) : '' });
+    var due = deadlinePicker(a ? a.dueAt : '', function () { dirty = true; });
     var max = h('input', { type: 'number', min: '1', max: '1000', step: '1', value: a ? String(a.maxScore) : '10' });
     var maxField = field('Thang điểm (khi không có câu hỏi)', max);
     var file = h('input', { type: 'file' });
@@ -1663,7 +1839,7 @@
       var params = {
         courseId: c.id, id: a ? a.id : undefined, title: title.value.trim(), topic: ti[0].value.trim(),
         instructions: instr.value.trim(), maxScore: max.value,
-        dueAt: due.value ? new Date(due.value).toISOString() : '',
+        dueAt: due.value(),
         removeFile: removeFile.checked,
         questions: parsed.questions, source: parsed.questions.length ? src.value : '',
         newImages: store.newImages(parsed.questions)
@@ -1686,7 +1862,8 @@
       h('div', { class: 'panel form' },
         h('div', { class: 'row two' }, field('Tên bài tập', title), field('Chủ đề', ti)),
         field('Lời dặn', instr),
-        h('div', { class: 'row two' }, field('Hạn nộp (để trống nếu không có hạn)', due), maxField),
+        h('div', { class: 'field' }, h('span', null, 'Hạn nộp'), due.el),
+        maxField,
         field(a && a.file ? 'File đề (đang có: ' + a.file.name + ') — chọn file khác để thay' : 'File đề (PDF/Word/ảnh) cho học sinh xem và tải về', file),
         fileNote,
         a && a.file ? h('label', { class: 'check' }, removeFile, 'Bỏ file đề hiện tại') : null),
@@ -1741,7 +1918,7 @@
     var info = ['Thang điểm ' + fmtScore(a.maxScore)];
     if (d.questions && d.questions.length) {
       var ess = d.questions.filter(function (x) { return x.type === 'essay'; }).length;
-      info.push(d.questions.length + ' câu' + (ess ? ' (' + ess + ' tự luận)' : ' · chấm tự động'));
+      info.push(d.questions.length + ' câu' + (ess ? ' (' + ess + ' tự luận)' : ' · máy chấm, thầy cô chốt điểm'));
     }
     info.push('Giao bởi ' + a.createdBy);
     return [
@@ -1750,6 +1927,7 @@
         h('span', { class: 'tag' }, a.topic || 'Bài tập về nhà'),
         h('h1', null, a.title),
         h('p', { class: 'head-meta' }, dueBadge(a.dueAt, d.canEdit || (d.submission && d.submission.status !== 'todo')),
+          !d.canEdit && !(d.submission && d.submission.status === 'returned') ? countdownEl(a.dueAt) : null,
           h('span', { class: 'muted small' }, info.join(' · '))),
         extra || null),
       (a.instructions || a.file) ? h('div', { class: 'panel' },
@@ -1777,18 +1955,24 @@
     if (!s) return fill(box, hasQ ? questionForm(d, null) : submitForm(d, null));
 
     var graded = s.status === 'returned';
-    var essays = hasQ ? d.questions.filter(function (x) { return x.type === 'essay'; }).length : 0;
+    var reopened = s.status === 'reopened';
+    var dueMs = a.dueAt ? new Date(a.dueAt).getTime() : 0;
+    // Nộp lại được khi chưa chốt điểm và còn hạn (hoặc thầy cô đã bấm "Cho nộp lại").
+    var canRedo = !graded && (reopened || !dueMs || Date.now() < dueMs);
     var card = h('div', { class: 'panel status-card ' + (graded ? 'graded' : 'waiting') },
       graded
         ? h('div', { class: 'score-big' }, h('span', null, fmtScore(s.score)), h('small', null, '/' + fmtScore(a.maxScore)))
         : h('div', { class: 'status-icon' }, '✓'),
       h('div', { class: 'status-main' },
         h('h3', null, graded ? (s.gradedBy === 'Máy chấm tự động' ? 'Đã chấm tự động' : 'Đã chấm bài')
-          : essays ? 'Đã nộp bài, chờ giáo viên chấm phần tự luận' : 'Đã nộp bài, chờ giáo viên chấm'),
+          : reopened ? 'Thầy cô đã cho em sửa và nộp lại bài' : 'Đã nộp bài, chờ thầy cô chốt điểm'),
         h('p', { class: 'muted small' }, 'Nộp lúc ' + fmtDateTime(s.submittedAt) + (s.late ? ' · nộp muộn' : '') +
           (graded ? ' · ' + s.gradedBy : '')),
         hasQ && graded && !d.reveal ? h('p', { class: 'muted small' }, 'Đáp án và lời giải sẽ hiện sau hạn nộp.') : null,
-        hasQ && !graded ? h('p', { class: 'muted small' }, 'Kết quả từng câu sẽ hiện khi giáo viên chấm xong.') : null,
+        !graded ? h('p', { class: 'muted small' }, (hasQ ? 'Điểm và kết quả từng câu' : 'Điểm') + ' sẽ hiện khi thầy cô chốt điểm.') : null,
+        canRedo && !reopened && dueMs ? h('p', { class: 'muted small' }, 'Em vẫn được sửa và nộp lại đến ' + fmtDateTime(a.dueAt) + '. Thầy cô chấm bài em nộp sau cùng.') : null,
+        canRedo && !dueMs ? h('p', { class: 'muted small' }, 'Em vẫn được sửa và nộp lại cho đến khi thầy cô chốt điểm.') : null,
+        !graded && !canRedo ? h('p', { class: 'muted small' }, 'Đã hết hạn nộp nên không sửa bài được nữa.') : null,
         s.feedback ? h('div', { class: 'feedback' }, h('strong', null, 'Nhận xét của giáo viên'), h('p', { class: 'prewrap' }, s.feedback)) : null));
 
     var general = s.files.filter(function (f) { return f.q === null || f.q === undefined; });
@@ -1798,8 +1982,8 @@
       hasQ ? h('div', { class: 'review' }, d.review.map(function (r, i) { return hwReviewItem(r, i, s, graded, a.id); })) : null,
       s.text ? h('div', { class: 'panel prewrap' }, hasQ ? h('strong', null, 'Lời nhắn: ') : null, s.text) : null,
       general.length ? h('div', { class: 'file-grid' }, general.map(function (f) { return submissionFileTile(s, f); })) : null,
-      !graded ? h('div', { class: 'actions-end' },
-        h('button', { class: 'btn btn-ghost', onclick: function () { fill(box, hasQ ? questionForm(d, s) : submitForm(d, s)); } }, 'Sửa / nộp lại')) : null);
+      canRedo ? h('div', { class: 'actions-end' },
+        h('button', { class: reopened ? 'btn' : 'btn btn-ghost', onclick: function () { fill(box, hasQ ? questionForm(d, s) : submitForm(d, s)); } }, 'Sửa / nộp lại')) : null);
   }
 
   /** Xem lại một câu của bài tập đã nộp (phía học sinh). */
@@ -1980,7 +2164,8 @@
     return h('div', { class: 'q-form' },
       h('div', { class: 'panel mode-note' },
         h('strong', null, s ? 'Sửa bài nộp' : 'Làm bài'), ' · ',
-        'Trắc nghiệm và trả lời ngắn làm ngay trên máy' + (hasEssay ? '; câu tự luận gõ lời giải hoặc chụp ảnh riêng cho từng câu.' : ', được chấm ngay khi nộp.'),
+        'Trắc nghiệm và trả lời ngắn làm ngay trên máy' + (hasEssay ? '; câu tự luận gõ lời giải hoặc chụp ảnh riêng cho từng câu.' : '.') +
+          ' Điểm hiện sau khi thầy cô chốt' + (a.dueAt ? '; trước hạn nộp em được sửa và nộp lại.' : '.'),
         a.file ? [h('br'), 'Có thể bấm ', h('strong', null, 'Xem'), ' ở file đề phía trên để xem đề gốc (hình vẽ, bảng…).'] : null),
       cards,
       h('div', { class: 'panel' },
@@ -2056,7 +2241,8 @@
     var count = function (fn) { return list.filter(fn).length; };
     var isSub = function (x) { return !!x.submission; };
     var isGraded = function (x) { return x.submission && x.submission.status === 'returned'; };
-    var isUngraded = function (x) { return x.submission && x.submission.status !== 'returned'; };
+    var isUngraded = function (x) { return x.submission && x.submission.status === 'submitted'; };
+    var autoOnly = hasQ && !d.fullQuestions.some(function (q) { return q.type === 'essay'; });
     var filters = [
       ['ungraded', 'Chưa chấm', isUngraded],
       ['missing', 'Chưa nộp', function (x) { return !x.submission; }],
@@ -2093,7 +2279,9 @@
           h('span', { class: 'avatar sm' }, initials(x.fullName)),
           h('span', { class: 'student-name' }, x.fullName, x.left ? h('small', { class: 'muted' }, ' (đã rời khóa)') : null),
           h('span', { class: 'muted small' }, meta),
-          s ? (s.status === 'returned' ? h('span', { class: 'pill p-done' }, fmtScore(s.score) + '/' + fmtScore(a.maxScore)) : h('span', { class: 'pill p-wait' }, 'Chấm bài'))
+          s ? (s.status === 'returned' ? h('span', { class: 'pill p-done' }, fmtScore(s.score) + '/' + fmtScore(a.maxScore))
+            : s.status === 'reopened' ? h('span', { class: 'pill p-todo' }, 'Chờ nộp lại')
+              : h('span', { class: 'pill p-wait' }, autoOnly ? 'Chờ chốt' : 'Chấm bài'))
             : h('span', { class: 'pill p-todo' }, 'Chưa nộp'));
       }));
     }
@@ -2109,11 +2297,41 @@
         }))) : null,
       h('div', { class: 'stats' },
         stat(count(isSub) + '/' + list.length, 'Đã nộp'),
-        stat(count(isUngraded), 'Chờ chấm', count(isUngraded) ? 'warn' : ''),
-        stat(count(isGraded), 'Đã chấm'),
+        stat(count(isUngraded), autoOnly ? 'Chờ chốt' : 'Chờ chấm', count(isUngraded) ? 'warn' : ''),
+        stat(count(isGraded), 'Đã chốt điểm'),
         stat(avgScore(list), 'Điểm trung bình')),
+      autoOnly && count(isUngraded) ? finalizeBar() : null,
       chipBar, listBox);
     drawList();
+
+    /** Bài toàn trắc nghiệm / trả lời ngắn: chốt điểm máy chấm cho cả lớp một lần. */
+    function finalizeBar() {
+      var n = count(isUngraded);
+      var open = a.dueAt && Date.now() < new Date(a.dueAt).getTime();
+      var btn = h('button', { class: 'btn' }, '✓ Chốt điểm ' + n + ' bài');
+      btn.addEventListener('click', function () {
+        modal('Chốt điểm ' + n + ' bài?', h('div', null,
+          h('p', null, 'Điểm máy chấm (kể cả câu thầy đã sửa) của ' + n + ' bài đang chờ sẽ được công bố cho học sinh.'),
+          open ? h('p', { class: 'err' }, 'Bài còn hạn nộp đến ' + fmtDateTime(a.dueAt) + ': sau khi chốt, các em này không nộp lại được nữa.') : null,
+          h('p', { class: 'muted small' }, 'Nên mở từng bài xem các câu trả lời ngắn máy chấm Sai trước khi chốt — có thể em viết đúng mà đáp án chưa có cách viết đó.')), function (close) {
+          var ok = h('button', { class: 'btn' }, 'Chốt điểm');
+          ok.addEventListener('click', function () {
+            busy(ok, true, 'Đang chốt…');
+            var ids = list.filter(isUngraded).map(function (x) { return x.submission.id; });
+            api('finalizeAll', { assignmentId: a.id, ids: ids }).then(function (r) {
+              close();
+              toast('Đã chốt điểm ' + r.finalized.length + ' bài.' + (r.skipped ? ' Bỏ qua ' + r.skipped + ' bài chưa đủ điểm.' : ''), 'success');
+              renderAssignment(a.id);
+            }, function (e) { busy(ok, false); toast(e.message, 'error'); });
+          });
+          return [h('button', { class: 'btn btn-ghost', onclick: close }, 'Hủy'), ok];
+        });
+      });
+      return h('div', { class: 'panel finalize-bar' },
+        h('div', null, h('strong', null, n + ' bài máy đã chấm, chờ thầy chốt điểm'),
+          h('p', { class: 'muted small' }, 'Học sinh chưa thấy điểm cho đến khi chốt. Bấm vào tên từng em để xem và sửa điểm nếu máy chấm sai.')),
+        btn);
+    }
   }
 
   function stat(value, label, cls) {
@@ -2158,7 +2376,7 @@
       for (var i = 1; i <= d.students.length; i++) {
         var j = (index + i) % d.students.length;
         var y = d.students[j];
-        if (y.submission && y.submission.status !== 'returned' && j !== index) return j;
+        if (y.submission && y.submission.status === 'submitted' && j !== index) return j;
       }
       return -1;
     };
@@ -2170,13 +2388,14 @@
     var work;
     var side;
 
-    function essayTotal() {
+    var autoInputs = {}; // ô điểm câu trắc nghiệm / trả lời ngắn (máy chấm sẵn, thầy sửa được)
+    function sumInputs(map) {
       var t = 0;
-      Object.keys(essayInputs).forEach(function (i) { var v = Number(String(essayInputs[i].value).replace(',', '.')); if (!isNaN(v)) t += v; });
+      Object.keys(map).forEach(function (i) { var v = Number(String(map[i].value).replace(',', '.')); if (!isNaN(v)) t += v; });
       return t;
     }
     function drawTotal() {
-      totalEl.textContent = fmtScore((s.autoScore || 0) + essayTotal()) + ' / ' + fmtScore(a.maxScore);
+      totalEl.textContent = fmtScore(sumInputs(autoInputs) + sumInputs(essayInputs)) + ' / ' + fmtScore(a.maxScore);
     }
 
     if (hasQ) {
@@ -2189,16 +2408,33 @@
           var ans = answers[i];
           var head = h('div', { class: 'review-head' }, h('span', { class: 'q-num' }, 'Câu ' + (i + 1) + ' · ' + TYPE_LABEL[q.type] + ' · ' + fmtScore(q.points) + 'đ'));
           if (q.type !== 'essay') {
-            var earned = s.itemScores[i] || 0;
-            var ok = earned > 0;
+            var machine = s.auto && s.auto[i] != null ? s.auto[i] : s.itemScores[i] || 0; // điểm máy chấm
+            var ok = machine > 0;
             var said = q.type === 'mc' ? (ans === null || ans === undefined ? '(bỏ trống)' : String.fromCharCode(65 + ans) + '. ' + (q.options[ans] || ''))
               : (ans === null || ans === '' ? '(bỏ trống)' : ans);
             var right = q.type === 'mc' ? String.fromCharCode(65 + q.correct) + '. ' + q.options[q.correct] : q.answers.join(' | ');
-            head.append(h('span', { class: 'pill ' + (ok ? 'p-done' : 'p-bad') }, (ok ? 'Đúng ' : 'Sai ') + fmtScore(earned) + 'đ'));
-            return h('div', { class: 'panel review-item compact ' + (ok ? 'is-ok' : 'is-bad') }, head,
+            head.append(h('span', { class: 'pill ' + (ok ? 'p-done' : 'p-bad') }, 'Máy: ' + (ok ? 'Đúng' : 'Sai')));
+            var cur = s.itemScores[i] != null ? s.itemScores[i] : machine;
+            var ainp = h('input', { type: 'text', inputmode: 'decimal', class: 'essay-score sm', 'aria-label': 'Điểm câu ' + (i + 1), value: String(cur).replace('.', ',') });
+            var row = h('div', { class: 'panel review-item compact ' + (ok ? 'is-ok' : 'is-bad') });
+            var mark = function () {
+              var v = Number(String(ainp.value).replace(',', '.'));
+              row.classList.toggle('overridden', String(ainp.value).trim() !== '' && v !== machine);
+              drawTotal();
+            };
+            ainp.addEventListener('input', mark);
+            autoInputs[i] = ainp;
+            fill(row, head,
               h('p', { class: 'q-text sm prewrap' }, q.text),
               q.image ? qImageEl({ kind: 'assignment', id: a.id, key: q.image }) : null,
-              h('p', { class: 'small' }, 'Học sinh: ', h('strong', { class: ok ? 'ok' : 'err' }, said), ok ? null : [' · Đáp án: ', h('strong', { class: 'ok' }, right)]));
+              h('p', { class: 'small' }, 'Học sinh: ', h('strong', { class: ok ? 'ok' : 'err' }, said), ok ? null : [' · Đáp án: ', h('strong', { class: 'ok' }, right)]),
+              h('div', { class: 'essay-score-row auto-row' },
+                h('span', null, 'Điểm:'), ainp, h('span', { class: 'muted' }, '/ ' + fmtScore(q.points)),
+                h('button', { type: 'button', class: 'chip-btn', onclick: function () { ainp.value = String(q.points).replace('.', ','); mark(); } }, 'Cho đúng'),
+                h('button', { type: 'button', class: 'chip-btn', onclick: function () { ainp.value = '0'; mark(); } }, 'Cho sai'),
+                h('span', { class: 'override-tag' }, 'Thầy đã sửa điểm máy chấm')));
+            mark();
+            return row;
           }
           var inp = h('input', { type: 'text', inputmode: 'decimal', class: 'essay-score', placeholder: '0–' + fmtScore(q.points),
             value: s.itemScores[i] != null ? String(s.itemScores[i]).replace('.', ',') : '' });
@@ -2222,7 +2458,8 @@
         }));
       side = h('div', { class: 'grade-side' },
         h('div', { class: 'total-box' }, h('span', { class: 'muted small' }, 'Tổng điểm'), totalEl,
-          h('span', { class: 'muted small' }, 'Máy chấm ' + fmtScore(s.autoScore || 0) + 'đ + tự luận')),
+          h('span', { class: 'muted small' }, Object.keys(essayInputs).length ? 'Trắc nghiệm, trả lời ngắn + tự luận' : 'Máy đã chấm sẵn, thầy sửa từng câu nếu cần'),
+          s.status !== 'returned' ? h('span', { class: 'pill p-wait' }, 'Học sinh chưa thấy điểm') : null),
         Object.keys(essayInputs).length ? aiPanel() : null,
         field('Nhận xét', fb),
         s.status === 'returned' ? h('p', { class: 'muted small' }, 'Đã chấm ' + fmtDateTime(s.gradedAt) + ' · ' + s.gradedBy) : null);
@@ -2260,7 +2497,7 @@
           stop();
           btn.textContent = '✨ Gemini chấm lại';
           applyAi(r.ai, true);
-          toast('Đã điền điểm Gemini gợi ý. Thầy xem lại từng câu rồi bấm Lưu điểm.', 'success');
+          toast('Đã điền điểm Gemini gợi ý. Thầy xem lại từng câu rồi bấm Chốt điểm.', 'success');
         }, function (e) { stop(); toast(e.message, 'error'); });
       });
       return h('div', { class: 'ai-panel' }, btn,
@@ -2310,24 +2547,28 @@
         var btn = next ? nextBtn : saveBtn;
         var params = { submissionId: s.id, feedback: fb.value };
         if (hasQ) {
-          params.essayScores = {};
+          params.scores = {};
+          Object.keys(autoInputs).forEach(function (i) { params.scores[i] = autoInputs[i].value; });
+          Object.keys(essayInputs).forEach(function (i) { params.scores[i] = essayInputs[i].value; });
+          params.essayScores = {}; // máy chủ cũ chỉ hiểu essayScores
           Object.keys(essayInputs).forEach(function (i) { params.essayScores[i] = essayInputs[i].value; });
         } else params.score = score.value;
-        busy(btn, true, 'Đang lưu…');
+        busy(btn, true, 'Đang chốt…');
         return api('grade', params).then(function (r) {
           if (r.submission.ai === undefined) r.submission.ai = s.ai || null;
           x.submission = r.submission;
           close();
-          toast('Đã lưu điểm cho ' + x.fullName + '.', 'success');
+          toast('Đã chốt điểm cho ' + x.fullName + '. Học sinh đã xem được điểm.', 'success');
           var n = nextUngraded();
           if (next && n >= 0) gradeView(d, n); else drawAssignmentTeacher(d);
         }, function (e) { busy(btn, false); toast(e.message, 'error'); });
       }
-      var saveBtn = h('button', { class: 'btn btn-ghost' }, 'Lưu điểm');
-      var nextBtn = h('button', { class: 'btn' }, 'Lưu & chấm bài tiếp');
+      var again = s.status === 'returned';
+      var saveBtn = h('button', { class: 'btn btn-ghost' }, again ? 'Lưu điểm' : 'Chốt điểm');
+      var nextBtn = h('button', { class: 'btn' }, 'Chốt & chấm bài tiếp');
       saveBtn.addEventListener('click', function () { save(false); });
       nextBtn.addEventListener('click', function () { save(true); });
-      var reopen = s.status === 'returned' ? h('button', { class: 'btn btn-ghost', title: 'Cho học sinh sửa và nộp lại', onclick: function () {
+      var reopen = s.status !== 'reopened' ? h('button', { class: 'btn btn-ghost', title: 'Cho học sinh sửa và nộp lại (kể cả khi đã quá hạn)', onclick: function () {
         api('grade', { submissionId: s.id, reopen: true }).then(function (r) {
           x.submission = r.submission;
           close();
