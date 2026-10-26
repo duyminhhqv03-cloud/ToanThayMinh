@@ -272,7 +272,9 @@ a.card { display: block; }
 .chip-btn.active { background: var(--ink); border-color: var(--ink); color: #fff; }
 .student-list + .chips, .chips.filter + .student-list { margin-top: 12px; }
 
-.topic { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 14px; overflow: hidden; }
+.topic { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 14px; }
+/* Không dùng overflow: hidden ở .topic: nó cắt mất menu ⋯ của mục cuối. Bo góc mục cuối thay cho việc cắt. */
+.topic-items > .item:last-child { border-radius: 0 0 var(--radius) var(--radius); }
 .topic > summary {
   list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px;
   padding: 16px 20px; font-weight: 700; font-size: 17px;
