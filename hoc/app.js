@@ -1096,10 +1096,39 @@
     }));
   }
 
+  /** Khóa so khớp chủ đề: bỏ hoa/thường, dấu cách, gạch nối, chấm phẩy → "Topic 5 - Logic" = "Topic 5 Logic". */
+  function topicKey(t) {
+    return String(t || '').normalize('NFC').toLowerCase().replace(/[\s\-–—_.,:;()\/|]+/g, '');
+  }
+
+  /** Số đầu tiên trong tên chủ đề (Topic 4 → 4, Chủ đề 8-9 → 8); không có số thì xếp sau cùng. */
+  function topicNum(t) {
+    var m = /\d+/.exec(t);
+    return m ? Number(m[0]) : Infinity;
+  }
+
   function topicSort(a, b) {
     if (a === NO_TOPIC) return 1;
     if (b === NO_TOPIC) return -1;
+    var na = topicNum(a), nb = topicNum(b);
+    if (na !== nb) return na < nb ? -1 : 1;
     return a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' });
+  }
+
+  /**
+   * Gom các tên chủ đề viết hơi khác nhau về một tên hiển thị: tên được dùng nhiều nhất,
+   * hòa thì lấy tên dài hơn. Trả về { key: tên hiển thị }.
+   */
+  function topicLabels(names) {
+    var count = {};
+    names.forEach(function (t) { if (t) count[t] = (count[t] || 0) + 1; });
+    var best = {};
+    Object.keys(count).forEach(function (t) {
+      var k = topicKey(t);
+      var cur = best[k];
+      if (!cur || count[t] > count[cur] || (count[t] === count[cur] && t.length > cur.length)) best[k] = t;
+    });
+    return best;
   }
 
   function renderCourse(id) {
@@ -1167,7 +1196,11 @@
         return;
       }
       var groups = {};
-      items.forEach(function (it) { var t = it.x.topic || NO_TOPIC; (groups[t] = groups[t] || []).push(it); });
+      var labels = topicLabels(items.map(function (it) { return it.x.topic; }));
+      items.forEach(function (it) {
+        var t = it.x.topic ? labels[topicKey(it.x.topic)] : NO_TOPIC;
+        (groups[t] = groups[t] || []).push(it);
+      });
       var order = { hw: 0, quiz: 1, doc: 2 };
       fill(content, Object.keys(groups).sort(topicSort).map(function (t) {
         var list = groups[t].sort(function (a, b) { return order[a.kind] - order[b.kind]; });
@@ -1273,7 +1306,7 @@
   function topicInput(topics, value) {
     var listId = 'topics-' + Math.random().toString(36).slice(2);
     var input = h('input', { list: listId, value: value || '', maxlength: '100', placeholder: 'VD: Chủ đề 1: Phân số' });
-    return [input, h('datalist', { id: listId }, (topics || []).slice().sort(topicSort).map(function (t) { return h('option', { value: t }); }))];
+    return [input, h('datalist', { id: listId }, (function (m) { return Object.keys(m).map(function (k) { return m[k]; }); })(topicLabels(topics || [])).sort(topicSort).map(function (t) { return h('option', { value: t }); }))];
   }
 
   /** Thêm tài liệu (doc = null) hoặc sửa tên/nhánh/chủ đề/mô tả. */
