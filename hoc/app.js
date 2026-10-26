@@ -1193,7 +1193,7 @@
         h('h3', null, q.title),
         q.description ? h('p', { class: 'item-desc' }, q.description) : null,
         h('p', { class: 'item-meta' }, info)),
-      h('div', { class: 'item-actions' }, right, h('span', { class: 'chev' }, '›')));
+      h('div', { class: 'item-actions' }, q.gameOnly ? h('span', { class: 'pill p-wait' }, '🎮 Chỉ để đấu') : null, right, h('span', { class: 'chev' }, '›')));
   }
 
   function hwRow(a, edit) {
@@ -2896,7 +2896,10 @@
         })));
       }
     }
-    fill(app, quizHeader(d, tools), chipBar, box);
+    fill(app, quizHeader(d, [
+      q.gameOnly ? h('p', { class: 'head-meta muted small' }, '🎮 Bài này đang ẩn với học sinh – chỉ dùng để đấu cả lớp.') : null,
+      tools
+    ]), chipBar, box);
     draw();
   }
 
@@ -2919,6 +2922,7 @@
     desc.value = existing ? existing.description || '' : '';
     var limit = h('input', { type: 'number', min: '0', max: '300', value: q ? String(q.timeLimit || '') : '', placeholder: '0 = không giới hạn' });
     var show = h('input', { type: 'checkbox', checked: q ? q.showAnswers : true });
+    var gameOnly = h('input', { type: 'checkbox', checked: q ? !!q.gameOnly : false });
     var src = h('textarea', { class: 'quiz-src', rows: '18', spellcheck: 'false', placeholder: window.QuizFormat.SAMPLE });
     src.value = existing ? existing.source || '' : '';
     var preview = h('div', { class: 'quiz-preview' });
@@ -2956,7 +2960,7 @@
       busy(saveBtn, true, 'Đang lưu…');
       api('saveQuiz', {
         id: q ? q.id : undefined, courseId: c.id, title: title.value.trim(), topic: ti[0].value.trim(),
-        description: desc.value.trim(), timeLimit: Number(limit.value || 0), showAnswers: show.checked,
+        description: desc.value.trim(), timeLimit: Number(limit.value || 0), showAnswers: show.checked, gameOnly: gameOnly.checked,
         source: src.value, questions: parsed.questions, newImages: store.newImages(parsed.questions)
       }).then(function (r) {
         dirty = false;
@@ -2975,7 +2979,10 @@
         field('Lời dặn', desc),
         h('div', { class: 'row two' },
           field('Thời gian làm bài (phút)', limit),
-          h('label', { class: 'check big-check' }, show, 'Cho học sinh xem đáp án và lời giải sau khi nộp'))),
+          h('div', { class: 'field' },
+            h('label', { class: 'check' }, show, 'Cho học sinh xem đáp án và lời giải sau khi nộp'),
+            h('label', { class: 'check' }, gameOnly, '🎮 Chỉ dùng để đấu cả lớp (ẩn với học sinh)'),
+            h('small', { class: 'muted small' }, 'Học sinh không thấy và không làm được bài này. Bỏ chọn sau trận đấu để mở cho học sinh luyện tập.')))),
       h('div', { class: 'editor' },
         h('div', { class: 'editor-col' },
           h('div', { class: 'editor-head' },

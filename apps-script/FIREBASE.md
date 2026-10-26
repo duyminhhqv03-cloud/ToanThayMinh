@@ -50,6 +50,7 @@ window.FIREBASE_CONFIG = {
 5. Lưu và đẩy `hoc/config.js` lên GitHub.
 
 ## Cách dùng trên lớp
+- **Soạn đề riêng cho trận đấu:** khi tạo hoặc sửa bài luyện tập, đánh dấu **🎮 Chỉ dùng để đấu cả lớp (ẩn với học sinh)** để học sinh không thấy bài và không làm trước. Đấu xong, giáo viên có thể vào **Sửa đề** rồi bỏ chọn để mở bài cho học sinh tự luyện lại.
 - **Giáo viên (máy tính nối máy chiếu):** mở một bài luyện tập bất kỳ → bấm **🎮 Đấu cả lớp** → chọn thời gian mỗi câu → **Mở phòng**. Mã phòng 6 chữ số sẽ hiện to trên màn chiếu.
 - **Học sinh (điện thoại / máy tính bảng):** đăng nhập Khu học tập → bấm **🎮 Đấu cả lớp** trên thanh menu → nhập mã 6 số → chờ giáo viên bấm **Bắt đầu**.
 - Cuối trận, kết quả xếp hạng được tự động lưu về trang `TranDau` trong Google Sheets (nhớ cập nhật [`Code.gs`](Code.gs) bản mới theo [HUONG-DAN.md](HUONG-DAN.md)).

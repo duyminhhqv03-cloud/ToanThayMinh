@@ -37,7 +37,7 @@ var COLUMNS = {
   docs: ['id', 'courseId', 'title', 'description', 'type', 'fileId', 'fileName', 'mimeType', 'size', 'url', 'uploadedBy', 'uploadedAt', 'topic'],
   assignments: ['id', 'courseId', 'topic', 'title', 'instructions', 'dueAt', 'maxScore', 'fileId', 'fileName', 'mimeType', 'size', 'createdBy', 'createdAt', 'source', 'questions', 'images'],
   submissions: ['id', 'assignmentId', 'courseId', 'username', 'text', 'files', 'submittedAt', 'late', 'status', 'score', 'feedback', 'gradedBy', 'gradedAt', 'answers', 'itemScores', 'autoScore', 'aiSuggest'],
-  quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt', 'images'],
+  quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt', 'images', 'gameOnly'],
   attempts: ['id', 'quizId', 'courseId', 'username', 'answers', 'score', 'total', 'submittedAt'],
   sessions: ['token', 'username', 'expiresAt'],
   fees: ['username', 'courseId', 'month', 'paidAt', 'markedBy', 'note'],
@@ -45,7 +45,7 @@ var COLUMNS = {
 };
 // Đọc nhanh: chỉ lấy các cột đầu, bỏ các cột JSON nặng ở cuối (câu trả lời, điểm từng câu, hình).
 // Chỉ dùng ở các hàm CHỈ ĐỌC (danh sách, trang chủ) – không bao giờ update_ một dòng đọc thiếu cột.
-var LITE_COLS = { submissions: 13, quizzes: 12, assignments: 15 };
+var LITE_COLS = { submissions: 13, quizzes: 14, assignments: 15 };
 // Kết quả các trang danh sách được nhớ trong CacheService tới khi có thao tác ghi (hoặc hết hạn).
 var RESULT_TTL = 300;
 // Các trang tự tạo khi chưa có (để cập nhật code mà không cần chạy lại setup).
@@ -275,14 +275,15 @@ function visibleCourses_(me) {
     .sort(function (a, b) { return Number(a.order) - Number(b.order); })
     .map(function (c) {
       var inCourse = function (r) { return r.courseId === c.id; };
+      var edit = canEdit_(me, c.id);
       return {
         id: c.id,
         name: c.name,
         grade: c.grade,
-        canEdit: canEdit_(me, c.id),
+        canEdit: edit,
         docCount: docs.filter(inCourse).length,
         assignmentCount: asg.filter(inCourse).length,
-        quizCount: quizzes.filter(inCourse).length,
+        quizCount: quizzes.filter(function (q) { return q.courseId === c.id && (edit || q.gameOnly !== '1'); }).length,
         teachers: users
           .filter(function (u) { return u.role === 'teacher' && isActive_(u) && courseIds_(u).indexOf(c.id) >= 0; })
           .map(function (u) { return u.fullName; })
@@ -317,6 +318,7 @@ function courseContent_(me, courseId) {
 
   var attempts = rows_('attempts').filter(inCourse);
   var quizzes = rows_('quizzes', LITE_COLS.quizzes).filter(inCourse)
+    .filter(function (q) { return edit || q.gameOnly !== '1'; })
     .sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; })
     .map(function (q) {
       var o = publicQuizSummary_(q, names);
@@ -1204,7 +1206,8 @@ function saveQuiz_(me, p) {
     timeLimit: String(Math.round(limit)),
     showAnswers: p.showAnswers === false ? '0' : '1',
     updatedAt: now,
-    images: saveImages_(courseId, q ? q.images : '', questions, p.newImages)
+    images: saveImages_(courseId, q ? q.images : '', questions, p.newImages),
+    gameOnly: p.gameOnly ? '1' : '0'
   };
   if (data.questions.length > 48000) throw err_('Đề quá dài. Hãy tách thành nhiều bài luyện tập.');
   if (q) {
@@ -1258,9 +1261,10 @@ function quizDetail_(me, id) {
   var q = findBy_('quizzes', id);
   if (!q) throw err_('Không tìm thấy bài luyện tập.', 404);
   if (!canSee_(me, q.courseId)) throw err_('Bạn chưa được ghi danh vào khóa học này.', 403);
+  var edit = canEdit_(me, q.courseId);
+  if (q.gameOnly === '1' && !edit) throw err_('Bài này chỉ dùng để đấu cả lớp, chưa mở cho học sinh luyện tập.', 403);
   var c = findCourse_(q.courseId);
   var names = userNames_();
-  var edit = canEdit_(me, q.courseId);
   var questions = JSON.parse(q.questions || '[]');
   var out = {
     quiz: publicQuizSummary_(q, names),
@@ -1300,6 +1304,7 @@ function submitQuiz_(me, p) {
   var q = findBy_('quizzes', String(p.quizId || ''));
   if (!q) throw err_('Không tìm thấy bài luyện tập.', 404);
   if (!canSee_(me, q.courseId)) throw err_('Bạn chưa được ghi danh vào khóa học này.', 403);
+  if (q.gameOnly === '1' && !canEdit_(me, q.courseId)) throw err_('Bài này chỉ dùng để đấu cả lớp, chưa mở cho học sinh luyện tập.', 403);
   var questions = JSON.parse(q.questions || '[]');
   var answers = Array.isArray(p.answers) ? p.answers : [];
   var clean = questions.map(function (x, i) {
@@ -1330,6 +1335,7 @@ function attemptDetail_(me, attemptId) {
   if (t.username !== me.username && !canEdit_(me, t.courseId)) throw err_('Bạn không có quyền xem kết quả này.', 403);
   var q = findBy_('quizzes', t.quizId);
   if (!q) throw err_('Bài luyện tập đã bị xóa.', 404);
+  if (q.gameOnly === '1' && !canEdit_(me, q.courseId)) throw err_('Bài này chỉ dùng để đấu cả lớp, chưa mở cho học sinh luyện tập.', 403);
   return reviewAttempt_(q, t);
 }
 
@@ -1861,6 +1867,7 @@ function publicQuizSummary_(q, names) {
     count: n,
     timeLimit: Number(q.timeLimit || 0),
     showAnswers: q.showAnswers !== '0',
+    gameOnly: q.gameOnly === '1',
     createdBy: (names && names[q.createdBy]) || q.createdBy,
     createdAt: q.createdAt
   };
