@@ -51,7 +51,7 @@ window.API_URL = 'https://script.google.com/macros/s/…/exec';
 2. Trong Apps Script: chọn hết code cũ (Ctrl/Cmd + A), dán code mới đè lên, bấm **💾 Lưu**.
 3. **Triển khai → Quản lý các bản triển khai → ✏️ (Chỉnh sửa) → Phiên bản: Phiên bản mới → Triển khai**.
 
-URL giữ nguyên, không phải sửa trang web. Các trang mới trong Google Sheets (`BaiTap`, `BaiNop`, `LuyenTap`, `KetQua`, `HocPhi`) tự được tạo ở lần dùng đầu, không cần chạy lại `setup`.
+URL giữ nguyên, không phải sửa trang web. Các trang mới trong Google Sheets (`BaiTap`, `BaiNop`, `LuyenTap`, `KetQua`, `HocPhi`, `TranDau`) tự được tạo ở lần dùng đầu, không cần chạy lại `setup`.
 
 Nếu trang web báo "Máy chủ chưa được cập nhật bản mới" thì nghĩa là bước 3 chưa làm.
 

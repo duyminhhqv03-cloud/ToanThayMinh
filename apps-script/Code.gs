@@ -10,6 +10,7 @@
  *   BaiNop         – bài nộp của học sinh, điểm và nhận xét
  *   LuyenTap       – đề luyện tập tự chấm
  *   KetQua         – kết quả các lần làm bài luyện tập
+ *   TranDau        – kết quả các trận đấu cả lớp
  *   HocPhi         – học phí đã đóng: mỗi dòng = một học sinh đã đóng một lớp trong một tháng
  *   PhienDangNhap  – phiên đăng nhập (tự dọn khi hết hạn)
  * File nằm trong Google Drive ở chế độ RIÊNG TƯ. Người dùng chỉ tải được qua script này,
@@ -27,7 +28,8 @@ var SHEET_NAMES = {
   quizzes: 'LuyenTap',
   attempts: 'KetQua',
   sessions: 'PhienDangNhap',
-  fees: 'HocPhi'
+  fees: 'HocPhi',
+  matches: 'TranDau'
 };
 var COLUMNS = {
   users: ['username', 'fullName', 'role', 'courses', 'active', 'salt', 'passwordHash', 'createdAt'],
@@ -38,7 +40,8 @@ var COLUMNS = {
   quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt', 'images'],
   attempts: ['id', 'quizId', 'courseId', 'username', 'answers', 'score', 'total', 'submittedAt'],
   sessions: ['token', 'username', 'expiresAt'],
-  fees: ['username', 'courseId', 'month', 'paidAt', 'markedBy', 'note']
+  fees: ['username', 'courseId', 'month', 'paidAt', 'markedBy', 'note'],
+  matches: ['id', 'quizId', 'courseId', 'host', 'playedAt', 'playerCount', 'questionCount', 'results']
 };
 // Đọc nhanh: chỉ lấy các cột đầu, bỏ các cột JSON nặng ở cuối (câu trả lời, điểm từng câu, hình).
 // Chỉ dùng ở các hàm CHỈ ĐỌC (danh sách, trang chủ) – không bao giờ update_ một dòng đọc thiếu cột.
@@ -46,7 +49,7 @@ var LITE_COLS = { submissions: 13, quizzes: 12, assignments: 15 };
 // Kết quả các trang danh sách được nhớ trong CacheService tới khi có thao tác ghi (hoặc hết hạn).
 var RESULT_TTL = 300;
 // Các trang tự tạo khi chưa có (để cập nhật code mà không cần chạy lại setup).
-var AUTO_CREATE = ['docs', 'assignments', 'submissions', 'quizzes', 'attempts', 'sessions', 'fees'];
+var AUTO_CREATE = ['docs', 'assignments', 'submissions', 'quizzes', 'attempts', 'sessions', 'fees', 'matches'];
 var TIME_ZONE = 'Asia/Ho_Chi_Minh';
 
 var DEFAULT_COURSES = [
@@ -164,6 +167,7 @@ function handle_(p) {
     case 'deleteQuiz': return withLock_(function () { return deleteQuiz_(me, id); });
     case 'submitQuiz': return withLock_(function () { return submitQuiz_(me, p); });
     case 'attempt': return attemptDetail_(me, String(p.attemptId || ''));
+    case 'saveMatch': return withLock_(function () { return saveMatch_(me, p); });
   }
 
   if (me.role !== 'admin') throw err_('Chỉ admin mới làm được thao tác này.', 403);
@@ -1380,6 +1384,40 @@ function deleteQuiz_(me, id) {
   trashImages_(q.images);
   delete_('quizzes', findBy_('quizzes', id));
   return {};
+}
+
+/** Lưu kết quả cuối trận đấu cả lớp vào trang TranDau. */
+function saveMatch_(me, p) {
+  var q = findBy_('quizzes', String(p.quizId || ''));
+  if (!q) throw err_('Không tìm thấy bài luyện tập.', 404);
+  requireEdit_(me, q.courseId);
+  var raw = Array.isArray(p.results) ? p.results : [];
+  if (raw.length > 300) throw err_('Danh sách người chơi quá lớn (tối đa 300).');
+  var results = raw.map(function (r, i) {
+    return {
+      username: clean_(r && r.username, 60),
+      fullName: clean_(r && r.fullName, 100),
+      score: Math.max(0, Math.min(1000000, Math.round(Number((r && r.score) || 0)))),
+      correctCount: Math.max(0, Math.min(500, Math.round(Number((r && r.correctCount) || 0)))),
+      rank: Math.max(1, Math.min(1000, Math.round(Number((r && r.rank) || (i + 1)))))
+    };
+  });
+  var json = JSON.stringify(results);
+  if (json.length > 48000) throw err_('Dữ liệu kết quả quá lớn.');
+  var qCount = Math.max(0, Math.min(500, Math.round(Number(p.questionCount || JSON.parse(q.questions || '[]').length || 0))));
+  var pCount = Math.max(0, Math.min(300, Math.round(Number(p.playerCount !== undefined ? p.playerCount : results.length))));
+  var m = {
+    id: Utilities.getUuid(),
+    quizId: q.id,
+    courseId: q.courseId,
+    host: me.username,
+    playedAt: new Date().toISOString(),
+    playerCount: String(pCount),
+    questionCount: String(qCount),
+    results: json
+  };
+  append_('matches', m);
+  return { id: m.id };
 }
 
 /* ───────────────────────── Hình trong câu hỏi ───────────────────────── */

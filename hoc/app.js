@@ -804,7 +804,7 @@
     if (!token) return renderLogin();
     if (!me) return boot();
     var parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
-    if (parts[0] && ['khoa', 'bai', 'luyen', 'soan-de', 'giao-bai', 'tai-khoan', 'hoc-phi'].indexOf(parts[0]) >= 0) refreshMe();
+    if (parts[0] && ['khoa', 'bai', 'luyen', 'soan-de', 'giao-bai', 'tai-khoan', 'hoc-phi', 'dau', 'dau-host'].indexOf(parts[0]) >= 0) refreshMe();
     window.scrollTo(0, 0);
     switch (parts[0]) {
       case 'khoa': if (parts[1]) return renderCourse(parts[1]); break;
@@ -812,6 +812,14 @@
       case 'luyen': if (parts[1]) return renderQuiz(parts[1]); break;
       case 'soan-de': return renderQuizEditor(parts[1], parts[2]);
       case 'giao-bai': return renderAssignmentEditor(parts[1], parts[2]);
+      case 'dau-host':
+        if (!window.TTMGame) return;
+        if (parts[1]) return window.TTMGame.renderHost(parts[1]);
+        break;
+      case 'dau':
+        if (!window.TTMGame) return;
+        if (parts[1]) return window.TTMGame.renderPlay(parts[1]);
+        return window.TTMGame.renderJoin();
       case 'tai-khoan': if (me.role === 'admin') return renderUsers(); break;
       case 'hoc-phi': if (me.role === 'admin') return renderFees(parts[1]); break;
     }
@@ -866,7 +874,10 @@
       fill(navUser, h('a', { href: '../', class: 'nav-link' }, '← Trang chủ'));
       return;
     }
-    var links = [h('a', { href: '#/', class: 'nav-link' }, 'Khóa học')];
+    var links = [
+      h('a', { href: '#/', class: 'nav-link' }, 'Khóa học'),
+      h('a', { href: '#/dau', class: 'nav-link' }, '🎮 Đấu cả lớp')
+    ];
     if (me.role === 'admin') {
       links.push(h('a', { href: '#/hoc-phi', class: 'nav-link' }, 'Học phí'));
       links.push(h('a', { href: '#/tai-khoan', class: 'nav-link' }, 'Tài khoản'));
@@ -880,6 +891,7 @@
           h('span', { class: 'role-badge role-' + me.role }, ROLE_LABEL[me.role] || me.role)),
         h('div', { class: 'user-menu-list' },
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/'); } }, 'Khóa học'),
+          h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/dau'); } }, '🎮 Đấu cả lớp'),
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/hoc-phi'); } }, 'Thống kê & học phí') : null,
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tai-khoan'); } }, 'Quản lý tài khoản') : null,
           h('button', { onclick: function (e) { closeMenu(e); changePassword(); } }, 'Đổi mật khẩu'),
@@ -2848,7 +2860,8 @@
     var box = h('div');
     var chipBar = h('div', { class: 'chips filter' });
     var tools = h('div', { class: 'head-tools' },
-      h('button', { class: 'btn btn-sm', onclick: function () { takeQuiz(d); } }, 'Làm thử'),
+      h('button', { class: 'btn btn-sm', onclick: function () { go('#/dau-host/' + encodeURIComponent(q.id)); } }, '🎮 Đấu cả lớp'),
+      h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { takeQuiz(d); } }, 'Làm thử'),
       h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { go('#/soan-de/' + encodeURIComponent(d.course.id) + '/' + q.id); } }, 'Sửa đề'),
       h('button', { class: 'btn btn-sm btn-ghost danger-text', onclick: function () {
         confirmBox('Xóa bài luyện tập?', 'Xóa "' + q.title + '" cùng toàn bộ kết quả làm bài của học sinh.', 'Xóa', function () {
@@ -3474,6 +3487,30 @@
       });
     });
   }
+
+  window.TTM = {
+    app: app,
+    h: h,
+    fill: fill,
+    append: append,
+    toast: toast,
+    busy: busy,
+    loading: loading,
+    errorBox: errorBox,
+    modal: modal,
+    confirmBox: confirmBox,
+    api: api,
+    go: go,
+    route: route,
+    setLeaveGuard: setLeaveGuard,
+    qImageEl: qImageEl,
+    copy: copy,
+    fmtScore: fmtScore,
+    store: store,
+    getMe: function () { return me; },
+    getSeq: function () { return routeSeq; },
+    isCurrent: function (seq) { return seq === routeSeq; }
+  };
 
   route();
   setTimeout(fileCache.prune, 8000);

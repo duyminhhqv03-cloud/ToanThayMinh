@@ -132,6 +132,30 @@
     return s;
   }
 
+  function normAnswer(s) {
+    return String(s).normalize('NFC').toLowerCase().replace(/\s+/g, '').replace(/,/g, '.').replace(/\.$/, '');
+  }
+
+  function numPart(s) {
+    var m = /^(-?\d+(?:\.\d+)?(?:\/\d+)?)([a-zà-ỹđ²³]*)$/.exec(s);
+    return m ? { num: m[1], unit: m[2] } : null;
+  }
+
+  /** So khớp câu trả lời (trắc nghiệm hoặc trả lời ngắn), giống isCorrect_ của Code.gs. */
+  function isCorrect(x, a) {
+    if (!x || a === null || a === undefined || a === '') return false;
+    if (x.type === 'mc') return Number(a) === Number(x.correct);
+    var v = normAnswer(a);
+    var vn = numPart(v);
+    return (x.answers || []).some(function (ans) {
+      var k = normAnswer(ans);
+      if (k === v) return true;
+      // "24" khớp "24cm", "0.75" khớp "0,75kg": cùng con số, chỉ khác đơn vị (hoặc thiếu đơn vị).
+      var kn = numPart(k);
+      return vn !== null && kn !== null && vn.num === kn.num && (!vn.unit || !kn.unit || vn.unit === kn.unit);
+    });
+  }
+
   var SAMPLE = [
     'Câu 1: Kết quả của phép tính 3/4 + 1/4 là:',
     'A. 4/8',
@@ -422,7 +446,7 @@
     return { source: toSource(questions), count: questions.length, keyed: keyed, hasKey: !!keyLines, groups: groups };
   }
 
-  var api = { parse: parse, summary: summary, toSource: toSource, spreadPoints: spreadPoints, fromText: fromText, questionStarts: questionStarts, plainMath: plainMath, PAGE_MARK: PAGE_MARK, RANGE: RANGE, SAMPLE: SAMPLE, SAMPLE_HW: SAMPLE_HW };
+  var api = { parse: parse, summary: summary, isCorrect: isCorrect, toSource: toSource, spreadPoints: spreadPoints, fromText: fromText, questionStarts: questionStarts, plainMath: plainMath, PAGE_MARK: PAGE_MARK, RANGE: RANGE, SAMPLE: SAMPLE, SAMPLE_HW: SAMPLE_HW };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.QuizFormat = api;
 })(this);

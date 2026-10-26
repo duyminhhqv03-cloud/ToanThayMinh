@@ -675,3 +675,200 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
 .total-box .pill { margin-top: 6px; justify-self: start; }
 .dl-chips-in { display: contents; }
 .deadline input.dl-num { color: #7ef0c7 !important; -webkit-text-fill-color: #7ef0c7; opacity: 1; }
+
+/* ───────── Đấu cả lớp (kiểu Kahoot) ───────── */
+.game-join-wrap { display: grid; place-items: center; min-height: calc(100vh - 200px); }
+.game-join-card { width: 100%; max-width: 440px; text-align: center; padding: 34px 28px; box-shadow: 0 20px 50px rgba(18,32,28,.06); }
+.game-join-card h1 { font-size: 28px; margin: 6px 0; }
+.game-join-form { margin-top: 22px; text-align: left; }
+.game-badge {
+  display: inline-block; padding: 5px 14px; border-radius: 999px; font-weight: 700; font-size: 13.5px;
+  background: #eafaf4; color: var(--brand-dark); margin-bottom: 6px;
+}
+.pin-input {
+  font: 800 34px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  text-align: center; letter-spacing: 8px; padding: 14px !important;
+}
+
+/* Giáo viên (máy chiếu) */
+.game-setup-panel { max-width: 680px; }
+.game-host-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.game-host-top h1, .game-host-top h2 { margin: 4px 0 0; }
+.game-count-pill { font-size: 15px; padding: 6px 14px; }
+.game-timer { font-size: 22px; padding: 8px 18px; }
+
+.game-lobby-hero {
+  text-align: center; padding: 34px 24px;
+  background: linear-gradient(135deg, #12201c 0%, #0b533e 100%); color: #fff; border: 0;
+}
+.game-lobby-step { font-size: clamp(16px, 2.2vw, 21px); font-weight: 600; color: #b9efe0; margin: 0 0 10px; }
+.game-pin {
+  display: inline-block; cursor: pointer; user-select: select-all;
+  font: 800 clamp(46px, 8vw, 84px)/1.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 6px; padding: 14px 32px; margin: 6px 0 12px; border-radius: 20px;
+  background: rgba(255,255,255,.12); color: #7ef0c7; border: 2px solid rgba(126,240,199,.35);
+  text-shadow: 0 4px 20px rgba(0,0,0,.35);
+}
+.game-lobby-hero .muted { color: rgba(255,255,255,.72); margin: 0; }
+.game-players { display: flex; flex-wrap: wrap; gap: 10px; min-height: 48px; align-items: center; }
+.game-player-chip {
+  font-weight: 700; font-size: 16px; padding: 8px 16px; border-radius: 999px;
+  background: #eafaf4; color: var(--brand-dark); border: 1.5px solid #bfe9da;
+  animation: fade .2s ease-out;
+}
+
+.game-q-panel { text-align: center; padding: 28px 24px; }
+.game-q-panel.compact { padding: 20px 22px; text-align: left; }
+.game-q-panel .q-img { margin: 14px auto 4px; max-height: 320px; width: auto; max-width: 100%; }
+.game-q-panel .q-img img { max-height: 300px; width: auto; max-width: 100%; margin: 0 auto; object-fit: contain; }
+.game-q-text { font-size: clamp(22px, 3vw, 34px); font-weight: 800; line-height: 1.38; margin: 0; }
+.game-q-text.sm { font-size: clamp(19px, 2.2vw, 24px); }
+
+.game-mc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+.game-opt {
+  display: flex; align-items: center; gap: 14px; padding: 20px 22px; border-radius: 16px;
+  background: var(--opt-bg, var(--brand)); color: #fff; font-size: clamp(18px, 2.2vw, 24px); font-weight: 700;
+  box-shadow: 0 6px 0 rgba(0,0,0,.18); min-height: 78px; transition: opacity .2s, transform .2s;
+}
+.game-opt-sym {
+  flex: none; width: 42px; height: 42px; border-radius: 10px; background: rgba(0,0,0,.2);
+  display: grid; place-items: center; font-size: 22px; line-height: 1;
+}
+.game-opt-letter { font-weight: 800; opacity: .9; }
+.game-opt-text { flex: 1; overflow-wrap: anywhere; line-height: 1.3; }
+.game-opt-check {
+  flex: none; background: #fff; color: var(--ink); font-size: 14px; font-weight: 800;
+  padding: 4px 11px; border-radius: 999px;
+}
+.game-mc-reveal .game-opt.is-dim { opacity: .32; filter: grayscale(.25); box-shadow: none; }
+.game-mc-reveal .game-opt.is-correct {
+  box-shadow: 0 0 0 4px #fff, 0 0 0 8px var(--opt-bg, var(--brand)); transform: translateY(-2px);
+}
+.game-short-banner { text-align: center; font-size: 18px; font-weight: 600; color: var(--muted); padding: 26px; }
+.game-short-correct {
+  text-align: center; font-size: clamp(20px, 2.5vw, 26px); background: #eafaf4; border-color: #9fdcc6;
+  color: var(--brand-dark);
+}
+
+/* Biểu đồ cột & Top 5 */
+.game-reveal-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+.game-subhead { font-size: 18px; margin: 0 0 14px; }
+.game-chart {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 12px;
+  align-items: end; height: 210px; padding: 12px 8px 0;
+}
+.game-col { display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; gap: 6px; }
+.game-col-count { font-weight: 800; font-size: 16px; color: var(--muted); }
+.game-col.is-correct .game-col-count { color: var(--brand-dark); font-size: 18px; }
+.game-col-track { width: 100%; max-width: 76px; flex: 1; display: flex; align-items: flex-end; }
+.game-col-bar {
+  width: 100%; background: var(--opt-bg, var(--brand)); border-radius: 10px 10px 4px 4px;
+  min-height: 8px; transition: height .35s ease-out;
+}
+.game-col-label {
+  font-weight: 800; font-size: 13.5px; color: #fff; background: var(--opt-bg, var(--brand));
+  padding: 4px 10px; border-radius: 8px; white-space: nowrap;
+}
+
+.game-top-list { display: grid; gap: 8px; }
+.game-top-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  background: var(--bg-alt); border-radius: 12px; border: 1px solid var(--line);
+}
+.game-top-rank { font-weight: 800; color: var(--brand-dark); min-width: 30px; }
+.game-top-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Bục vinh quang */
+.game-podium-panel { background: linear-gradient(180deg, #fff 0%, #f3fbf8 100%); padding-bottom: 0; overflow: hidden; }
+.game-podium {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: end;
+  max-width: 720px; margin: 12px auto 0; text-align: center;
+}
+.game-podium-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.game-podium-col.empty { visibility: hidden; }
+.game-podium-medal { font-size: 44px; line-height: 1; }
+.podium-1 .game-podium-medal { font-size: 56px; }
+.game-podium-name { font-size: 18px; overflow-wrap: anywhere; }
+.podium-1 .game-podium-name { font-size: 21px; }
+.game-podium-score { font-weight: 800; color: var(--brand-dark); font-size: 16px; }
+.game-podium-pedestal {
+  width: 100%; margin-top: 10px; border-radius: 14px 14px 0 0; font-weight: 800; color: #fff;
+  display: grid; place-items: center; padding: 14px 8px;
+}
+.podium-1 .game-podium-pedestal { height: 120px; background: linear-gradient(180deg, #f59e0b, #d97706); font-size: 18px; }
+.podium-2 .game-podium-pedestal { height: 90px; background: linear-gradient(180deg, #64748b, #475569); }
+.podium-3 .game-podium-pedestal { height: 72px; background: linear-gradient(180deg, #d97706, #9a3412); }
+.game-save-status { display: flex; align-items: center; gap: 8px; }
+.game-save-status .loading { padding: 0; }
+
+/* Học sinh (điện thoại) */
+.game-student-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.game-lobby-student, .game-sent-box, .game-reveal-student, .game-end-student {
+  text-align: center; padding: 32px 20px; display: grid; gap: 10px; justify-items: center;
+}
+.game-status-icon { font-size: 44px; line-height: 1; }
+.game-self-box {
+  display: grid; gap: 2px; padding: 12px 24px; border-radius: 14px;
+  background: var(--bg-alt); border: 1px solid var(--line); margin: 6px 0;
+}
+.game-self-box strong { font-size: 19px; }
+
+.game-student-q { padding: 16px 18px; margin-bottom: 12px; }
+.game-q-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.game-student-qtext { font-size: clamp(17.5px, 4.4vw, 21px); font-weight: 700; line-height: 1.4; margin: 0; }
+.game-student-q .q-img { max-width: 420px; margin: 10px auto 0; }
+
+.game-pad-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  min-height: min(46vh, 380px);
+}
+.game-pad-btn {
+  border: 0; border-radius: 18px; padding: 16px 14px; cursor: pointer;
+  background: var(--opt-bg, var(--brand)); color: #fff; font: inherit;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  text-align: center; box-shadow: 0 6px 0 rgba(0,0,0,.2);
+  transition: transform .1s, filter .15s; min-height: 120px;
+}
+.game-pad-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0,0,0,.2); }
+.game-pad-head { display: flex; align-items: center; gap: 8px; font-size: 22px; font-weight: 800; }
+.game-pad-sym {
+  width: 36px; height: 36px; border-radius: 10px; background: rgba(0,0,0,.2);
+  display: grid; place-items: center; font-size: 20px;
+}
+.game-pad-text { font-size: 16px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.game-short-form { justify-items: center; padding: 22px 18px; }
+.game-short-input { text-align: center; max-width: 100% !important; }
+
+.game-reveal-student.is-ok { border-color: #9fdcc6; background: #f6fcf9; }
+.game-reveal-student.is-bad { border-color: #f5c2b8; background: #fdf5f3; }
+.game-verdict-icon { font-size: 52px; line-height: 1; }
+.game-gain-badge {
+  font-size: 24px; font-weight: 800; padding: 6px 20px; border-radius: 999px;
+}
+.game-gain-badge.ok { background: var(--brand); color: #fff; }
+.game-gain-badge.bad { background: #fdecea; color: #c0361b; }
+.game-streak-pill {
+  font-weight: 700; font-size: 15px; padding: 5px 14px; border-radius: 999px;
+  background: #fff1e0; color: #b45309; border: 1px solid #ffd8a8;
+}
+.game-correct-note { margin: 4px 0; font-size: 16px; }
+.game-student-stats { width: 100%; max-width: 520px; margin: 8px 0 4px; }
+.game-medal-big { font-size: 64px; line-height: 1; }
+
+@media (max-width: 820px) {
+  .game-reveal-grid { grid-template-columns: 1fr; }
+  .game-mc-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .game-podium { gap: 8px; }
+  .game-podium-name { font-size: 14.5px; }
+  .podium-1 .game-podium-name { font-size: 16px; }
+  .game-pad-btn { min-height: 110px; padding: 12px 10px; }
+  .game-pad-text { font-size: 15px; }
+}
