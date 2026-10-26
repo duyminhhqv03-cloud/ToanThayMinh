@@ -1018,6 +1018,7 @@
   }
 
   function renderTodo(box, items) {
+    var courseLabel = function (i) { return (i.branch ? i.branch + ' · ' : '') + i.courseName + ' · ' + i.courseGrade; };
     if (me.role === 'student') {
       var todo = items.filter(function (i) { return i.my.status === 'todo' || i.my.status === 'reopened'; })
         .sort(function (a, b) { return (a.dueAt || '9') < (b.dueAt || '9') ? -1 : 1; });
@@ -1028,13 +1029,13 @@
         todo.length ? h('div', { class: 'task-list' }, todo.map(function (i) {
           return h('a', { class: 'task', href: '#/bai/' + i.id },
             h('span', { class: 'kind k-hw' }, 'BÀI TẬP'),
-            h('div', { class: 'task-main' }, h('strong', null, i.title), h('span', { class: 'muted small' }, i.courseName + ' · ' + i.courseGrade)),
+            h('div', { class: 'task-main' }, h('strong', null, i.title), h('span', { class: 'muted small' }, courseLabel(i))),
             dueBadge(i.dueAt, false));
         })) : h('p', { class: 'panel ok-panel' }, '🎉 Em đã nộp hết bài tập. Giỏi lắm!'),
         graded.length ? h('div', { class: 'task-list compact' }, graded.map(function (i) {
           return h('a', { class: 'task', href: '#/bai/' + i.id },
             h('span', { class: 'kind k-done' }, 'ĐÃ CHẤM'),
-            h('div', { class: 'task-main' }, h('strong', null, i.title), h('span', { class: 'muted small' }, i.courseName)),
+            h('div', { class: 'task-main' }, h('strong', null, i.title), h('span', { class: 'muted small' }, (i.branch ? i.branch + ' · ' : '') + i.courseName)),
             statusPill(i.my, i.maxScore));
         })) : null);
     } else if (items.length) {
@@ -1043,7 +1044,7 @@
         h('div', { class: 'task-list' }, items.map(function (i) {
           return h('a', { class: 'task', href: '#/bai/' + i.id },
             h('span', { class: 'kind k-hw' }, 'CHẤM'),
-            h('div', { class: 'task-main' }, h('strong', null, i.title), h('span', { class: 'muted small' }, i.courseName + ' · ' + i.courseGrade)),
+            h('div', { class: 'task-main' }, h('strong', null, i.title), h('span', { class: 'muted small' }, courseLabel(i))),
             h('span', { class: 'pill p-wait' }, i.stats.ungraded + ' bài chưa chấm'));
         })));
     }
@@ -1054,6 +1055,7 @@
     return h('a', { class: 'card course', href: '#/khoa/' + encodeURIComponent(c.id), style: '--c:' + COURSE_COLORS[i % COURSE_COLORS.length] },
       h('span', { class: 'tag' }, c.grade),
       h('h3', null, c.name),
+      c.branches && c.branches.length ? h('p', { class: 'course-branches' }, c.branches.join(' · ')) : null,
       h('p', null, c.teachers.length ? c.teachers.join(', ') : 'Chưa phân giáo viên'),
       h('p', { class: 'course-meta' }, bits.join(' · '),
         c.canEdit && me.role !== 'student' ? h('span', { class: 'pill p-blue' }, 'Bạn quản lý') : null));
@@ -1067,6 +1069,32 @@
   /* ═════════ Trang khóa học: chủ đề → tài liệu, luyện tập, bài tập ═════════ */
 
   var courseFilter = 'all';
+  var courseBranch = {};
+
+  /** Nhánh đang chọn của khóa c (nhớ trong bộ nhớ và localStorage, mặc định nhánh đầu). */
+  function activeBranch(c) {
+    var list = (c && c.branches) || [];
+    if (!list.length) return '';
+    var b = courseBranch[c.id] || store.get('ttm_branch:' + c.id) || '';
+    if (list.indexOf(b) < 0) b = list[0];
+    courseBranch[c.id] = b;
+    return b;
+  }
+
+  function setActiveBranch(courseId, b) {
+    courseBranch[courseId] = b;
+    store.set('ttm_branch:' + courseId, b);
+  }
+
+  /** Ô chọn nhánh cho khóa có chia nhánh (trả null nếu khóa không chia nhánh). */
+  function branchSelect(c, val) {
+    var list = (c && c.branches) || [];
+    if (!list.length) return null;
+    var cur = val && list.indexOf(val) >= 0 ? val : activeBranch(c);
+    return h('select', null, list.map(function (b) {
+      return h('option', { value: b, selected: b === cur }, b);
+    }));
+  }
 
   function topicSort(a, b) {
     if (a === NO_TOPIC) return 1;
@@ -1086,6 +1114,8 @@
   function drawCourse(d) {
     var c = d.course;
     var edit = c.canEdit;
+    var branches = c.branches || [];
+    var curBranch = activeBranch(c);
     // Sau khi sửa: vẽ lại ngay (kèm thay đổi đã biết, vd. tài liệu vừa xóa) rồi lấy dữ liệu mới ở phía sau.
     var reload = function (change) {
       if (change) change(d);
@@ -1093,10 +1123,33 @@
       renderCourse(c.id);
     };
 
-    var filters = [['all', 'Tất cả'], ['doc', 'Tài liệu (' + d.docs.length + ')'], ['quiz', 'Luyện tập (' + d.quizzes.length + ')'], ['hw', 'Bài tập (' + d.assignments.length + ')']];
+    function inBranch(x) {
+      if (!branches.length) return true;
+      var b = branches.indexOf(x.branch) >= 0 ? x.branch : branches[0];
+      return b === curBranch;
+    }
+
+    var branchBar = branches.length ? h('div', { class: 'branch-tabs', role: 'tablist', style: '--c:' + courseColor(c.id) }) : null;
     var content = h('div');
     var chipBar = h('div', { class: 'chips filter' });
+
+    function drawBranches() {
+      if (!branchBar) return;
+      fill(branchBar, branches.map(function (b) {
+        var on = b === curBranch;
+        return h('button', {
+          type: 'button', role: 'tab', 'aria-selected': on ? 'true' : 'false',
+          class: 'branch-tab' + (on ? ' active' : ''),
+          onclick: function () { curBranch = b; setActiveBranch(c.id, b); drawBranches(); drawFilters(); drawContent(); }
+        }, b);
+      }));
+    }
+
     function drawFilters() {
+      var nDoc = d.docs.filter(inBranch).length;
+      var nQuiz = d.quizzes.filter(inBranch).length;
+      var nHw = d.assignments.filter(inBranch).length;
+      var filters = [['all', 'Tất cả'], ['doc', 'Tài liệu (' + nDoc + ')'], ['quiz', 'Luyện tập (' + nQuiz + ')'], ['hw', 'Bài tập (' + nHw + ')']];
       fill(chipBar, filters.map(function (f) {
         return h('button', { class: 'chip-btn' + (courseFilter === f[0] ? ' active' : ''), onclick: function () { courseFilter = f[0]; drawFilters(); drawContent(); } }, f[1]);
       }));
@@ -1104,12 +1157,12 @@
 
     function drawContent() {
       var items = [];
-      if (courseFilter === 'all' || courseFilter === 'doc') d.docs.forEach(function (x) { items.push({ kind: 'doc', x: x }); });
-      if (courseFilter === 'all' || courseFilter === 'quiz') d.quizzes.forEach(function (x) { items.push({ kind: 'quiz', x: x }); });
-      if (courseFilter === 'all' || courseFilter === 'hw') d.assignments.forEach(function (x) { items.push({ kind: 'hw', x: x }); });
+      if (courseFilter === 'all' || courseFilter === 'doc') d.docs.filter(inBranch).forEach(function (x) { items.push({ kind: 'doc', x: x }); });
+      if (courseFilter === 'all' || courseFilter === 'quiz') d.quizzes.filter(inBranch).forEach(function (x) { items.push({ kind: 'quiz', x: x }); });
+      if (courseFilter === 'all' || courseFilter === 'hw') d.assignments.filter(inBranch).forEach(function (x) { items.push({ kind: 'hw', x: x }); });
       if (!items.length) {
         fill(content, h('div', { class: 'panel empty' },
-          h('p', null, 'Chưa có nội dung nào' + (courseFilter === 'all' ? ' trong khóa này.' : ' ở mục này.')),
+          h('p', null, 'Chưa có nội dung nào' + (courseFilter === 'all' ? (branches.length ? ' trong nhánh ' + curBranch + '.' : ' trong khóa này.') : ' ở mục này.')),
           edit ? h('p', { class: 'muted' }, 'Dùng các nút "+ Tài liệu", "+ Luyện tập", "+ Bài tập" ở trên để thêm.') : null));
         return;
       }
@@ -1121,7 +1174,7 @@
         return h('details', { class: 'topic', open: true },
           h('summary', null, h('span', { class: 'topic-name' }, t), h('span', { class: 'topic-count' }, list.length + ' mục')),
           h('div', { class: 'topic-items' }, list.map(function (it) {
-            if (it.kind === 'doc') return docRow(it.x, edit, d.topics, reload);
+            if (it.kind === 'doc') return docRow(it.x, c, d.topics, reload);
             if (it.kind === 'quiz') return quizRow(it.x, edit);
             return hwRow(it.x, edit);
           })));
@@ -1138,8 +1191,10 @@
       h('div', { class: 'page-head course-head', style: '--c:' + courseColor(c.id) },
         h('span', { class: 'tag' }, c.grade),
         h('h1', null, c.name)),
+      branchBar,
       h('div', { class: 'course-tools' }, chipBar, adds),
       content);
+    drawBranches();
     drawFilters();
     drawContent();
   }
@@ -1152,7 +1207,8 @@
       })));
   }
 
-  function docRow(doc, edit, topics, reload) {
+  function docRow(doc, c, topics, reload) {
+    var edit = c.canEdit;
     var kind = doc.type === 'link' ? (/youtu\.?be/i.test(doc.url) ? ['VIDEO', 'k-video'] : ['LINK', 'k-link']) : fileKind(doc.mimeType, doc.fileName);
     var fetcher = function () { return api('file', { id: doc.id }); };
     var actions = doc.type === 'link'
@@ -1160,7 +1216,7 @@
       : fileButtons(doc.title, { mimeType: doc.mimeType, name: doc.fileName }, 'doc:' + doc.id, fetcher);
     if (edit) {
       actions.push(rowMenu([
-        ['Sửa tên / chủ đề', function () { docForm({ id: doc.courseId }, topics, doc, reload); }],
+        ['Sửa tên / chủ đề', function () { docForm(c, topics, doc, reload); }],
         ['Xóa tài liệu', function () {
           confirmBox('Xóa tài liệu?', 'Tài liệu "' + doc.title + '" sẽ bị xóa khỏi khóa học. File gốc được chuyển vào Thùng rác của Google Drive.', 'Xóa', function () {
             return api('deleteDoc', { id: doc.id }).then(function () {
@@ -1220,9 +1276,10 @@
     return [input, h('datalist', { id: listId }, (topics || []).slice().sort(topicSort).map(function (t) { return h('option', { value: t }); }))];
   }
 
-  /** Thêm tài liệu (doc = null) hoặc sửa tên/chủ đề/mô tả. */
+  /** Thêm tài liệu (doc = null) hoặc sửa tên/nhánh/chủ đề/mô tả. */
   function docForm(c, topics, doc, onDone) {
     var mode = 'file';
+    var br = branchSelect(c, doc ? doc.branch : '');
     var ti = topicInput(topics, doc ? doc.topic : '');
     var title = h('input', { maxlength: '200', value: doc ? doc.title : '', placeholder: 'VD: Bài 3 – Phân số (lý thuyết + bài tập)' });
     var desc = h('textarea', { rows: '2', maxlength: '2000', placeholder: 'Ghi chú cho học sinh (không bắt buộc)' });
@@ -1251,6 +1308,7 @@
     var body = h('div', { class: 'form' },
       doc ? null : h('div', { class: 'segmented' }, tabFile, tabLink),
       doc ? null : fileField, doc ? null : urlField,
+      br ? field('Nhánh', br) : null,
       field('Tiêu đề', title),
       field('Chủ đề', ti, 'Chọn chủ đề có sẵn hoặc gõ tên chủ đề mới.'),
       field('Mô tả', desc));
@@ -1258,7 +1316,7 @@
     modal(doc ? 'Sửa tài liệu' : 'Thêm tài liệu', body, function (close) {
       var ok = h('button', { class: 'btn' }, doc ? 'Lưu' : 'Đăng tài liệu');
       ok.addEventListener('click', function () {
-        var params = { courseId: c.id, title: title.value.trim(), description: desc.value.trim(), topic: ti[0].value.trim() };
+        var params = { courseId: c.id, title: title.value.trim(), description: desc.value.trim(), topic: ti[0].value.trim(), branch: br ? br.value : '' };
         var job;
         if (doc) {
           if (!params.title) return toast('Vui lòng nhập tiêu đề.', 'error');
@@ -1282,6 +1340,8 @@
         job.then(function () {
           close();
           toast(doc ? 'Đã lưu.' : 'Đã đăng tài liệu.', 'success');
+          if (doc) { doc.title = params.title; doc.description = params.description; doc.topic = params.topic; if (br) doc.branch = br.value; }
+          else if (br) setActiveBranch(c.id, br.value);
           onDone();
         }, function (err) { busy(ok, false); toast(err.message, 'error'); });
       });
@@ -1768,6 +1828,7 @@
     var c = cd.course;
     if (!c.canEdit) return fill(app, errorBox('Bạn không có quyền giao bài cho khóa này.'));
     var a = ex ? ex.assignment : null;
+    var br = branchSelect(c, a ? (a.branch || ex.branch) : '');
     var ti = topicInput(cd.topics, a ? a.topic : '');
     var title = h('input', { maxlength: '200', value: a ? a.title : '', placeholder: 'VD: Bài tập về nhà – Chủ đề 4' });
     var instr = h('textarea', { rows: '2', maxlength: '5000', placeholder: 'Lời dặn, ví dụ: Làm hết các câu. Phần tự luận chụp ảnh rõ nét từng câu.' });
@@ -1786,6 +1847,7 @@
     var parsed = { questions: [], errors: [] };
     var dirty = false;
     var store = imageStore('assignment', a ? a.id : null, ex && ex.fullQuestions ? ex.fullQuestions.map(function (q) { return q.image; }).filter(Boolean) : []);
+    if (br) br.addEventListener('change', function () { dirty = true; });
 
     function update() {
       var empty = !src.value.trim();
@@ -1850,6 +1912,7 @@
       if (f && f.size > MAX_BYTES) return toast('File đề quá lớn (tối đa 20 MB).', 'error');
       var params = {
         courseId: c.id, id: a ? a.id : undefined, title: title.value.trim(), topic: ti[0].value.trim(),
+        branch: br ? br.value : '',
         instructions: instr.value.trim(), maxScore: max.value,
         dueAt: due.value(),
         removeFile: removeFile.checked,
@@ -1863,6 +1926,8 @@
           dirty = false;
           leaveGuard = null;
           coursesCache = null;
+          delete viewCache['course:' + c.id];
+          if (br) setActiveBranch(c.id, br.value);
           toast(a ? 'Đã lưu bài tập.' : 'Đã giao bài.', 'success');
           go('#/bai/' + r.assignment.id);
         }, function (err) { busy(saveBtn, false); toast(err.message, 'error'); });
@@ -1872,7 +1937,7 @@
       h('a', { href: a ? '#/bai/' + a.id : '#/khoa/' + encodeURIComponent(c.id), class: 'back' }, '← ' + (a ? a.title : c.name + ' · ' + c.grade)),
       h('div', { class: 'page-head' }, h('h1', null, a ? 'Sửa bài tập' : 'Giao bài tập mới'), h('p', { class: 'muted' }, c.name + ' · ' + c.grade)),
       h('div', { class: 'panel form' },
-        h('div', { class: 'row two' }, field('Tên bài tập', title), field('Chủ đề', ti)),
+        h('div', { class: 'row' + (br ? '' : ' two') }, field('Tên bài tập', title), br ? field('Nhánh', br) : null, field('Chủ đề', ti)),
         field('Lời dặn', instr),
         h('div', { class: 'field' }, h('span', null, 'Hạn nộp'), due.el),
         maxField,
@@ -1926,6 +1991,7 @@
 
   function assignmentHeader(d, extra) {
     var a = d.assignment;
+    var br = a.branch || d.branch || '';
     var fetcher = function () { return api('assignmentFile', { id: a.id }); };
     var info = ['Thang điểm ' + fmtScore(a.maxScore)];
     if (d.questions && d.questions.length) {
@@ -1934,9 +2000,10 @@
     }
     info.push('Giao bởi ' + a.createdBy);
     return [
-      h('a', { href: '#/khoa/' + encodeURIComponent(d.course.id), class: 'back' }, '← ' + d.course.name + ' · ' + d.course.grade),
+      h('a', { href: '#/khoa/' + encodeURIComponent(d.course.id), class: 'back', onclick: br ? function () { setActiveBranch(d.course.id, br); } : null },
+        '← ' + (br ? br + ' · ' : '') + d.course.name + ' · ' + d.course.grade),
       h('div', { class: 'page-head course-head', style: '--c:' + courseColor(d.course.id) },
-        h('span', { class: 'tag' }, a.topic || 'Bài tập về nhà'),
+        h('span', { class: 'tag' }, [br, a.topic].filter(Boolean).join(' · ') || 'Bài tập về nhà'),
         h('h1', null, a.title),
         h('p', { class: 'head-meta' }, dueBadge(a.dueAt, d.canEdit || (d.submission && d.submission.status !== 'todo')),
           !d.canEdit && !(d.submission && d.submission.status === 'returned') ? countdownEl(a.dueAt) : null,
@@ -2612,10 +2679,12 @@
 
   function quizHeader(d, extra) {
     var q = d.quiz;
+    var br = q.branch || d.branch || '';
     return [
-      h('a', { href: '#/khoa/' + encodeURIComponent(d.course.id), class: 'back' }, '← ' + d.course.name + ' · ' + d.course.grade),
+      h('a', { href: '#/khoa/' + encodeURIComponent(d.course.id), class: 'back', onclick: br ? function () { setActiveBranch(d.course.id, br); } : null },
+        '← ' + (br ? br + ' · ' : '') + d.course.name + ' · ' + d.course.grade),
       h('div', { class: 'page-head course-head', style: '--c:' + courseColor(d.course.id) },
-        h('span', { class: 'tag' }, q.topic || 'Luyện tập'),
+        h('span', { class: 'tag' }, [br, q.topic].filter(Boolean).join(' · ') || 'Luyện tập'),
         h('h1', null, q.title),
         h('p', { class: 'head-meta muted' }, q.count + ' câu' + (q.timeLimit ? ' · ' + q.timeLimit + ' phút' : ' · không giới hạn thời gian')),
         extra || null)
@@ -2916,6 +2985,7 @@
     var c = cd.course;
     if (!c.canEdit) return fill(app, errorBox('Bạn không có quyền soạn đề cho khóa này.'));
     var q = existing ? existing.quiz : null;
+    var br = branchSelect(c, q ? (q.branch || existing.branch) : '');
     var ti = topicInput(cd.topics, q ? q.topic : '');
     var title = h('input', { maxlength: '200', value: q ? q.title : '', placeholder: 'VD: Luyện tập phân số – Đề 1' });
     var desc = h('textarea', { rows: '2', maxlength: '2000', placeholder: 'Lời dặn cho học sinh (không bắt buộc)' });
@@ -2930,6 +3000,7 @@
     var parsed = { questions: [], errors: [] };
     var dirty = false;
     var store = imageStore('quiz', q ? q.id : null, existing && existing.fullQuestions ? existing.fullQuestions.map(function (x) { return x.image; }).filter(Boolean) : []);
+    if (br) br.addEventListener('change', function () { dirty = true; });
 
     function update() {
       parsed = window.QuizFormat.parse(src.value);
@@ -2960,12 +3031,15 @@
       busy(saveBtn, true, 'Đang lưu…');
       api('saveQuiz', {
         id: q ? q.id : undefined, courseId: c.id, title: title.value.trim(), topic: ti[0].value.trim(),
+        branch: br ? br.value : '',
         description: desc.value.trim(), timeLimit: Number(limit.value || 0), showAnswers: show.checked, gameOnly: gameOnly.checked,
         source: src.value, questions: parsed.questions, newImages: store.newImages(parsed.questions)
       }).then(function (r) {
         dirty = false;
         leaveGuard = null;
         coursesCache = null;
+        delete viewCache['course:' + c.id];
+        if (br) setActiveBranch(c.id, br.value);
         toast('Đã lưu bài luyện tập.', 'success');
         go('#/luyen/' + r.id);
       }, function (e) { busy(saveBtn, false); toast(e.message, 'error'); });
@@ -2975,7 +3049,7 @@
       h('a', { href: q ? '#/luyen/' + q.id : '#/khoa/' + encodeURIComponent(c.id), class: 'back' }, '← ' + (q ? q.title : c.name + ' · ' + c.grade)),
       h('div', { class: 'page-head' }, h('h1', null, q ? 'Sửa bài luyện tập' : 'Soạn bài luyện tập'), h('p', { class: 'muted' }, c.name + ' · ' + c.grade)),
       h('div', { class: 'panel form' },
-        h('div', { class: 'row two' }, field('Tên bài', title), field('Chủ đề', ti)),
+        h('div', { class: 'row' + (br ? '' : ' two') }, field('Tên bài', title), br ? field('Nhánh', br) : null, field('Chủ đề', ti)),
         field('Lời dặn', desc),
         h('div', { class: 'row two' },
           field('Thời gian làm bài (phút)', limit),

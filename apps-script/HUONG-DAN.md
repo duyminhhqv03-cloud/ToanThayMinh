@@ -103,6 +103,21 @@ Trong Apps Script, chọn hàm **resetAdminPassword** → **Chạy**. Mật kh�
   - Học sinh chỉ thấy đúng/sai và điểm từng câu khi bài đã chấm xong; đáp án và lời giải chỉ hiện **sau hạn nộp**.
   - Học sinh sửa và nộp lại được cho tới khi bài được chấm. Ảnh bài nộp lưu trong thư mục Drive `Bài nộp của học sinh` của từng khóa.
 
+## Chia nhánh trong một lớp
+Một lớp có thể chia thành nhiều tab môn (nhánh) bên trong, học sinh ghi danh lớp đó sẽ học mọi nhánh.
+
+Cách bật:
+1. Cập nhật `Code.gs` và triển khai phiên bản mới như mục *Khi cập nhật code máy chủ* (lần đầu mở web, cột `branches` sẽ tự được thêm vào trang `KhoaHoc`).
+2. Mở trang `KhoaHoc` trong Google Sheets, ở ô cột `branches` của từng lớp gõ các tên nhánh cách nhau bằng dấu phẩy, ví dụ:
+   - Lớp **Toán · Lớp 4**: `Toán, Toán tiếng Anh`
+   - Lớp **Toán & KHTN · Lớp 5**: `Toán, Toán tiếng Anh, Science`
+   - Lớp **Tiếng Việt & KHXH · Lớp 5**: `Tiếng Việt, Social Sciences`
+3. Lớp nào không chia nhánh thì **để trống** ô `branches` (giao diện giữ nguyên như cũ).
+
+Lưu ý:
+- Tài liệu, bài luyện tập và bài tập cũ (chưa gắn nhánh) tự động nằm ở **nhánh đầu tiên** (ví dụ `Toán`). Giáo viên bấm nút **Sửa** ở từng mục để chuyển sang nhánh khác.
+- Nếu đổi tên nhánh trong Google Sheets, các mục đang mang tên nhánh cũ cũng tự động về nhánh đầu tiên.
+
 ## Lấy đề từ PDF
 - Đánh số câu `Câu 1`, `Câu 2`… (hoặc `1.`, `2.`); lựa chọn `A.` `B.` `C.` `D.` (cùng dòng hoặc mỗi dòng một lựa chọn).
 - Có thể chia phần: `PHẦN I. TRẮC NGHIỆM`, `PHẦN II. TRẢ LỜI NGẮN`, `PHẦN III. TỰ LUẬN` — câu trong phần tự luận được xếp là tự luận.

@@ -33,19 +33,19 @@ var SHEET_NAMES = {
 };
 var COLUMNS = {
   users: ['username', 'fullName', 'role', 'courses', 'active', 'salt', 'passwordHash', 'createdAt'],
-  courses: ['id', 'name', 'grade', 'order'],
-  docs: ['id', 'courseId', 'title', 'description', 'type', 'fileId', 'fileName', 'mimeType', 'size', 'url', 'uploadedBy', 'uploadedAt', 'topic'],
-  assignments: ['id', 'courseId', 'topic', 'title', 'instructions', 'dueAt', 'maxScore', 'fileId', 'fileName', 'mimeType', 'size', 'createdBy', 'createdAt', 'source', 'questions', 'images'],
+  courses: ['id', 'name', 'grade', 'order', 'branches'],
+  docs: ['id', 'courseId', 'title', 'description', 'type', 'fileId', 'fileName', 'mimeType', 'size', 'url', 'uploadedBy', 'uploadedAt', 'topic', 'branch'],
+  assignments: ['id', 'courseId', 'topic', 'title', 'instructions', 'dueAt', 'maxScore', 'fileId', 'fileName', 'mimeType', 'size', 'createdBy', 'createdAt', 'source', 'questions', 'images', 'branch'],
   submissions: ['id', 'assignmentId', 'courseId', 'username', 'text', 'files', 'submittedAt', 'late', 'status', 'score', 'feedback', 'gradedBy', 'gradedAt', 'answers', 'itemScores', 'autoScore', 'aiSuggest'],
-  quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt', 'images', 'gameOnly'],
+  quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt', 'images', 'gameOnly', 'branch'],
   attempts: ['id', 'quizId', 'courseId', 'username', 'answers', 'score', 'total', 'submittedAt'],
   sessions: ['token', 'username', 'expiresAt'],
   fees: ['username', 'courseId', 'month', 'paidAt', 'markedBy', 'note'],
   matches: ['id', 'quizId', 'courseId', 'host', 'playedAt', 'playerCount', 'questionCount', 'results']
 };
-// Đọc nhanh: chỉ lấy các cột đầu, bỏ các cột JSON nặng ở cuối (câu trả lời, điểm từng câu, hình).
+// Đọc nhanh: BaiNop chỉ lấy 13 cột đầu (bỏ câu trả lời, điểm từng câu, gợi ý AI ở cuối); LuyenTap/BaiTap đọc đủ tới cột branch.
 // Chỉ dùng ở các hàm CHỈ ĐỌC (danh sách, trang chủ) – không bao giờ update_ một dòng đọc thiếu cột.
-var LITE_COLS = { submissions: 13, quizzes: 14, assignments: 15 };
+var LITE_COLS = { submissions: 13, quizzes: 15, assignments: 17 };
 // Kết quả các trang danh sách được nhớ trong CacheService tới khi có thao tác ghi (hoặc hết hạn).
 var RESULT_TTL = 300;
 // Các trang tự tạo khi chưa có (để cập nhật code mà không cần chạy lại setup).
@@ -280,6 +280,7 @@ function visibleCourses_(me) {
         id: c.id,
         name: c.name,
         grade: c.grade,
+        branches: branchesOf_(c),
         canEdit: edit,
         docCount: docs.filter(inCourse).length,
         assignmentCount: asg.filter(inCourse).length,
@@ -302,14 +303,14 @@ function courseContent_(me, courseId) {
 
   var docs = rows_('docs').filter(inCourse)
     .sort(function (a, b) { return a.uploadedAt < b.uploadedAt ? 1 : -1; })
-    .map(function (d) { return publicDoc_(d, names); });
+    .map(function (d) { return publicDoc_(d, names, c); });
 
   var subs = rows_('submissions', LITE_COLS.submissions).filter(inCourse);
   var nStudents = studentsOf_(courseId).length;
   var assignments = rows_('assignments', LITE_COLS.assignments).filter(inCourse)
     .sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; })
     .map(function (a) {
-      var o = publicAssignment_(a, names);
+      var o = publicAssignment_(a, names, c);
       var mine = subs.filter(function (s) { return s.assignmentId === a.id; });
       if (edit) o.stats = submissionStats_(mine, nStudents);
       else o.my = summarizeSubmission_(mine.filter(function (s) { return s.username === me.username; })[0]);
@@ -321,7 +322,7 @@ function courseContent_(me, courseId) {
     .filter(function (q) { return edit || q.gameOnly !== '1'; })
     .sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : -1; })
     .map(function (q) {
-      var o = publicQuizSummary_(q, names);
+      var o = publicQuizSummary_(q, names, c);
       var qa = attempts.filter(function (t) { return t.quizId === q.id; });
       if (edit) {
         var people = {};
@@ -336,7 +337,7 @@ function courseContent_(me, courseId) {
   docs.concat(assignments, quizzes).forEach(function (x) { if (x.topic) topics[x.topic] = 1; });
 
   return {
-    course: { id: c.id, name: c.name, grade: c.grade, canEdit: edit },
+    course: { id: c.id, name: c.name, grade: c.grade, branches: branchesOf_(c), canEdit: edit },
     docs: docs,
     assignments: assignments,
     quizzes: quizzes,
@@ -354,7 +355,7 @@ function todo_(me) {
   rows_('assignments', LITE_COLS.assignments).forEach(function (a) {
     if (!courses[a.courseId] || !canSee_(me, a.courseId)) return;
     var c = courses[a.courseId];
-    var base = { id: a.id, title: a.title, dueAt: a.dueAt, courseId: c.id, courseName: c.name, courseGrade: c.grade, maxScore: Number(a.maxScore || 10) };
+    var base = { id: a.id, title: a.title, dueAt: a.dueAt, courseId: c.id, courseName: c.name, courseGrade: c.grade, branch: itemBranch_(c, a), maxScore: Number(a.maxScore || 10) };
     var mine = subs.filter(function (s) { return s.assignmentId === a.id; });
     if (canEdit_(me, a.courseId)) {
       if (nStudents[a.courseId] === undefined) nStudents[a.courseId] = studentsOf_(a.courseId).length;
@@ -557,6 +558,7 @@ function setFees_(me, p) {
 function upload_(me, p) {
   var courseId = String(p.courseId || '');
   requireEdit_(me, courseId);
+  var c = findCourse_(courseId);
   var title = clean_(p.title, 200);
   if (!title) throw err_('Vui lòng nhập tiêu đề tài liệu.');
 
@@ -564,6 +566,7 @@ function upload_(me, p) {
     id: Utilities.getUuid(),
     courseId: courseId,
     topic: clean_(p.topic, 100),
+    branch: itemBranch_(c, p),
     title: title,
     description: clean_(p.description, 2000),
     uploadedBy: me.username,
@@ -583,19 +586,21 @@ function upload_(me, p) {
   }
 
   append_('docs', doc);
-  return { doc: publicDoc_(doc, userNames_()) };
+  return { doc: publicDoc_(doc, userNames_(), c) };
 }
 
 function updateDoc_(me, p) {
   var d = findBy_('docs', String(p.id || ''));
   if (!d) throw err_('Không tìm thấy tài liệu.', 404);
   requireEdit_(me, d.courseId);
+  var c = findCourse_(d.courseId);
   var title = p.title !== undefined ? clean_(p.title, 200) : d.title;
   if (!title) throw err_('Vui lòng nhập tiêu đề tài liệu.');
   update_('docs', d, {
     title: title,
     description: p.description !== undefined ? clean_(p.description, 2000) : d.description,
-    topic: p.topic !== undefined ? clean_(p.topic, 100) : d.topic
+    topic: p.topic !== undefined ? clean_(p.topic, 100) : d.topic,
+    branch: p.branch !== undefined ? itemBranch_(c, p) : d.branch
   });
   return {};
 }
@@ -651,9 +656,11 @@ function saveAssignment_(me, p, isNew) {
     if (isNaN(dt.getTime())) throw err_('Hạn nộp không hợp lệ.');
     dueAt = dt.toISOString();
   }
+  var c = findCourse_(courseId);
   var data = {
     courseId: courseId,
     topic: clean_(p.topic, 100),
+    branch: itemBranch_(c, p),
     title: title,
     instructions: clean_(p.instructions, 5000),
     dueAt: dueAt,
@@ -680,10 +687,10 @@ function saveAssignment_(me, p, isNew) {
     data.createdBy = me.username;
     data.createdAt = new Date().toISOString();
     append_('assignments', data);
-    return { assignment: publicAssignment_(data, userNames_()) };
+    return { assignment: publicAssignment_(data, userNames_(), c) };
   }
   update_('assignments', a, data);
-  return { assignment: publicAssignment_(findBy_('assignments', a.id), userNames_()) };
+  return { assignment: publicAssignment_(findBy_('assignments', a.id), userNames_(), c) };
 }
 
 function deleteAssignment_(me, id) {
@@ -712,8 +719,9 @@ function assignmentDetail_(me, id) {
   var subs = rows_('submissions').filter(function (s) { return s.assignmentId === id; });
   var questions = parseQuestions_(a);
   var out = {
-    assignment: publicAssignment_(a, names),
-    course: { id: c.id, name: c.name, grade: c.grade },
+    assignment: publicAssignment_(a, names, c),
+    branch: itemBranch_(c, a),
+    course: { id: c.id, name: c.name, grade: c.grade, branches: branchesOf_(c) },
     canEdit: edit,
     canSubmit: isStudentIn_(me, a.courseId),
     // Học sinh chỉ nhận đề, không nhận đáp án.
@@ -1196,9 +1204,11 @@ function saveQuiz_(me, p) {
   var limit = Number(p.timeLimit || 0);
   if (isNaN(limit) || limit < 0 || limit > 300) throw err_('Thời gian làm bài phải từ 0 đến 300 phút.');
   var now = new Date().toISOString();
+  var c = findCourse_(courseId);
   var data = {
     courseId: courseId,
     topic: clean_(p.topic, 100),
+    branch: itemBranch_(c, p),
     title: title,
     description: clean_(p.description, 2000),
     source: String(p.source || '').slice(0, 45000),
@@ -1267,8 +1277,9 @@ function quizDetail_(me, id) {
   var names = userNames_();
   var questions = JSON.parse(q.questions || '[]');
   var out = {
-    quiz: publicQuizSummary_(q, names),
-    course: { id: c.id, name: c.name, grade: c.grade },
+    quiz: publicQuizSummary_(q, names, c),
+    branch: itemBranch_(c, q),
+    course: { id: c.id, name: c.name, grade: c.grade, branches: branchesOf_(c) },
     canEdit: edit,
     // Học sinh KHÔNG nhận đáp án trước khi nộp bài.
     questions: questions.map(function (x) { return { type: x.type, text: x.text, options: x.options || null, image: x.image || null }; })
@@ -1582,6 +1593,22 @@ function isActive_(u) {
 function findCourse_(id) {
   return rows_('courses').filter(function (c) { return c.id === id; })[0] || null;
 }
+/** Các nhánh (tab môn) của một khóa: tách theo dấu phẩy, bỏ rỗng, bỏ trùng, tối đa 10. */
+function branchesOf_(course) {
+  var seen = {};
+  return String((course && course.branches) || '').split(',').map(function (s) { return s.trim(); }).filter(function (b) {
+    if (!b || seen[b]) return false;
+    seen[b] = 1;
+    return true;
+  }).slice(0, 10);
+}
+/** Nhánh của một mục: khóa có nhánh mà mục trống / tên không khớp → gán về nhánh đầu tiên. */
+function itemBranch_(course, row) {
+  var list = branchesOf_(course);
+  if (!list.length) return '';
+  var b = String((row && typeof row === 'object' ? row.branch : row) || '').trim();
+  return list.indexOf(b) >= 0 ? b : list[0];
+}
 function studentsOf_(courseId) {
   return rows_('users').filter(function (u) { return isStudentIn_(u, courseId) && isActive_(u); });
 }
@@ -1802,10 +1829,11 @@ function publicUser_(u) {
   };
 }
 
-function publicDoc_(d, names) {
+function publicDoc_(d, names, course) {
   return {
     id: d.id,
     courseId: d.courseId,
+    branch: itemBranch_(course || findCourse_(d.courseId), d),
     topic: d.topic || '',
     title: d.title,
     description: d.description,
@@ -1819,10 +1847,11 @@ function publicDoc_(d, names) {
   };
 }
 
-function publicAssignment_(a, names) {
+function publicAssignment_(a, names, course) {
   return {
     id: a.id,
     courseId: a.courseId,
+    branch: itemBranch_(course || findCourse_(a.courseId), a),
     topic: a.topic || '',
     title: a.title,
     instructions: a.instructions || '',
@@ -1855,12 +1884,13 @@ function publicSubmission_(s, names) {
   };
 }
 
-function publicQuizSummary_(q, names) {
+function publicQuizSummary_(q, names, course) {
   var n = 0;
   try { n = JSON.parse(q.questions || '[]').length; } catch (e) { n = 0; }
   return {
     id: q.id,
     courseId: q.courseId,
+    branch: itemBranch_(course || findCourse_(q.courseId), q),
     topic: q.topic || '',
     title: q.title,
     description: q.description || '',
