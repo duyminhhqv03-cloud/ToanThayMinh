@@ -1231,33 +1231,41 @@
     }
 
     function drawContent() {
+      var showHw = courseFilter === 'all' || courseFilter === 'hw';
+      var showTopics = courseFilter !== 'hw';
+      var hws = showHw ? d.assignments.filter(inBranch) : [];
       var items = [];
       if (courseFilter === 'all' || courseFilter === 'doc') d.docs.filter(inBranch).forEach(function (x) { items.push({ kind: 'doc', x: x }); });
       if (courseFilter === 'all' || courseFilter === 'quiz') d.quizzes.filter(inBranch).forEach(function (x) { items.push({ kind: 'quiz', x: x }); });
-      if (courseFilter === 'all' || courseFilter === 'hw') d.assignments.filter(inBranch).forEach(function (x) { items.push({ kind: 'hw', x: x }); });
-      if (!items.length) {
+      if (!items.length && !hws.length) {
         fill(content, h('div', { class: 'panel empty' },
           h('p', null, 'Chưa có nội dung nào' + (courseFilter === 'all' ? (branches.length ? ' trong nhánh ' + curBranch + '.' : ' trong khóa này.') : ' ở mục này.')),
           edit ? h('p', { class: 'muted' }, 'Dùng các nút "+ Tài liệu", "+ Luyện tập", "+ Bài tập" ở trên để thêm.') : null));
         return;
       }
-      var groups = {};
-      var labels = topicLabels(items.map(function (it) { return it.x.topic; }));
-      items.forEach(function (it) {
-        var t = it.x.topic ? labels[topicKey(it.x.topic)] : NO_TOPIC;
-        (groups[t] = groups[t] || []).push(it);
-      });
-      var order = { hw: 0, quiz: 1, doc: 2 };
-      fill(content, Object.keys(groups).sort(topicSort).map(function (t) {
-        var list = groups[t].sort(function (a, b) { return order[a.kind] - order[b.kind]; });
-        return h('details', { class: 'topic', open: true },
-          h('summary', null, h('span', { class: 'topic-name' }, t), h('span', { class: 'topic-count' }, list.length + ' mục')),
-          h('div', { class: 'topic-items' }, list.map(function (it) {
-            if (it.kind === 'doc') return docRow(it.x, c, d.topics, reload);
-            if (it.kind === 'quiz') return quizRow(it.x, edit);
-            return hwRow(it.x, edit);
-          })));
-      }));
+      // Bài tập về nhà gom theo tuần (Thứ 2 – Chủ nhật); chủ đề chỉ gồm tài liệu và luyện tập.
+      var parts = [];
+      if (hws.length) parts.push(sectionHead('📅 Bài tập về nhà'), weekGroups(hws, edit));
+      if (showTopics && items.length) {
+        var groups = {};
+        var labels = topicLabels(items.map(function (it) { return it.x.topic; }));
+        items.forEach(function (it) {
+          var t = it.x.topic ? labels[topicKey(it.x.topic)] : NO_TOPIC;
+          (groups[t] = groups[t] || []).push(it);
+        });
+        var order = { quiz: 0, doc: 1 };
+        if (hws.length) parts.push(sectionHead('📚 Chủ đề'));
+        parts.push(Object.keys(groups).sort(topicSort).map(function (t) {
+          var list = groups[t].sort(function (a, b) { return order[a.kind] - order[b.kind]; });
+          return h('details', { class: 'topic', open: true },
+            h('summary', null, h('span', { class: 'topic-name' }, t), h('span', { class: 'topic-count' }, list.length + ' mục')),
+            h('div', { class: 'topic-items' }, list.map(function (it) {
+              if (it.kind === 'doc') return docRow(it.x, c, d.topics, reload);
+              return quizRow(it.x, edit);
+            })));
+        }));
+      }
+      fill(content, parts);
     }
 
     var adds = edit ? h('div', { class: 'add-bar' },
@@ -1331,6 +1339,45 @@
       h('div', { class: 'item-actions' }, q.gameOnly ? h('span', { class: 'pill p-wait' }, '🎮 Chỉ để đấu') : null, right, h('span', { class: 'chev' }, '›')));
   }
 
+  function sectionHead(text) {
+    return h('h2', { class: 'section-head' }, text);
+  }
+
+  /** Thứ 2 đầu tuần (0 giờ, giờ máy) của một thời điểm. */
+  function weekStart(t) {
+    var d = new Date(t);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+    return d;
+  }
+
+  /**
+   * Bài tập về nhà gom theo tuần của hạn nộp (không có hạn → theo ngày giao).
+   * Tuần mới nhất ở trên; tuần này và các tuần sau mở sẵn, tuần đã qua thu gọn.
+   */
+  function weekGroups(list, edit) {
+    var dm = function (x) { return x.getDate() + '/' + (x.getMonth() + 1); };
+    var thisWeek = weekStart(Date.now()).getTime();
+    var groups = {};
+    list.forEach(function (a) {
+      var ws = weekStart(a.dueAt || a.createdAt || Date.now()).getTime();
+      (groups[ws] = groups[ws] || []).push(a);
+    });
+    return Object.keys(groups).map(Number).sort(function (x, y) { return y - x; }).map(function (ws) {
+      var from = new Date(ws);
+      var to = new Date(ws);
+      to.setDate(to.getDate() + 6);
+      var range = dm(from) + ' – ' + dm(to);
+      var weeks = Math.round((ws - thisWeek) / (7 * 24 * 3600 * 1000));
+      var name = weeks === 0 ? 'Tuần này (' + range + ')' : weeks === 1 ? 'Tuần sau (' + range + ')' : weeks === -1 ? 'Tuần trước (' + range + ')' : 'Tuần ' + range;
+      var key = function (a) { return a.dueAt || a.createdAt || ''; };
+      var items = groups[ws].sort(function (x, y) { return key(x) < key(y) ? -1 : 1; });
+      return h('details', { class: 'topic week' + (weeks === 0 ? ' week-now' : ''), open: weeks >= 0 },
+        h('summary', null, h('span', { class: 'topic-name' }, name), h('span', { class: 'topic-count' }, items.length + ' bài')),
+        h('div', { class: 'topic-items' }, items.map(function (a) { return hwRow(a, edit); })));
+    });
+  }
+
   function hwRow(a, edit) {
     var right;
     if (edit) {
@@ -1345,7 +1392,8 @@
       h('div', { class: 'item-main' },
         h('h3', null, a.title),
         h('p', { class: 'item-meta' }, dueBadge(a.dueAt, done),
-          a.questionCount ? h('span', { class: 'muted small' }, ' ' + a.questionCount + ' câu' + (a.essayCount ? ' · ' + a.essayCount + ' tự luận' : ' · chấm tự động')) : null)),
+          a.questionCount ? h('span', { class: 'muted small' }, ' ' + a.questionCount + ' câu' + (a.essayCount ? ' · ' + a.essayCount + ' tự luận' : ' · chấm tự động')) : null,
+          a.topic ? h('span', { class: 'muted small' }, ' · ' + a.topic) : null)),
       h('div', { class: 'item-actions' }, right, h('span', { class: 'chev' }, '›')));
   }
 
@@ -2023,7 +2071,7 @@
       h('a', { href: a ? '#/bai/' + a.id : '#/khoa/' + encodeURIComponent(c.id), class: 'back' }, '← ' + (a ? a.title : c.name + ' · ' + c.grade)),
       h('div', { class: 'page-head' }, h('h1', null, a ? 'Sửa bài tập' : 'Giao bài tập mới'), h('p', { class: 'muted' }, c.name + ' · ' + c.grade)),
       h('div', { class: 'panel form' },
-        h('div', { class: 'row' + (br ? '' : ' two') }, field('Tên bài tập', title), br ? field('Nhánh', br) : null, field('Chủ đề', ti)),
+        h('div', { class: 'row' + (br ? '' : ' two') }, field('Tên bài tập', title), br ? field('Nhánh', br) : null, field('Chủ đề (không bắt buộc)', ti)),
         field('Lời dặn', instr),
         h('div', { class: 'field' }, h('span', null, 'Hạn nộp'), due.el),
         maxField,

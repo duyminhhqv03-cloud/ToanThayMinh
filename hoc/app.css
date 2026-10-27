@@ -306,6 +306,10 @@ a.card { display: block; }
 .topic-name { flex: 1; }
 .topic-count { font-size: 13px; font-weight: 500; color: var(--muted); }
 .topic-items { display: grid; border-top: 1px solid var(--line); }
+.section-head { font-size: 15px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; margin: 22px 0 10px; }
+.section-head:first-child { margin-top: 4px; }
+.week-now { border-color: #0f9d74; box-shadow: 0 0 0 1px #0f9d74; }
+.week-now > summary .topic-name { color: #0b7a5a; }
 .item { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-bottom: 1px solid var(--line); color: inherit; }
 .item:last-child { border-bottom: 0; }
 .item.link:hover { background: #fbfdfc; }
