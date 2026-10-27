@@ -22,7 +22,7 @@
   var ANSWER = /^\s*đáp\s*án(?:\s*mẫu)?\s*[:：]\s*(.*)$/i;
   var EXPLAIN = /^\s*(giải\s*thích|lời\s*giải|hướng\s*dẫn(?:\s*chấm)?|gợi\s*ý\s*chấm)\s*[:：]\s*(.*)$/i;
   var ESSAY_WORD = /tự\s*luận|essay/i;
-  var POINTS = /(\d+(?:[.,]\d+)?)\s*(?:điểm|đ\b|đ$|d\b)/i;
+  var POINTS = /(\d+(?:[.,]\d+)?)\s*(?:điểm|đ|d)(?![a-zà-ỹđ])/i;
   var IMAGE = /^\s*\[\s*(?:hình|ảnh|hinh|anh)\s*:?\s*([A-Za-z0-9_-]{1,40})\s*\]\s*$/i;
 
   /** Chữ nghiêng toán học trong PDF (𝑥, 𝑦…) → chữ thường để học sinh gõ được. */
@@ -133,12 +133,19 @@
   }
 
   function normAnswer(s) {
-    return String(s).normalize('NFC').toLowerCase().replace(/\s+/g, '').replace(/,/g, '.').replace(/\.$/, '');
+    // 12.500 = 12500 (dấu chấm phân cách hàng nghìn kiểu Việt Nam), bỏ trước khi đổi dấu phẩy thập phân thành dấu chấm.
+    return String(s).normalize('NFC').toLowerCase().replace(/\s+/g, '').replace(/(^|[^\d.,])(-?[1-9]\d{0,2}(?:\.\d{3})+)(?![\d.])/g, function (m, pre, n) { return pre + n.replace(/\./g, ''); }).replace(/,/g, '.').replace(/\.$/, '')
+      .replace(/([a-zà-ỹđ])2(?![0-9])/g, '$1²').replace(/([a-zà-ỹđ])3(?![0-9])/g, '$1³');
   }
 
   function numPart(s) {
-    var m = /^(-?\d+(?:\.\d+)?(?:\/\d+)?)([a-zà-ỹđ²³]*)$/.exec(s);
-    return m ? { num: m[1], unit: m[2] } : null;
+    // Sau "/" là chữ số → phân số a/b; sau "/" là chữ cái → đơn vị như km/h, m/s.
+    var m = /^(-?\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?)([a-zà-ỹđ²³°%][a-zà-ỹđ0-9²³°%/]*)?$/.exec(s);
+    if (!m) return null;
+    var parts = m[1].split('/');
+    var num = parts.length === 2 ? Number(parts[0]) / Number(parts[1]) : Number(m[1]);
+    if (!isFinite(num)) return null;
+    return { num: num, unit: m[2] || '' };
   }
 
   /** So khớp câu trả lời (trắc nghiệm hoặc trả lời ngắn), giống isCorrect_ của Code.gs. */
@@ -150,9 +157,9 @@
     return (x.answers || []).some(function (ans) {
       var k = normAnswer(ans);
       if (k === v) return true;
-      // "24" khớp "24cm", "0.75" khớp "0,75kg": cùng con số, chỉ khác đơn vị (hoặc thiếu đơn vị).
+      // "24" khớp "24cm", "3/4" khớp "0,75kg": cùng giá trị số, chỉ khác đơn vị (hoặc thiếu đơn vị).
       var kn = numPart(k);
-      return vn !== null && kn !== null && vn.num === kn.num && (!vn.unit || !kn.unit || vn.unit === kn.unit);
+      return vn !== null && kn !== null && Math.abs(vn.num - kn.num) <= 1e-9 && (!vn.unit || !kn.unit || vn.unit === kn.unit);
     });
   }
 

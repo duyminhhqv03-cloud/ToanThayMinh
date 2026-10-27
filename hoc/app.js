@@ -98,10 +98,10 @@
   function append(el, c) {
     if (c == null || c === false) return;
     if (Array.isArray(c)) { c.forEach(function (x) { append(el, x); }); return; }
-    el.append(c.nodeType ? c : String(c));
+    el.appendChild(c.nodeType ? c : document.createTextNode(String(c)));
   }
   function fill(el) {
-    el.replaceChildren();
+    while (el.firstChild) el.removeChild(el.firstChild);
     for (var i = 1; i < arguments.length; i++) append(el, arguments[i]);
     return el;
   }
@@ -142,8 +142,8 @@
       actions ? h('div', { class: 'modal-actions' }, actions(close)) : null);
     overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) close(); });
     document.addEventListener('keydown', onKey);
-    overlay.append(box);
-    document.body.append(overlay);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
     var first = box.querySelector('.modal-body input:not([type=checkbox]):not([type=file]), .modal-body select, .modal-body textarea');
     if (first && !opts.noFocus) first.focus();
     return close;
@@ -169,7 +169,7 @@
   function fallbackCopy(text) {
     var ta = h('textarea', { style: 'position:fixed;opacity:0' });
     ta.value = text;
-    document.body.append(ta);
+    document.body.appendChild(ta);
     ta.select();
     try { document.execCommand('copy'); } catch (e) { /* bỏ qua */ }
     ta.remove();
@@ -453,7 +453,7 @@
   function refreshing(on) {
     if (!refreshEl) {
       refreshEl = h('div', { class: 'refreshing', role: 'status' }, h('span', { class: 'spinner' }), 'Đang cập nhật…');
-      document.body.append(refreshEl);
+      document.body.appendChild(refreshEl);
     }
     refreshEl.classList.toggle('show', !!on);
   }
@@ -500,6 +500,26 @@
       r.onload = function () { resolve(String(r.result).split(',')[1] || ''); };
       r.onerror = function () { reject(new Error('Không đọc được file ' + f.name + '.')); };
       r.readAsDataURL(f);
+    });
+  }
+
+  function readArrayBuffer(blob) {
+    if (blob && typeof blob.arrayBuffer === 'function') return blob.arrayBuffer();
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onload = function () { resolve(r.result); };
+      r.onerror = function () { reject(new Error('Không đọc được dữ liệu file.')); };
+      r.readAsArrayBuffer(blob);
+    });
+  }
+
+  function readText(blob) {
+    if (blob && typeof blob.text === 'function') return blob.text();
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onload = function () { resolve(String(r.result || '')); };
+      r.onerror = function () { reject(new Error('Không đọc được nội dung văn bản.')); };
+      r.readAsText(blob);
     });
   }
 
@@ -587,17 +607,43 @@
       }).catch(function () {});
     }
   };
-  // Chỉ nhớ lâu những file không đổi theo khóa (tài liệu, file đề có tên + dung lượng, ảnh bài nộp).
-  var PERSIST_KEY = /^(doc|asg|sub):/;
+  // Chỉ nhớ lâu những file không đổi theo khóa (tài liệu, file đề có tên + dung lượng, ảnh bài nộp, hình câu hỏi).
+  var PERSIST_KEY = /^(doc|asg|sub|qimg):/;
 
   var blobCache = {};
+  // Giới hạn tải file/hình qua Apps Script tối đa 3 lượt cùng lúc để không bắn ồ ạt.
+  var blobActive = 0;
+  var blobQueue = [];
+  var MAX_BLOB_CONCURRENT = 3;
+  function pumpBlobQueue() {
+    while (blobActive < MAX_BLOB_CONCURRENT && blobQueue.length) {
+      blobQueue.shift()();
+    }
+  }
+  function runBlobFetch(fetcher) {
+    return new Promise(function (resolve, reject) {
+      blobQueue.push(function () {
+        blobActive++;
+        Promise.resolve().then(fetcher).then(function (v) {
+          blobActive--;
+          pumpBlobQueue();
+          resolve(v);
+        }, function (e) {
+          blobActive--;
+          pumpBlobQueue();
+          reject(e);
+        });
+      });
+      pumpBlobQueue();
+    });
+  }
   /** fetcher: () => Promise<{name,mimeType,data}>; key dùng để nhớ, tránh tải lại. */
   function getBlob(key, fetcher) {
     if (!blobCache[key]) {
       var persist = PERSIST_KEY.test(key);
       blobCache[key] = (persist ? fileCache.get(key) : Promise.resolve(null)).then(function (hit) {
         if (hit) return hit;
-        return fetcher().then(function (d) {
+        return runBlobFetch(fetcher).then(function (d) {
           var r = { name: d.name, blob: base64ToBlob(d) };
           if (persist) fileCache.put(key, r);
           return r;
@@ -613,7 +659,7 @@
   function saveBlob(name, blob) {
     var url = URL.createObjectURL(blob);
     var a = h('a', { href: url, download: name });
-    document.body.append(a);
+    document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
@@ -641,7 +687,7 @@
           resolve(window.pdfjsLib);
         };
         s.onerror = function () { pdfjsPromise = null; reject(new Error('Không tải được trình xem PDF.')); };
-        document.head.append(s);
+        document.head.appendChild(s);
       });
     }
     return pdfjsPromise;
@@ -672,7 +718,7 @@
     function onKey(e) { if (e.key === 'Escape') close(); }
     document.addEventListener('keydown', onKey);
     document.body.classList.add('no-scroll');
-    document.body.append(overlay);
+    document.body.appendChild(overlay);
 
     getBlob(key, fetcher).then(function (r) {
       dlBtn.addEventListener('click', function () { saveBlob(r.name, r.blob); });
@@ -683,7 +729,7 @@
         return;
       }
       if (/^text\//.test(type)) {
-        return r.blob.text().then(function (t) { fill(body, h('pre', { class: 'viewer-text' }, t)); });
+        return readText(r.blob).then(function (t) { fill(body, h('pre', { class: 'viewer-text' }, t)); });
       }
       fill(body, h('div', { class: 'viewer-empty' },
         h('p', null, 'Không xem trước được loại file này trên web.'),
@@ -694,7 +740,7 @@
 
     function showPdf(blob) {
       return loadPdfJs().then(function (lib) {
-        return blob.arrayBuffer().then(function (buf) { return lib.getDocument({ data: buf }).promise; });
+        return readArrayBuffer(blob).then(function (buf) { return lib.getDocument({ data: buf }).promise; });
       }).then(function (doc) {
         pdfDoc = doc;
         zoomIn.hidden = zoomOut.hidden = false;
@@ -751,7 +797,7 @@
           canvas.width = canvas.height = 0;
           canvas.style.width = width + 'px';
           canvas.style.height = (width * v1.height / v1.width) + 'px';
-          pages.append(canvas);
+          pages.appendChild(canvas);
           slots.push(canvas);
         }
         if (!('IntersectionObserver' in window)) {
@@ -1389,7 +1435,7 @@
   /** Đọc PDF bằng PDF.js: dòng chữ (kèm toạ độ) và vị trí hình / bảng trên từng trang. */
   function pdfAnalyze(file) {
     return loadPdfJs().then(function (lib) {
-      return file.arrayBuffer().then(function (buf) { return lib.getDocument({ data: buf }).promise; }).then(function (doc) {
+      return readArrayBuffer(file).then(function (buf) { return lib.getDocument({ data: buf }).promise; }).then(function (doc) {
         var pages = [];
         var chain = Promise.resolve();
         for (var i = 1; i <= doc.numPages; i++) {
@@ -1961,7 +2007,14 @@
           coursesCache = null;
           delete viewCache['course:' + c.id];
           if (br) setActiveBranch(c.id, br.value);
-          toast(a ? 'Đã lưu bài tập.' : 'Đã giao bài.', 'success');
+          var msg = a ? 'Đã lưu bài tập.' : 'Đã giao bài.';
+          if (r.regraded || r.skippedReturned) {
+            var parts = [];
+            if (r.regraded) parts.push('Đã chấm lại ' + r.regraded + ' bài theo đáp án mới.');
+            if (r.skippedReturned) parts.push(r.skippedReturned + ' bài đã chốt điểm không thay đổi.');
+            msg = parts.join(' ');
+          }
+          toast(msg, 'success');
           go('#/bai/' + r.assignment.id);
         }, function (err) { busy(saveBtn, false); toast(err.message, 'error'); });
     });
@@ -2080,7 +2133,7 @@
           : reopened ? 'Thầy cô đã cho em sửa và nộp lại bài' : 'Đã nộp bài, chờ thầy cô chốt điểm'),
         h('p', { class: 'muted small' }, 'Nộp lúc ' + fmtDateTime(s.submittedAt) + (s.late ? ' · nộp muộn' : '') +
           (graded ? ' · ' + s.gradedBy : '')),
-        hasQ && graded && !d.reveal ? h('p', { class: 'muted small' }, 'Đáp án và lời giải sẽ hiện sau hạn nộp.') : null,
+        hasQ && graded && !d.reveal ? h('p', { class: 'muted small' }, a.dueAt ? 'Đáp án và lời giải sẽ hiện sau hạn nộp.' : 'Đáp án và lời giải sẽ hiện sau khi cả lớp được chấm bài.') : null,
         !graded ? h('p', { class: 'muted small' }, (hasQ ? 'Điểm và kết quả từng câu' : 'Điểm') + ' sẽ hiện khi thầy cô chốt điểm.') : null,
         canRedo && !reopened && dueMs ? h('p', { class: 'muted small' }, 'Em vẫn được sửa và nộp lại đến ' + fmtDateTime(a.dueAt) + '. Thầy cô chấm bài em nộp sau cùng.') : null,
         canRedo && !dueMs ? h('p', { class: 'muted small' }, 'Em vẫn được sửa và nộp lại cho đến khi thầy cô chốt điểm.') : null,
@@ -2156,7 +2209,7 @@
       state.kept.forEach(function (f) {
         if ((f.q === undefined ? null : f.q) !== q) return;
         var t = submissionFileTile(s, f);
-        t.append(h('button', { class: 'tile-x', 'aria-label': 'Bỏ ảnh', onclick: function () { state.kept.splice(state.kept.indexOf(f), 1); draw(); } }, '×'));
+        t.appendChild(h('button', { class: 'tile-x', 'aria-label': 'Bỏ ảnh', onclick: function () { state.kept.splice(state.kept.indexOf(f), 1); draw(); } }, '×'));
         tiles.push(t);
       });
       state.picked.forEach(function (p) {
@@ -2293,13 +2346,13 @@
     var isImg = /^image\//.test(f.mimeType);
     var thumb = h('button', { class: 'tile-thumb', 'aria-label': 'Xem ' + f.name, onclick: function () { openViewer(f.name, key, fetcher); } });
     if (isImg) {
-      thumb.append(h('span', { class: 'spinner' }));
+      thumb.appendChild(h('span', { class: 'spinner' }));
       getBlob(key, fetcher).then(function (r) {
         fill(thumb, h('img', { src: blobUrl(r), alt: f.name, loading: 'lazy' }));
       }, function () { fill(thumb, h('span', { class: 'kind k-image' }, 'ẢNH')); });
     } else {
       var k = fileKind(f.mimeType, f.name);
-      thumb.append(h('span', { class: 'kind ' + k[1] }, k[0]));
+      thumb.appendChild(h('span', { class: 'kind ' + k[1] }, k[0]));
     }
     return h('div', { class: 'tile' }, thumb,
       h('div', { class: 'tile-name', title: f.name }, f.name),
@@ -2525,7 +2578,7 @@
             var said = q.type === 'mc' ? (ans === null || ans === undefined ? '(bỏ trống)' : String.fromCharCode(65 + ans) + '. ' + (q.options[ans] || ''))
               : (ans === null || ans === '' ? '(bỏ trống)' : ans);
             var right = q.type === 'mc' ? String.fromCharCode(65 + q.correct) + '. ' + q.options[q.correct] : q.answers.join(' | ');
-            head.append(h('span', { class: 'pill ' + (ok ? 'p-done' : 'p-bad') }, 'Máy: ' + (ok ? 'Đúng' : 'Sai')));
+            head.appendChild(h('span', { class: 'pill ' + (ok ? 'p-done' : 'p-bad') }, 'Máy: ' + (ok ? 'Đúng' : 'Sai')));
             var cur = s.itemScores[i] != null ? s.itemScores[i] : machine;
             var ainp = h('input', { type: 'text', inputmode: 'decimal', class: 'essay-score sm', 'aria-label': 'Điểm câu ' + (i + 1), value: String(cur).replace('.', ',') });
             var row = h('div', { class: 'panel review-item compact ' + (ok ? 'is-ok' : 'is-bad') });
@@ -3427,9 +3480,13 @@
 
   function courseChecks(courses, selected) {
     return h('div', { class: 'checks' }, courses.map(function (c) {
-      return h('label', { class: 'check' },
-        h('input', { type: 'checkbox', value: c.id, checked: selected.indexOf(c.id) >= 0 }),
+      var on = selected.indexOf(c.id) >= 0;
+      var inp = h('input', { type: 'checkbox', value: c.id, checked: on });
+      var lbl = h('label', { class: 'check' + (on ? ' checked' : '') },
+        inp,
         c.name + ' ' + c.grade.replace('Lớp ', 'L'));
+      inp.addEventListener('change', function () { lbl.classList.toggle('checked', inp.checked); });
+      return lbl;
     }));
   }
   function checkedValues(box) {

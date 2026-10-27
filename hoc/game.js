@@ -25,7 +25,7 @@
       s.src = src;
       s.onload = function () { resolve(); };
       s.onerror = function () { reject(new Error('Không tải được thư viện thời gian thực. Kiểm tra kết nối mạng rồi thử lại.')); };
-      document.head.append(s);
+      document.head.appendChild(s);
     });
   }
 
@@ -210,9 +210,10 @@
       var uid = fb.uid;
       var roomRef = db.ref('rooms/' + pin);
 
-      return roomRef.once('value').then(function (snap) {
+      // Kiểm tra phòng qua nhánh state (học sinh không đọc cả nút rooms/$pin để tránh lộ câu trả lời của bạn khác).
+      return roomRef.child('state').once('value').then(function (stateSnap) {
         if (!tracker.alive()) return;
-        if (!snap.exists()) {
+        if (!stateSnap.exists()) {
           activeGame = false;
           T.fill(T.app,
             h('a', { href: '#/dau', class: 'back' }, '← Nhập mã khác'),
@@ -222,19 +223,32 @@
 
         T.store.set('ttm_last_pin', pin);
         var me = T.getMe() || { username: 'hs', fullName: 'Học sinh' };
-        var playerRef = roomRef.child('players/' + uid);
-        var existingPlayer = snap.child('players/' + uid).val();
-        var joinPromise = existingPlayer && existingPlayer.name === (me.fullName || me.username)
-          ? Promise.resolve()
-          : playerRef.set({
-              name: String(me.fullName || me.username || 'Học sinh').slice(0, 80),
-              username: String(me.username || 'hs').slice(0, 60),
-              joinedAt: existingPlayer && existingPlayer.joinedAt ? existingPlayer.joinedAt : window.firebase.database.ServerValue.TIMESTAMP
-            });
-
-        return joinPromise.then(function () {
+        return Promise.all([
+          roomRef.child('quizId').once('value'),
+          roomRef.child('quizTitle').once('value'),
+          roomRef.child('courseName').once('value'),
+          roomRef.child('players/' + uid).once('value')
+        ]).then(function (snaps) {
           if (!tracker.alive()) return;
-          runStudentRoom(pin, roomRef, uid, me, tracker);
+          var roomMeta = {
+            quizId: snaps[0].val() || '',
+            quizTitle: snaps[1].val() || '',
+            courseName: snaps[2].val() || ''
+          };
+          var playerRef = roomRef.child('players/' + uid);
+          var existingPlayer = snaps[3].val();
+          var joinPromise = existingPlayer && existingPlayer.name === (me.fullName || me.username)
+            ? Promise.resolve()
+            : playerRef.set({
+                name: String(me.fullName || me.username || 'Học sinh').slice(0, 80),
+                username: String(me.username || 'hs').slice(0, 60),
+                joinedAt: existingPlayer && existingPlayer.joinedAt ? existingPlayer.joinedAt : window.firebase.database.ServerValue.TIMESTAMP
+              });
+
+          return joinPromise.then(function () {
+            if (!tracker.alive()) return;
+            runStudentRoom(pin, roomRef, uid, me, tracker, roomMeta);
+          });
         });
       });
     }).catch(function (err) {
@@ -245,13 +259,27 @@
         T.errorBox(err.message || 'Không vào được phòng đấu.', function () { renderPlay(pin); }));
     });
 
-    function runStudentRoom(pinCode, roomRef, uid, me, tr) {
+    function runStudentRoom(pinCode, roomRef, uid, me, tr, roomMeta) {
+      var room = {
+        quizId: (roomMeta && roomMeta.quizId) || '',
+        quizTitle: (roomMeta && roomMeta.quizTitle) || '',
+        courseName: (roomMeta && roomMeta.courseName) || ''
+      };
+      var st = null;
+      var q = null;
+      var rev = null;
+      var myScoreObj = { score: 0, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, rank: null };
+      var playerCount = 1;
       var currentPhase = '';
       var currentQIndex = -1;
+      var drawnQIndex = -1;
+      var checkedAnsIndex = -1;
       var stopTimer = null;
       var answeredMap = {}; // index -> { a, sent }
       var stage = h('div', { class: 'game-student-stage' });
-      var headMeta = h('span', { class: 'muted small' });
+      var headMeta = h('span', { class: 'muted small' }, room.quizTitle || '');
+      var lobbyCountPill = null;
+      var qScorePill = null;
 
       T.fill(T.app,
         h('div', { class: 'game-student-bar' },
@@ -264,9 +292,67 @@
         if (stopTimer) { stopTimer(); stopTimer = null; }
       }
 
-      tr.on(roomRef, 'value', function (snap) {
+      function updateHeadMeta() {
+        headMeta.textContent = (room.quizTitle || '') + (myScoreObj.score ? ' · ' + T.fmtScore(myScoreObj.score) + ' đ' : '');
+      }
+
+      // Lắng nghe danh sách người chơi để đếm số bạn trong phòng và tự ghi danh lại nếu mất mạng
+      tr.on(roomRef.child('players'), 'value', function (snap) {
+        var players = snap.val() || {};
+        playerCount = Object.keys(players).length;
+        if (st && st.phase !== 'end' && !players[uid]) {
+          roomRef.child('players/' + uid).set({
+            name: String(me.fullName || me.username || 'Học sinh').slice(0, 80),
+            username: String(me.username || 'hs').slice(0, 60),
+            joinedAt: window.firebase.database.ServerValue.TIMESTAMP
+          }).catch(function () {});
+        }
+        if (currentPhase === 'lobby' && lobbyCountPill) {
+          lobbyCountPill.textContent = playerCount + ' bạn đang trong phòng';
+        } else if (currentPhase === 'end' && st) {
+          drawStudentEnd(room, st, myScoreObj, playerCount);
+        }
+      });
+
+      // Lắng nghe điểm của riêng mình
+      tr.on(roomRef.child('scores/' + uid), 'value', function (snap) {
+        myScoreObj = snap.val() || { score: 0, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, rank: null };
+        updateHeadMeta();
+        if (currentPhase === 'question' && qScorePill) {
+          qScorePill.textContent = T.fmtScore(myScoreObj.score || 0) + ' điểm';
+        } else if (currentPhase === 'reveal' && st) {
+          drawStudentReveal(room, st, rev || {}, myScoreObj, q);
+        } else if (currentPhase === 'end' && st) {
+          drawStudentEnd(room, st, myScoreObj, playerCount);
+        }
+      });
+
+      // Lắng nghe câu hỏi đang chiếu
+      tr.on(roomRef.child('question'), 'value', function (snap) {
+        q = snap.val() || null;
+        if (!st) return;
+        if (st.phase === 'question' && q && Number(q.index) === Number(st.index)) {
+          drawnQIndex = Number(st.index);
+          drawStudentQuestion(room, st, q, myScoreObj);
+        } else if (st.phase === 'reveal') {
+          drawStudentReveal(room, st, rev || {}, myScoreObj, q);
+        }
+      });
+
+      // Lắng nghe kết quả công bố từng câu
+      tr.on(roomRef.child('reveal'), 'value', function (snap) {
+        rev = snap.val() || null;
+        if (st && st.phase === 'reveal') {
+          drawStudentReveal(room, st, rev || {}, myScoreObj, q);
+        }
+      });
+
+      // Lắng nghe trạng thái phòng (khi phòng bị xóa, state thành null)
+      tr.on(roomRef.child('state'), 'value', function (snap) {
         if (!snap.exists()) {
           clearQTimer();
+          st = null;
+          currentPhase = 'closed';
           activeGame = false;
           T.fill(stage,
             h('div', { class: 'panel empty' },
@@ -277,28 +363,16 @@
           return;
         }
 
-        var room = snap.val() || {};
-        var st = room.state || { phase: 'lobby', index: -1, total: 1 };
-        var players = room.players || {};
-        var playerCount = Object.keys(players).length;
-        var myScoreObj = (room.scores && room.scores[uid]) || { score: 0, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, rank: null };
-
-        // Đảm bảo tên học sinh luôn có trong danh sách phòng (kể cả khi mất mạng vào lại)
-        if (!players[uid] && st.phase !== 'end') {
-          roomRef.child('players/' + uid).set({
-            name: String(me.fullName || me.username || 'Học sinh').slice(0, 80),
-            username: String(me.username || 'hs').slice(0, 60),
-            joinedAt: window.firebase.database.ServerValue.TIMESTAMP
-          }).catch(function () {});
-        }
-
+        st = snap.val() || { phase: 'lobby', index: -1, total: 1 };
         activeGame = st.phase !== 'end';
-        headMeta.textContent = (room.quizTitle || '') + (myScoreObj.score ? ' · ' + T.fmtScore(myScoreObj.score) + ' đ' : '');
+        updateHeadMeta();
 
         if (st.phase === 'lobby') {
           clearQTimer();
           currentPhase = 'lobby';
           currentQIndex = -1;
+          drawnQIndex = -1;
+          lobbyCountPill = h('p', { class: 'pill p-done' }, playerCount + ' bạn đang trong phòng');
           T.fill(stage,
             h('div', { class: 'panel game-lobby-student' },
               h('div', { class: 'game-status-icon' }, '⏳'),
@@ -307,22 +381,37 @@
               h('div', { class: 'game-self-box' },
                 h('span', { class: 'muted small' }, 'Người chơi'),
                 h('strong', null, me.fullName || me.username)),
-              h('p', { class: 'pill p-done' }, playerCount + ' bạn đang trong phòng')));
+              lobbyCountPill));
           return;
         }
 
         if (st.phase === 'question') {
-          var q = room.question || { index: st.index, type: 'mc', text: '', options: [] };
           var qIdx = Number(st.index);
-          var existingAns = room.answers && room.answers[qIdx] && room.answers[qIdx][uid];
-          if (existingAns && !answeredMap[qIdx]) {
-            answeredMap[qIdx] = { a: existingAns.a, sent: true };
+          var phaseChanged = currentPhase !== 'question' || currentQIndex !== qIdx;
+          currentPhase = 'question';
+          currentQIndex = qIdx;
+
+          // Kiểm tra xem mình đã trả lời câu đang hỏi chưa (khi vào lại giữa chừng)
+          if (!answeredMap[qIdx] && checkedAnsIndex !== qIdx) {
+            checkedAnsIndex = qIdx;
+            roomRef.child('answers/' + qIdx + '/' + uid).once('value').then(function (ansSnap) {
+              if (!tr.alive()) return;
+              var existingAns = ansSnap.val();
+              if (existingAns && existingAns.a !== undefined && !answeredMap[qIdx]) {
+                answeredMap[qIdx] = { a: existingAns.a, sent: true };
+                if (st && st.phase === 'question' && Number(st.index) === qIdx) {
+                  var curQ = (q && Number(q.index) === qIdx) ? q : { index: qIdx, type: 'mc', text: '', options: [] };
+                  drawStudentQuestion(room, st, curQ, myScoreObj);
+                }
+              }
+            }).catch(function () {});
           }
-          // Chỉ vẽ lại màn câu hỏi khi sang câu mới hoặc mới chuyển sang pha đang hỏi
-          if (currentPhase !== 'question' || currentQIndex !== qIdx) {
-            currentPhase = 'question';
-            currentQIndex = qIdx;
+
+          if (q && Number(q.index) === qIdx && (phaseChanged || drawnQIndex !== qIdx)) {
+            drawnQIndex = qIdx;
             drawStudentQuestion(room, st, q, myScoreObj);
+          } else if (phaseChanged && (!q || Number(q.index) !== qIdx)) {
+            drawStudentQuestion(room, st, { index: qIdx, type: 'mc', text: '', options: [] }, myScoreObj);
           }
           return;
         }
@@ -330,11 +419,9 @@
         if (st.phase === 'reveal') {
           clearQTimer();
           var revIdx = Number(st.index);
-          if (currentPhase !== 'reveal' || currentQIndex !== revIdx) {
-            currentPhase = 'reveal';
-            currentQIndex = revIdx;
-          }
-          drawStudentReveal(room, st, room.reveal || {}, myScoreObj, room.question);
+          currentPhase = 'reveal';
+          currentQIndex = revIdx;
+          drawStudentReveal(room, st, rev || {}, myScoreObj, q);
           return;
         }
 
@@ -351,6 +438,7 @@
         var qIdx = Number(st.index);
         var clockEl = h('span', { class: 'clock game-clock' }, '⏱ ' + (st.duration || 20) + 's');
         var bodyBox = h('div', { class: 'game-student-answer-area' });
+        qScorePill = h('span', { class: 'pill p-blue' }, T.fmtScore(myScoreObj.score || 0) + ' điểm');
 
         function renderLocked(msg, pickedLabel) {
           T.fill(bodyBox,
@@ -450,7 +538,7 @@
             h('div', { class: 'game-q-top' },
               h('span', { class: 'q-num' }, 'Câu ' + (qIdx + 1) + ' / ' + (st.total || 1)),
               clockEl,
-              h('span', { class: 'pill p-blue' }, T.fmtScore(myScoreObj.score || 0) + ' điểm')),
+              qScorePill),
             h('p', { class: 'game-student-qtext prewrap' }, q.text || ''),
             q.image && room.quizId ? T.qImageEl({ kind: 'quiz', id: room.quizId, key: q.image }) : null),
           bodyBox);
@@ -583,9 +671,12 @@
 
       var saved = loadHostState(quizId);
       if (saved && saved.pin) {
-        fb.db.ref('rooms/' + saved.pin).once('value').then(function (snap) {
+        fb.db.ref('rooms/' + saved.pin + '/host').once('value').then(function (hSnap) {
+          if (!tracker.alive() || !hSnap.exists() || hSnap.val() !== fb.uid) return null;
+          return fb.db.ref('rooms/' + saved.pin).once('value');
+        }).then(function (snap) {
           if (!tracker.alive()) return;
-          var rVal = snap.exists() ? snap.val() : null;
+          var rVal = snap && snap.exists() ? snap.val() : null;
           if (rVal && rVal.host === fb.uid) {
             drawSetup(d, allQs, fb, { pin: saved.pin, room: rVal, saved: saved });
           } else {
@@ -594,6 +685,7 @@
           }
         }).catch(function () {
           if (!tracker.alive()) return;
+          saveHostState(quizId, null);
           drawSetup(d, allQs, fb, null);
         });
       } else {
@@ -730,7 +822,7 @@
     function createUniquePin(db, attempt) {
       if (attempt > 12) return Promise.reject(new Error('Không tạo được mã phòng trống. Vui lòng thử lại.'));
       var pin = String(Math.floor(100000 + Math.random() * 900000));
-      return db.ref('rooms/' + pin).once('value').then(function (snap) {
+      return db.ref('rooms/' + pin + '/host').once('value').then(function (snap) {
         if (snap.exists()) return createUniquePin(db, attempt + 1);
         return pin;
       });

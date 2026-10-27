@@ -105,7 +105,9 @@ h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 800; letter-spacing: -0.0
 .tag {
   display: inline-block; font-size: 13px; font-weight: 600;
   padding: 4px 10px; border-radius: 999px;
+  background: #eafaf4;
   background: color-mix(in srgb, var(--c) 14%, white);
+  color: #0b7a5a;
   color: color-mix(in srgb, var(--c) 80%, black);
 }
 .cta-card {

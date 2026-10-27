@@ -100,6 +100,7 @@ function resetAdminPassword() {
   if (!u) { setup(); return; }
   var pw = randomPassword_();
   setPassword_(u, pw);
+  killSessions_('admin');
   Logger.log('Mật khẩu admin mới: ' + pw);
 }
 
@@ -143,7 +144,7 @@ function handle_(p) {
 
     // Tài liệu
     case 'docs': return { docs: courseContent_(me, String(p.courseId || '')).docs };
-    case 'upload': return withLock_(function () { return upload_(me, p); });
+    case 'upload': return upload_(me, p);
     case 'updateDoc': return withLock_(function () { return updateDoc_(me, p); });
     case 'deleteDoc': return withLock_(function () { return deleteDoc_(me, id); });
     case 'file': return getFile_(me, id);
@@ -151,11 +152,11 @@ function handle_(p) {
 
     // Bài tập về nhà
     case 'assignment': return assignmentDetail_(me, id);
-    case 'createAssignment': return withLock_(function () { return saveAssignment_(me, p, true); });
-    case 'updateAssignment': return withLock_(function () { return saveAssignment_(me, p, false); });
+    case 'createAssignment': return saveAssignment_(me, p, true);
+    case 'updateAssignment': return saveAssignment_(me, p, false);
     case 'deleteAssignment': return withLock_(function () { return deleteAssignment_(me, id); });
     case 'assignmentFile': return assignmentFile_(me, id);
-    case 'submit': return withLock_(function () { return submit_(me, p); });
+    case 'submit': return submit_(me, p);
     case 'submissionFile': return submissionFile_(me, String(p.submissionId || ''), String(p.fileId || ''));
     case 'grade': return withLock_(function () { return grade_(me, p); });
     case 'finalizeAll': return withLock_(function () { return finalizeAll_(me, p); });
@@ -163,7 +164,7 @@ function handle_(p) {
 
     // Luyện tập
     case 'quiz': return quizDetail_(me, id);
-    case 'saveQuiz': return withLock_(function () { return saveQuiz_(me, p); });
+    case 'saveQuiz': return saveQuiz_(me, p);
     case 'deleteQuiz': return withLock_(function () { return deleteQuiz_(me, id); });
     case 'submitQuiz': return withLock_(function () { return submitQuiz_(me, p); });
     case 'attempt': return attemptDetail_(me, String(p.attemptId || ''));
@@ -222,7 +223,7 @@ function auth_(token) {
     var s = rows_('sessions').filter(function (r) { return r.token === token; })[0];
     if (!s || Number(s.expiresAt) < Date.now()) throw err_('Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.', 401);
     username = s.username;
-    cache.put('s_' + token, username, 600);
+    cache.put('s_' + token, username, 21600);
   }
   var u = findUser_(username);
   if (!u || !isActive_(u)) throw err_('Tài khoản không còn hoạt động.', 401);
@@ -242,7 +243,10 @@ function changePassword_(me, p) {
   if (hash_(me.salt, String(p.oldPassword || '')) !== me.passwordHash) throw err_('Mật khẩu hiện tại không đúng.');
   var pw = String(p.newPassword || '');
   checkPassword_(pw);
-  withLock_(function () { setPassword_(findUser_(me.username), pw); });
+  withLock_(function () {
+    setPassword_(findUser_(me.username), pw);
+    killSessions_(me.username, String(p.token || ''));
+  });
   return {};
 }
 
@@ -253,9 +257,9 @@ function cleanupSessions_() {
   dirty_('sessions');
 }
 
-function killSessions_(username) {
+function killSessions_(username, keepToken) {
   var cache = CacheService.getScriptCache();
-  var mine = rows_('sessions').filter(function (r) { return r.username === username; });
+  var mine = rows_('sessions').filter(function (r) { return r.username === username && r.token !== keepToken; });
   for (var i = mine.length - 1; i >= 0; i--) {
     cache.remove('s_' + mine[i].token);
     sheet_('sessions').deleteRow(mine[i]._row);
@@ -573,11 +577,13 @@ function upload_(me, p) {
     uploadedAt: new Date().toISOString()
   };
 
+  var createdFileId = '';
   if (p.url) {
     doc.type = 'link';
     doc.url = checkUrl_(p.url);
   } else {
     var f = saveUpload_(courseFolder_(courseId), p.data, p.fileName, p.mimeType, '');
+    createdFileId = f.fileId;
     doc.type = 'file';
     doc.fileId = f.fileId;
     doc.fileName = f.name;
@@ -585,8 +591,18 @@ function upload_(me, p) {
     doc.size = String(f.size);
   }
 
-  append_('docs', doc);
-  return { doc: publicDoc_(doc, userNames_(), c) };
+  try {
+    return withLock_(function () {
+      requireEdit_(me, courseId);
+      var cNow = findCourse_(courseId);
+      doc.branch = itemBranch_(cNow, p);
+      append_('docs', doc);
+      return { doc: publicDoc_(doc, userNames_(), cNow) };
+    });
+  } catch (e) {
+    if (createdFileId) trash_(createdFileId);
+    throw e;
+  }
 }
 
 function updateDoc_(me, p) {
@@ -624,6 +640,35 @@ function getFile_(me, docId) {
 
 /* ───────────────────────── Bài tập về nhà ───────────────────────── */
 
+/** Kiểm tra khi sửa bài tập đã có bài nộp: chặn đổi số lượng câu hoặc đổi loại câu ở bất kỳ vị trí nào. */
+function checkAssignmentStructure_(a, questions) {
+  var subs = rows_('submissions').filter(function (s) { return s.assignmentId === a.id; });
+  var oldQuestions = parseQuestions_(a);
+  if (subs.length) {
+    if (oldQuestions.length !== questions.length) {
+      throw err_('Đã có học sinh nộp bài nên không thể thêm/bớt câu hỏi. Bạn chỉ sửa được nội dung, đáp án, điểm; hoặc tạo bài tập mới.');
+    }
+    for (var i = 0; i < questions.length; i++) {
+      if (oldQuestions[i].type !== questions[i].type) {
+        throw err_('Đã có học sinh nộp bài nên không thể đổi loại câu hỏi (Câu ' + (i + 1) + '). Bạn chỉ sửa được nội dung, đáp án, điểm; hoặc tạo bài tập mới.');
+      }
+    }
+  }
+  return { subs: subs, oldQuestions: oldQuestions };
+}
+
+/** Có câu không phải tự luận nào thay đổi đáp án hoặc điểm số không. */
+function hasGradingChange_(oldQuestions, questions) {
+  return questions.some(function (q, i) {
+    if (q.type === 'essay') return false;
+    var oq = oldQuestions[i];
+    if (!oq) return true;
+    if (Number(oq.points || 1) !== Number(q.points || 1)) return true;
+    if (q.type === 'mc') return Number(oq.correct) !== Number(q.correct);
+    return JSON.stringify(oq.answers || []) !== JSON.stringify(q.answers || []);
+  });
+}
+
 function saveAssignment_(me, p, isNew) {
   var a = null;
   var courseId;
@@ -640,57 +685,123 @@ function saveAssignment_(me, p, isNew) {
   if (!title) throw err_('Vui lòng nhập tên bài tập.');
   var questions = [];
   if (Array.isArray(p.questions) && p.questions.length) questions = validateQuestions_(p.questions, true);
+  var qJson = questions.length ? JSON.stringify(questions) : '';
+  if (qJson.length > 48000) throw err_('Đề quá dài. Hãy tách thành nhiều bài tập.');
   var maxScore = questions.length
     ? sumPoints_(questions)
     : Number(p.maxScore === undefined || p.maxScore === '' ? 10 : p.maxScore);
   if (!(maxScore > 0 && maxScore <= 1000)) throw err_('Thang điểm phải từ 1 đến 1000.');
-  if (a && questions.length && a.questions && a.questions !== JSON.stringify(questions)) {
-    var hasSubs = rows_('submissions').some(function (s) { return s.assignmentId === a.id; });
-    if (hasSubs && JSON.parse(a.questions || '[]').length !== questions.length) {
-      throw err_('Đã có học sinh nộp bài nên không thể thêm/bớt câu hỏi. Bạn chỉ sửa được nội dung, đáp án, điểm; hoặc tạo bài tập mới.');
-    }
-  }
+  if (a) checkAssignmentStructure_(a, questions);
   var dueAt = '';
   if (p.dueAt) {
     var dt = new Date(String(p.dueAt));
     if (isNaN(dt.getTime())) throw err_('Hạn nộp không hợp lệ.');
     dueAt = dt.toISOString();
   }
-  var c = findCourse_(courseId);
-  var data = {
-    courseId: courseId,
-    topic: clean_(p.topic, 100),
-    branch: itemBranch_(c, p),
-    title: title,
-    instructions: clean_(p.instructions, 5000),
-    dueAt: dueAt,
-    maxScore: String(maxScore),
-    source: questions.length ? String(p.source || '').slice(0, 45000) : '',
-    questions: questions.length ? JSON.stringify(questions) : '',
-    images: saveImages_(courseId, a ? a.images : '', questions, p.newImages)
-  };
-  if (data.questions.length > 48000) throw err_('Đề quá dài. Hãy tách thành nhiều bài tập.');
-  if (p.data) {
-    var f = saveUpload_(courseFolder_(courseId), p.data, p.fileName, p.mimeType, 'De bai - ');
-    if (a && a.fileId) trash_(a.fileId);
-    data.fileId = f.fileId;
-    data.fileName = f.name;
-    data.mimeType = f.mimeType;
-    data.size = String(f.size);
-  } else if (p.removeFile && a && a.fileId) {
-    trash_(a.fileId);
-    data.fileId = data.fileName = data.mimeType = data.size = '';
+
+  // Tạo file trên Drive ngoài khóa; nếu bước ghi Sheets lỗi thì dọn vào thùng rác.
+  var createdIds = [];
+  var toTrashIds = [];
+  var imagesJson = '';
+  var uploadedFile = null;
+  try {
+    imagesJson = saveImages_(courseId, a ? a.images : '', questions, p.newImages, createdIds, toTrashIds);
+    if (p.data) {
+      uploadedFile = saveUpload_(courseFolder_(courseId), p.data, p.fileName, p.mimeType, 'De bai - ');
+      createdIds.push(uploadedFile.fileId);
+    }
+  } catch (e) {
+    createdIds.forEach(trash_);
+    throw e;
   }
 
-  if (isNew) {
-    data.id = Utilities.getUuid();
-    data.createdBy = me.username;
-    data.createdAt = new Date().toISOString();
-    append_('assignments', data);
-    return { assignment: publicAssignment_(data, userNames_(), c) };
+  try {
+    var res = withLock_(function () {
+      var curA = null;
+      if (!isNew) {
+        curA = findBy_('assignments', String(p.id || ''));
+        if (!curA) throw err_('Không tìm thấy bài tập.', 404);
+        courseId = curA.courseId;
+      }
+      requireEdit_(me, courseId);
+      var check = curA ? checkAssignmentStructure_(curA, questions) : null;
+      var c = findCourse_(courseId);
+      var data = {
+        courseId: courseId,
+        topic: clean_(p.topic, 100),
+        branch: itemBranch_(c, p),
+        title: title,
+        instructions: clean_(p.instructions, 5000),
+        dueAt: dueAt,
+        maxScore: String(maxScore),
+        source: questions.length ? String(p.source || '').slice(0, 45000) : '',
+        questions: qJson,
+        images: imagesJson
+      };
+      if (uploadedFile) {
+        if (curA && curA.fileId) toTrashIds.push(curA.fileId);
+        data.fileId = uploadedFile.fileId;
+        data.fileName = uploadedFile.name;
+        data.mimeType = uploadedFile.mimeType;
+        data.size = String(uploadedFile.size);
+      } else if (p.removeFile && curA && curA.fileId) {
+        toTrashIds.push(curA.fileId);
+        data.fileId = data.fileName = data.mimeType = data.size = '';
+      }
+
+      if (isNew) {
+        data.id = Utilities.getUuid();
+        data.createdBy = me.username;
+        data.createdAt = new Date().toISOString();
+        append_('assignments', data);
+        return { assignment: publicAssignment_(data, userNames_(), c), regraded: 0, skippedReturned: 0 };
+      }
+
+      update_('assignments', curA, data);
+      var regraded = 0;
+      var skippedReturned = 0;
+      // Chấm lại phần máy chấm cho các bài chưa chốt điểm khi đáp án / điểm câu thay đổi.
+      if (questions.length && check.subs.length && hasGradingChange_(check.oldQuestions, questions)) {
+        check.subs.forEach(function (s) {
+          if (s.status === 'returned') {
+            skippedReturned++;
+            return;
+          }
+          var ans = parseJson_(s.answers, []);
+          var oldScores = parseJson_(s.itemScores, []);
+          var autoScore = 0;
+          var newScores = questions.map(function (q, i) {
+            if (q.type === 'essay') return oldScores[i] !== undefined ? oldScores[i] : null;
+            var oq = check.oldQuestions[i];
+            var oldAuto = isCorrect_(oq, ans[i]) ? Number(oq.points || 1) : 0;
+            var hasOld = oldScores[i] !== null && oldScores[i] !== undefined;
+            // Giữ điểm câu giáo viên đã sửa tay (itemScores[i] cũ khác điểm máy chấm theo đề cũ).
+            var pts = (hasOld && Number(oldScores[i]) !== oldAuto)
+              ? Number(oldScores[i])
+              : (isCorrect_(q, ans[i]) ? Number(q.points || 1) : 0);
+            autoScore += pts;
+            return pts;
+          });
+          autoScore = Math.round(autoScore * 100) / 100;
+          update_('submissions', s, {
+            itemScores: JSON.stringify(newScores),
+            autoScore: String(autoScore)
+          });
+          regraded++;
+        });
+      }
+      return {
+        assignment: publicAssignment_(findBy_('assignments', curA.id), userNames_(), c),
+        regraded: regraded,
+        skippedReturned: skippedReturned
+      };
+    });
+    toTrashIds.forEach(trash_);
+    return res;
+  } catch (e) {
+    createdIds.forEach(trash_);
+    throw e;
   }
-  update_('assignments', a, data);
-  return { assignment: publicAssignment_(findBy_('assignments', a.id), userNames_(), c) };
 }
 
 function deleteAssignment_(me, id) {
@@ -745,8 +856,13 @@ function assignmentDetail_(me, id) {
     var mine = subs.filter(function (s) { return s.username === me.username; })[0];
     out.submission = mine ? forStudent_(publicSubmission_(mine, names)) : null;
     if (mine && questions.length) {
-      // Đáp án và lời giải chỉ hiện khi bài đã chấm xong VÀ đã hết hạn nộp (tránh lộ đáp án cho bạn khác).
-      out.reveal = mine.status === 'returned' && (!a.dueAt || Date.now() > new Date(a.dueAt).getTime());
+      // Có hạn nộp: hiện đáp án khi bài đã chốt điểm VÀ quá hạn nộp.
+      // Không có hạn nộp: chỉ hiện khi mọi học sinh đang hoạt động của khóa đều đã có bài nộp ở trạng thái returned.
+      var returnedBy = {};
+      subs.forEach(function (s) { if (s.status === 'returned') returnedBy[s.username] = 1; });
+      out.reveal = mine.status === 'returned' && (a.dueAt
+        ? Date.now() > new Date(a.dueAt).getTime()
+        : studentsOf_(a.courseId).every(function (u) { return !!returnedBy[u.username]; }));
       out.review = reviewHomework_(questions, mine, out.reveal);
     }
   }
@@ -761,7 +877,8 @@ function assignmentFile_(me, id) {
 }
 
 function submit_(me, p) {
-  var a = findBy_('assignments', String(p.assignmentId || ''));
+  var assignmentId = String(p.assignmentId || '');
+  var a = findBy_('assignments', assignmentId);
   if (!a) throw err_('Không tìm thấy bài tập.', 404);
   if (!isStudentIn_(me, a.courseId)) throw err_('Chỉ học sinh của khóa này mới nộp bài được.', 403);
   var existing = rows_('submissions').filter(function (s) { return s.assignmentId === a.id && s.username === me.username; })[0];
@@ -776,31 +893,17 @@ function submit_(me, p) {
   var questions = parseQuestions_(a);
   var keep = Array.isArray(p.keepFileIds) ? p.keepFileIds.map(String) : [];
   var oldFiles = existing ? parseFiles_(existing.files) : [];
-  var files = oldFiles.filter(function (f) { return keep.indexOf(f.fileId) >= 0; });
+  var keptPre = oldFiles.filter(function (f) { return keep.indexOf(f.fileId) >= 0; });
   var incoming = Array.isArray(p.files) ? p.files : [];
-  if (files.length + incoming.length > MAX_SUBMIT_FILES) throw err_('Chỉ nộp tối đa ' + MAX_SUBMIT_FILES + ' file mỗi lần.');
+  if (keptPre.length + incoming.length > MAX_SUBMIT_FILES) throw err_('Chỉ nộp tối đa ' + MAX_SUBMIT_FILES + ' file mỗi lần.');
   var text = clean_(p.text, 5000);
-  var answers = [];
-  var itemScores = [];
-  var autoScore = 0;
+  var raw = Array.isArray(p.answers) ? p.answers : [];
   if (questions.length) {
-    var raw = Array.isArray(p.answers) ? p.answers : [];
-    answers = questions.map(function (x, i) {
-      var v = raw[i];
-      if (v === null || v === undefined || v === '') return null;
-      return x.type === 'mc' ? Number(v) : clean_(v, x.type === 'essay' ? 5000 : 200);
-    });
-    itemScores = questions.map(function (x, i) {
-      if (x.type === 'essay') return null;
-      var pts = isCorrect_(x, answers[i]) ? Number(x.points || 1) : 0;
-      autoScore += pts;
-      return pts;
-    });
-    autoScore = Math.round(autoScore * 100) / 100;
-    if (!answers.some(function (v) { return v !== null; }) && !files.length && !incoming.length && !text) {
+    var hasAnsPre = questions.some(function (_, i) { var v = raw[i]; return v !== null && v !== undefined && v !== ''; });
+    if (!hasAnsPre && !keptPre.length && !incoming.length && !text) {
       throw err_('Em chưa trả lời câu nào.');
     }
-  } else if (!text && !files.length && !incoming.length) {
+  } else if (!text && !keptPre.length && !incoming.length) {
     throw err_('Hãy đính kèm ảnh/file bài làm hoặc viết câu trả lời.');
   }
 
@@ -808,52 +911,118 @@ function submit_(me, p) {
   incoming.forEach(function (f) { total += Math.floor(String(f.data || '').length * 3 / 4); });
   if (total > MAX_UPLOAD_BYTES) throw err_('Tổng dung lượng file quá lớn (tối đa 20 MB). Hãy chụp ảnh nhỏ hơn hoặc bớt file.');
 
-  var folder = submissionsFolder_(a.courseId);
-  incoming.forEach(function (f) {
-    var q = f.q === undefined || f.q === null || f.q === '' ? null : Number(f.q);
-    if (q !== null && !(questions[q] && questions[q].type === 'essay')) q = null;
-    var saved = saveUpload_(folder, f.data, f.name, f.mimeType, me.username + (q !== null ? ' - Cau ' + (q + 1) : '') + ' - ');
-    saved.q = q;
-    files.push(saved);
-  });
-  oldFiles.forEach(function (f) { if (keep.indexOf(f.fileId) < 0) trash_(f.fileId); });
+  // Tải file lên Drive ngoài khóa; nếu bước sau lỗi thì xóa các file vừa tạo.
+  var createdIds = [];
+  var uploaded = [];
+  try {
+    if (incoming.length) {
+      var folder = submissionsFolder_(a.courseId);
+      incoming.forEach(function (f) {
+        var q = f.q === undefined || f.q === null || f.q === '' ? null : Number(f.q);
+        if (q !== null && !(questions[q] && questions[q].type === 'essay')) q = null;
+        var saved = saveUpload_(folder, f.data, f.name, f.mimeType, me.username + (q !== null ? ' - Cau ' + (q + 1) : '') + ' - ');
+        createdIds.push(saved.fileId);
+        saved.q = q;
+        uploaded.push(saved);
+      });
+    }
+  } catch (e) {
+    createdIds.forEach(trash_);
+    throw e;
+  }
 
-  var now = new Date();
-  // Máy chấm ngay phần trắc nghiệm/trả lời ngắn nhưng KHÔNG công bố: bài luôn chờ giáo viên chốt điểm
-  // (máy có thể chấm sai cách viết đúng mà đáp án chưa liệt kê).
-  var data = {
-    assignmentId: a.id,
-    courseId: a.courseId,
-    username: me.username,
-    text: text,
-    files: JSON.stringify(files),
-    submittedAt: now.toISOString(),
-    // Giáo viên cho nộp lại sau hạn: giữ nguyên dấu đúng hạn/muộn của lần nộp trước.
-    late: existing && existing.status === 'reopened' ? existing.late
-      : a.dueAt && now.getTime() > new Date(a.dueAt).getTime() ? '1' : '0',
-    status: 'submitted',
-    score: '',
-    feedback: existing ? existing.feedback : '',
-    gradedBy: '',
-    gradedAt: '',
-    answers: questions.length ? JSON.stringify(answers) : '',
-    itemScores: questions.length ? JSON.stringify(itemScores) : '',
-    autoScore: questions.length ? String(autoScore) : '',
-    aiSuggest: ''
-  };
-  if (existing) {
-    update_('submissions', existing, data);
-    data.id = existing.id;
-  } else {
-    data.id = Utilities.getUuid();
-    append_('submissions', data);
+  var toTrashIds = [];
+  try {
+    var res = withLock_(function () {
+      var curA = findBy_('assignments', assignmentId);
+      if (!curA) throw err_('Không tìm thấy bài tập.', 404);
+      if (!isStudentIn_(me, curA.courseId)) throw err_('Chỉ học sinh của khóa này mới nộp bài được.', 403);
+      var curExisting = rows_('submissions').filter(function (s) { return s.assignmentId === curA.id && s.username === me.username; })[0];
+      if (curExisting && curExisting.status === 'returned') {
+        throw err_('Bài đã được chốt điểm nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
+      }
+      if (curExisting && curExisting.status !== 'reopened' && curA.dueAt && Date.now() > new Date(curA.dueAt).getTime()) {
+        throw err_('Đã hết hạn nộp nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
+      }
+
+      var curQuestions = parseQuestions_(curA);
+      var curOldFiles = curExisting ? parseFiles_(curExisting.files) : [];
+      var files = curOldFiles.filter(function (f) { return keep.indexOf(f.fileId) >= 0; });
+      if (files.length + uploaded.length > MAX_SUBMIT_FILES) throw err_('Chỉ nộp tối đa ' + MAX_SUBMIT_FILES + ' file mỗi lần.');
+      uploaded.forEach(function (saved) {
+        var q = saved.q;
+        if (q !== null && !(curQuestions[q] && curQuestions[q].type === 'essay')) q = null;
+        files.push({ fileId: saved.fileId, name: saved.name, mimeType: saved.mimeType, size: saved.size, q: q });
+      });
+
+      var answers = [];
+      var itemScores = [];
+      var autoScore = 0;
+      if (curQuestions.length) {
+        answers = curQuestions.map(function (x, i) {
+          var v = raw[i];
+          if (v === null || v === undefined || v === '') return null;
+          return x.type === 'mc' ? Number(v) : clean_(v, x.type === 'essay' ? 5000 : 200);
+        });
+        itemScores = curQuestions.map(function (x, i) {
+          if (x.type === 'essay') return null;
+          var pts = isCorrect_(x, answers[i]) ? Number(x.points || 1) : 0;
+          autoScore += pts;
+          return pts;
+        });
+        autoScore = Math.round(autoScore * 100) / 100;
+        if (!answers.some(function (v) { return v !== null; }) && !files.length && !text) {
+          throw err_('Em chưa trả lời câu nào.');
+        }
+      } else if (!text && !files.length) {
+        throw err_('Hãy đính kèm ảnh/file bài làm hoặc viết câu trả lời.');
+      }
+
+      curOldFiles.forEach(function (f) { if (keep.indexOf(f.fileId) < 0) toTrashIds.push(f.fileId); });
+
+      var now = new Date();
+      // Máy chấm ngay phần trắc nghiệm/trả lời ngắn nhưng KHÔNG công bố: bài luôn chờ giáo viên chốt điểm
+      // (máy có thể chấm sai cách viết đúng mà đáp án chưa liệt kê).
+      var data = {
+        assignmentId: curA.id,
+        courseId: curA.courseId,
+        username: me.username,
+        text: text,
+        files: JSON.stringify(files),
+        submittedAt: now.toISOString(),
+        // Giáo viên cho nộp lại sau hạn: giữ nguyên dấu đúng hạn/muộn của lần nộp trước.
+        late: curExisting && curExisting.status === 'reopened' ? curExisting.late
+          : curA.dueAt && now.getTime() > new Date(curA.dueAt).getTime() ? '1' : '0',
+        status: 'submitted',
+        score: '',
+        feedback: curExisting ? curExisting.feedback : '',
+        gradedBy: '',
+        gradedAt: '',
+        answers: curQuestions.length ? JSON.stringify(answers) : '',
+        itemScores: curQuestions.length ? JSON.stringify(itemScores) : '',
+        autoScore: curQuestions.length ? String(autoScore) : '',
+        aiSuggest: ''
+      };
+      if (curExisting) {
+        update_('submissions', curExisting, data);
+        data.id = curExisting.id;
+      } else {
+        data.id = Utilities.getUuid();
+        append_('submissions', data);
+      }
+      var out = { submission: forStudent_(publicSubmission_(data, userNames_())) };
+      if (curQuestions.length) {
+        out.reveal = false;
+        out.review = reviewHomework_(curQuestions, data, out.reveal);
+      }
+      return out;
+    });
+    toTrashIds.forEach(trash_);
+    return res;
+  } catch (e) {
+    createdIds.forEach(trash_);
+    throw e;
   }
-  var out = { submission: forStudent_(publicSubmission_(data, userNames_())) };
-  if (questions.length) {
-    out.reveal = false;
-    out.review = reviewHomework_(questions, data, out.reveal);
-  }
-  return out;
 }
 
 /** Từng câu: học sinh trả lời gì, được mấy điểm; kèm đáp án/lời giải khi reveal. */
@@ -1084,7 +1253,6 @@ function aiGrade_(me, submissionId) {
 
   // Lưu lại để mở lại màn chấm vẫn thấy (khóa chỉ giữ lúc ghi, không giữ trong lúc chờ Gemini).
   withLock_(function () {
-    dirty_('submissions');
     var cur = findBy_('submissions', s.id);
     if (cur && cur.submittedAt === s.submittedAt) update_('submissions', cur, { aiSuggest: JSON.stringify(out) });
   });
@@ -1201,35 +1369,54 @@ function saveQuiz_(me, p) {
   var title = clean_(p.title, 200);
   if (!title) throw err_('Vui lòng nhập tên bài luyện tập.');
   var questions = validateQuestions_(p.questions, false);
+  var questionsJson = JSON.stringify(questions);
+  if (questionsJson.length > 48000) throw err_('Đề quá dài. Hãy tách thành nhiều bài luyện tập.');
   var limit = Number(p.timeLimit || 0);
   if (isNaN(limit) || limit < 0 || limit > 300) throw err_('Thời gian làm bài phải từ 0 đến 300 phút.');
-  var now = new Date().toISOString();
-  var c = findCourse_(courseId);
-  var data = {
-    courseId: courseId,
-    topic: clean_(p.topic, 100),
-    branch: itemBranch_(c, p),
-    title: title,
-    description: clean_(p.description, 2000),
-    source: String(p.source || '').slice(0, 45000),
-    questions: JSON.stringify(questions),
-    timeLimit: String(Math.round(limit)),
-    showAnswers: p.showAnswers === false ? '0' : '1',
-    updatedAt: now,
-    images: saveImages_(courseId, q ? q.images : '', questions, p.newImages),
-    gameOnly: p.gameOnly ? '1' : '0'
-  };
-  if (data.questions.length > 48000) throw err_('Đề quá dài. Hãy tách thành nhiều bài luyện tập.');
-  if (q) {
-    update_('quizzes', q, data);
-    data.id = q.id;
-  } else {
-    data.id = Utilities.getUuid();
-    data.createdBy = me.username;
-    data.createdAt = now;
-    append_('quizzes', data);
+
+  // Tạo file hình trên Drive ngoài khóa; chỉ ghi Sheets trong khóa.
+  var createdIds = [];
+  var toTrashIds = [];
+  var imagesJson = saveImages_(courseId, q ? q.images : '', questions, p.newImages, createdIds, toTrashIds);
+  var outId = '';
+  try {
+    withLock_(function () {
+      var c = findCourse_(courseId);
+      requireEdit_(me, courseId);
+      var cur = p.id ? findBy_('quizzes', String(p.id)) : null;
+      if (p.id && !cur) throw err_('Không tìm thấy bài luyện tập.', 404);
+      var now = new Date().toISOString();
+      var data = {
+        courseId: courseId,
+        topic: clean_(p.topic, 100),
+        branch: itemBranch_(c, p),
+        title: title,
+        description: clean_(p.description, 2000),
+        source: String(p.source || '').slice(0, 45000),
+        questions: questionsJson,
+        timeLimit: String(Math.round(limit)),
+        showAnswers: p.showAnswers === false ? '0' : '1',
+        updatedAt: now,
+        images: imagesJson,
+        gameOnly: p.gameOnly ? '1' : '0'
+      };
+      if (cur) {
+        update_('quizzes', cur, data);
+        outId = cur.id;
+      } else {
+        data.id = Utilities.getUuid();
+        data.createdBy = me.username;
+        data.createdAt = now;
+        append_('quizzes', data);
+        outId = data.id;
+      }
+    });
+  } catch (e) {
+    createdIds.forEach(trash_);
+    throw e;
   }
-  return { id: data.id };
+  toTrashIds.forEach(trash_);
+  return { id: outId };
 }
 
 function validateQuestions_(list, allowEssay) {
@@ -1376,19 +1563,33 @@ function isCorrect_(x, a) {
   return (x.answers || []).some(function (ans) {
     var k = normAnswer_(ans);
     if (k === v) return true;
-    // "24" khớp "24cm", "0.75" khớp "0,75kg": cùng con số, chỉ khác đơn vị (hoặc thiếu đơn vị).
+    // "24" khớp "24cm", "0.75" khớp "3/4", "0,75kg": cùng giá trị số, chỉ khác đơn vị (hoặc thiếu đơn vị).
     var kn = numPart_(k);
-    return vn !== null && kn !== null && vn.num === kn.num && (!vn.unit || !kn.unit || vn.unit === kn.unit);
+    return vn !== null && kn !== null && Math.abs(vn.val - kn.val) <= 1e-9 && (!vn.unit || !kn.unit || vn.unit === kn.unit);
   });
 }
 
 function numPart_(s) {
-  var m = /^(-?\d+(?:\.\d+)?(?:\/\d+)?)([a-zà-ỹđ²³]*)$/.exec(s);
-  return m ? { num: m[1], unit: m[2] } : null;
+  var m = /^(-?\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?)([a-zà-ỹđ²³°%][a-zà-ỹđ0-9²³°%/]*)?$/.exec(s);
+  if (!m) return null;
+  var raw = m[1];
+  var val;
+  if (raw.indexOf('/') >= 0) {
+    var parts = raw.split('/');
+    var den = Number(parts[1]);
+    if (!den) return null;
+    val = Number(parts[0]) / den;
+  } else {
+    val = Number(raw);
+  }
+  if (!isFinite(val)) return null;
+  return { num: raw, val: val, unit: m[2] || '' };
 }
 
 function normAnswer_(s) {
-  return String(s).normalize('NFC').toLowerCase().replace(/\s+/g, '').replace(/,/g, '.').replace(/\.$/, '');
+  // 12.500 = 12500 (dấu chấm phân cách hàng nghìn kiểu Việt Nam), bỏ trước khi đổi dấu phẩy thập phân thành dấu chấm.
+  return String(s).normalize('NFC').toLowerCase().replace(/\s+/g, '').replace(/(^|[^\d.,])(-?[1-9]\d{0,2}(?:\.\d{3})+)(?![\d.])/g, function (m, pre, n) { return pre + n.replace(/\./g, ''); }).replace(/,/g, '.').replace(/\.$/, '')
+    .replace(/([a-zà-ỹđ])2(?![0-9])/g, '$1²').replace(/([a-zà-ỹđ])3(?![0-9])/g, '$1³');
 }
 
 function deleteQuiz_(me, id) {
@@ -1441,26 +1642,53 @@ function saveMatch_(me, p) {
 
 /**
  * Lưu hình mới (từ PDF hoặc giáo viên thêm) vào Drive, bỏ hình không còn dùng.
+ * Nếu truyền createdIds / toTrashIds thì gom ID file mới tạo và file cũ cần xóa để xử lý ngoài khóa.
  * Trả về JSON {key: fileId} để lưu trong cột images.
  */
-function saveImages_(courseId, oldJson, questions, newImages) {
+function saveImages_(courseId, oldJson, questions, newImages, createdIds, toTrashIds) {
   var map = parseJson_(oldJson, {});
   var used = {};
   questions.forEach(function (x) { if (x.image) used[x.image] = 1; });
   var list = Array.isArray(newImages) ? newImages : [];
   if (list.length > 60) throw err_('Quá nhiều hình trong một đề (tối đa 60).');
+  var validNew = [];
+  var incomingKeys = {};
   list.forEach(function (im) {
-    var key = String(im.key || '');
+    var key = String((im && im.key) || '');
     if (!used[key] || !/^[A-Za-z0-9_-]{1,40}$/.test(key)) return;
     var bytes = Utilities.base64Decode(String(im.data || ''));
     if (bytes.length > 4 * 1024 * 1024) throw err_('Hình "' + key + '" quá lớn (tối đa 4 MB).');
-    if (map[key]) trash_(map[key]);
-    var blob = Utilities.newBlob(bytes, String(im.mimeType || 'image/jpeg'), 'hinh-' + key + '.jpg');
-    map[key] = imagesFolder_(courseId).createFile(blob).getId();
+    validNew.push({ key: key, bytes: bytes, mimeType: String(im.mimeType || 'image/jpeg') });
+    incomingKeys[key] = 1;
   });
-  Object.keys(map).forEach(function (k) { if (!used[k]) { trash_(map[k]); delete map[k]; } });
-  var missing = Object.keys(used).filter(function (k) { return !map[k]; });
+  var missing = Object.keys(used).filter(function (k) { return !map[k] && !incomingKeys[k]; });
   if (missing.length) throw err_('Thiếu file hình: ' + missing.join(', ') + '. Hãy thêm lại hình cho câu đó.');
+  var oldToTrash = [];
+  try {
+    validNew.forEach(function (im) {
+      if (map[im.key]) oldToTrash.push(map[im.key]);
+      var blob = Utilities.newBlob(im.bytes, im.mimeType, 'hinh-' + im.key + '.jpg');
+      var fid = imagesFolder_(courseId).createFile(blob).getId();
+      if (createdIds) createdIds.push(fid);
+      map[im.key] = fid;
+    });
+  } catch (e) {
+    if (createdIds) {
+      while (createdIds.length) trash_(createdIds.pop());
+    }
+    throw e;
+  }
+  Object.keys(map).forEach(function (k) {
+    if (!used[k]) {
+      oldToTrash.push(map[k]);
+      delete map[k];
+    }
+  });
+  if (toTrashIds) {
+    oldToTrash.forEach(function (id) { toTrashIds.push(id); });
+  } else {
+    oldToTrash.forEach(trash_);
+  }
   return Object.keys(map).length ? JSON.stringify(map) : '';
 }
 
@@ -1528,8 +1756,10 @@ function updateUser_(me, p) {
   if (u.username === me.username && (data.role !== 'admin' || active !== '1')) {
     throw err_('Bạn không thể tự khóa hoặc bỏ quyền admin của chính mình.');
   }
+  var oldRole = u.role;
   update_('users', u, { fullName: data.fullName, role: data.role, courses: data.courses, active: active });
-  if (active !== '1') killSessions_(u.username);
+  // Khóa tài khoản hoặc đổi vai trò → xóa phiên và cache s_<token> để áp dụng ngay.
+  if (active !== '1' || data.role !== oldRole) killSessions_(u.username);
   return { user: publicUser_(findUser_(u.username)) };
 }
 
@@ -1677,6 +1907,8 @@ var SS_ = null;
 var SHEETS_ = {};
 var ROWS_ = {};
 var SCHEMA_PROPS_ = null;
+// Cờ đánh dấu có ghi dữ liệu hiển thị trong khóa (khác trang sessions và không phải chỉ đổi mật khẩu).
+var NEED_BUMP_ = false;
 
 function ss_() {
   return SS_ || (SS_ = SpreadsheetApp.getActiveSpreadsheet());
@@ -1762,9 +1994,13 @@ function rows_(k, nCols) {
   return list.slice();
 }
 
-/** Dữ liệu trang k đã đổi → lần đọc sau trong request này phải đọc lại. */
-function dirty_(k) {
+/**
+ * Dữ liệu trang k đã đổi → lần đọc sau trong request này phải đọc lại.
+ * skipBump = true khi chỉ cập nhật cột mật khẩu (không ảnh hưởng dữ liệu hiển thị).
+ */
+function dirty_(k, skipBump) {
   Object.keys(ROWS_).forEach(function (key) { if (key.split(':')[0] === k) delete ROWS_[key]; });
+  if (k !== 'sessions' && !skipBump) NEED_BUMP_ = true;
 }
 
 function findBy_(k, id) {
@@ -1777,12 +2013,12 @@ function append_(k, obj) {
   dirty_(k);
 }
 
-function update_(k, row, changes) {
+function update_(k, row, changes, skipBump) {
   var cols = COLUMNS[k];
   if (row._n && row._n < cols.length) throw new Error('update_: dòng ' + k + ' được đọc thiếu cột.');
   var vals = cols.map(function (c) { return changes[c] !== undefined ? String(changes[c]) : row[c]; });
   sheet_(k).getRange(row._row, 1, 1, cols.length).setValues([vals]);
-  dirty_(k);
+  dirty_(k, skipBump);
 }
 
 function delete_(k, row) {
@@ -1813,7 +2049,8 @@ function insertUser_(data, password) {
 
 function setPassword_(u, password) {
   var salt = Utilities.getUuid();
-  update_('users', u, { salt: salt, passwordHash: hash_(salt, password) });
+  // Chỉ đổi salt/passwordHash, không ảnh hưởng dữ liệu hiển thị nên bỏ qua bumpDataVersion_.
+  update_('users', u, { salt: salt, passwordHash: hash_(salt, password) }, true);
 }
 
 /* ───────────────────────── Định dạng trả về ───────────────────────── */
@@ -1941,13 +2178,16 @@ function clean_(v, max) {
 function withLock_(fn) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
+  // Xóa bộ nhớ tạm đọc trước khi giữ khóa để đọc lại dữ liệu mới nhất trong khóa.
+  ROWS_ = {};
+  NEED_BUMP_ = false;
   try {
     return fn();
   } finally {
-    // Ghi xong vào Sheets trước khi nhả khóa, rồi đổi "phiên bản dữ liệu" để
-    // các kết quả đã nhớ (cached_) của mọi người dùng không còn được dùng nữa.
+    // Ghi xong vào Sheets trước khi nhả khóa; chỉ đổi "phiên bản dữ liệu" khi có ghi
+    // vào trang khác sessions (và không phải chỉ đổi mật khẩu).
     try { SpreadsheetApp.flush(); } catch (e) { /* bỏ qua */ }
-    bumpDataVersion_();
+    if (NEED_BUMP_) bumpDataVersion_();
     lock.releaseLock();
   }
 }
