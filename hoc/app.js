@@ -1147,7 +1147,7 @@
     return String(t || '').normalize('NFC').toLowerCase().replace(/[\s\-–—_.,:;()\/|]+/g, '');
   }
 
-  /** Số đầu tiên trong tên chủ đề (Topic 4 → 4, Chủ đề 8-9 → 8); không có số thì xếp sau cùng. */
+  /** Số đầu tiên trong tên chủ đề (Topic 4 → 4, Chủ đề 8-9 → 8). */
   function topicNum(t) {
     var m = /\d+/.exec(t);
     return m ? Number(m[0]) : Infinity;
@@ -1156,8 +1156,13 @@
   function topicSort(a, b) {
     if (a === NO_TOPIC) return 1;
     if (b === NO_TOPIC) return -1;
+    // Chủ đề mới nhất (số lớn nhất) lên đầu: 10, 9, 8…; chủ đề không có số xếp sau cùng.
     var na = topicNum(a), nb = topicNum(b);
-    if (na !== nb) return na < nb ? -1 : 1;
+    if (na !== nb) {
+      if (na === Infinity) return 1;
+      if (nb === Infinity) return -1;
+      return nb - na;
+    }
     return a.localeCompare(b, 'vi', { numeric: true, sensitivity: 'base' });
   }
 
