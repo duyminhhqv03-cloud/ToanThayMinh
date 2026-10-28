@@ -1893,8 +1893,45 @@
     input.click();
   }
 
-  /** Nút thêm / đổi / bỏ hình dưới mỗi câu trong phần xem trước của trình soạn đề. */
-  function imageTools(src, parsed, store, i, onChange) {
+  /** Đổi câu thứ i giữa tự luận và trả lời ngắn: thêm / bỏ chữ "tự luận" ở dòng "Câu n (…):". */
+  function setQuestionEssay(src, parsed, i, essay) {
+    var lines = src.value.split('\n');
+    var heads = [];
+    lines.forEach(function (l, k) { if (/^\s*câu\s*\d+/i.test(l)) heads.push(k); });
+    if (heads.length === parsed.questions.length) {
+      var from = heads[i];
+      var to = i + 1 < heads.length ? heads[i + 1] : lines.length;
+      var m = /^(\s*câu\s*\d+)\s*(?:\(([^)]*)\)|\[([^\]]*)\])?\s*([:.)\-–]?)\s*(.*)$/i.exec(lines[from]);
+      var meta = (m[2] || m[3] || '').replace(/(?:tự\s*luận|essay)\s*[,;]?\s*/ig, '').replace(/^[\s,;]+|[\s,;]+$/g, '');
+      if (essay) meta = meta ? 'tự luận, ' + meta : 'tự luận';
+      lines[from] = m[1] + (meta ? ' (' + meta + ')' : '') + (m[4] || ':') + ' ' + m[5];
+      // Câu tự luận không có dòng "Đáp án:" → thêm dòng trống để giáo viên điền đáp án.
+      var body = lines.slice(from + 1, to);
+      if (!essay && !body.some(function (l) { return /^\s*đáp\s*án(?:\s*mẫu)?\s*[:：]/i.test(l); })) {
+        var at = 0;
+        body.forEach(function (l, k) { if (l.trim() && !/^\s*(?:giải\s*thích|lời\s*giải|hướng\s*dẫn|gợi\s*ý\s*chấm)/i.test(l) && at === k) at = k + 1; });
+        body.splice(at, 0, 'Đáp án: ');
+      }
+      src.value = lines.slice(0, from + 1).concat(body, lines.slice(to)).join('\n');
+    } else {
+      var qs = parsed.questions.map(function (q, k) {
+        var c = Object.assign({}, q);
+        if (k !== i) return c;
+        if (essay) {
+          c.explain = [(c.answers || []).join(' | '), c.explain].filter(Boolean).join('\n');
+          c.type = 'essay';
+        } else {
+          c.type = 'short';
+          c.answers = [];
+        }
+        return c;
+      });
+      src.value = window.QuizFormat.toSource(qs);
+    }
+  }
+
+  /** Nút thêm / đổi / bỏ hình (và đổi loại câu, nếu typeSwitch) dưới mỗi câu trong phần xem trước của trình soạn đề. */
+  function imageTools(src, parsed, store, i, onChange, typeSwitch) {
     var q = parsed.questions[i];
     var add = h('button', { type: 'button', class: 'link-btn', onclick: function () {
       pickQuestionImage(function (url) {
@@ -1905,7 +1942,11 @@
       });
     } }, q.image ? '🖼 Đổi hình' : '🖼 Thêm hình');
     var del = q.image ? h('button', { type: 'button', class: 'link-btn danger-text', onclick: function () { setQuestionImage(src, parsed, i, null); onChange(); } }, 'Bỏ hình') : null;
-    return h('div', { class: 'img-tools' }, add, del);
+    var sw = typeSwitch && q.type !== 'mc' ? h('button', { type: 'button', class: 'link-btn', onclick: function () {
+      setQuestionEssay(src, parsed, i, q.type !== 'essay');
+      onChange();
+    } }, q.type === 'essay' ? '🔢 Đổi thành trả lời ngắn' : '✍️ Đổi thành tự luận') : null;
+    return h('div', { class: 'img-tools' }, add, del, sw);
   }
 
   /** Hộp "Lấy đề từ PDF": đọc đề (+ đáp án), tự tách câu & phân loại, trả về bản soạn để xem lại. */
@@ -2006,7 +2047,7 @@
       fill(preview, parsed.questions.map(function (x, i) {
         return reviewItem({ type: x.type, text: x.text || '(thiếu nội dung)', options: x.options, points: x.points,
           correctAnswer: x.type === 'mc' ? x.correct : (x.answers || []).join('  |  '), explain: x.explain,
-          imgEl: store.el(x.image), tools: imageTools(src, parsed, store, i, function () { dirty = true; update(); }) }, i, true);
+          imgEl: store.el(x.image), tools: imageTools(src, parsed, store, i, function () { dirty = true; update(); }, true) }, i, true);
       }));
     }
     function spread() {

@@ -567,7 +567,7 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
   background: rgba(18,32,28,.65); padding: 3px 9px; border-radius: 999px; opacity: .85;
 }
 .review-item.compact .q-img, .essay-grade .q-img { max-width: 480px; }
-.img-tools { display: flex; gap: 6px; margin: -4px 0 10px; }
+.img-tools { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 10px; }
 .img-tools .link-btn { padding: 0 8px 0 0; font-size: 13.5px; }
 
 /* Thống kê & học phí */
