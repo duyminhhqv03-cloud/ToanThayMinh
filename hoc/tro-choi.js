@@ -1555,7 +1555,7 @@
               }
             }
           }
-          var pct = Math.round((correct / total) * 100);
+          var pct = Math.floor((correct / total) * 100);
           drawUserGrid();
 
           // Thử quét chính hình em tô bằng jsQR
@@ -1582,7 +1582,7 @@
 
           if (qrRead && qrRead.data && qrRead.data.trim() === state.text.trim()) {
             scoreBox.className = 'tc-practice-score tc-sc-pass';
-            scoreBox.textContent = '🎉 Đúng ' + correct + '/' + total + ' ô (' + pct + '%). 📱 Điện thoại quét được mã của em!';
+            scoreBox.textContent = '🎉 Đúng ' + correct + '/' + total + ' ô (' + pct + '%). 📱 Điện thoại quét được mã của em!' + (errors.length ? ' (Còn ' + errors.length + ' ô sai tô đỏ – mã vẫn quét được nhờ sửa lỗi.)' : '');
           } else {
             scoreBox.className = 'tc-practice-score tc-sc-fail';
             scoreBox.textContent = 'Đúng ' + correct + '/' + total + ' ô (' + pct + '%). Các ô sai được tô đỏ – em sửa thêm nhé!';

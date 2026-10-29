@@ -27,6 +27,8 @@
 /* Link trang chủ trên nav khi chưa đăng nhập (ẩn trên điện thoại hẹp) */
 @media (max-width: 480px) {
   .nav-user .nav-home-link { display: none; }
+  .nav-user { gap: 12px; }
+  .nav-user .nav-link { white-space: nowrap; font-size: 14px; }
 }
 
 /* Khối gợi ý trò chơi trong trang đăng nhập */
@@ -744,4 +746,12 @@
   .tc-scan-btns .btn {
     width: 100%;
   }
+  /* Thanh 3 bước vừa một dòng */
+  .tc-steps-bar { padding: 4px 6px; gap: 0; justify-content: space-between; }
+  .tc-step-sep { display: none; }
+  .tc-step-item { padding: 5px 8px; font-size: 13px; }
+  /* Điều khiển hàng: nhãn hàng một dòng riêng, hai nút chia đôi bên dưới */
+  .tc-row-nav { flex-wrap: wrap; gap: 8px; }
+  .tc-row-cur-label { order: -1; width: 100%; font-size: 15px; }
+  .tc-row-nav .btn { flex: 1 1 0; width: auto; min-width: 0; white-space: nowrap; padding-left: 8px; padding-right: 8px; }
 }
