@@ -847,9 +847,13 @@
     refreshing(false);
     feeSync.detach();
     renderNav();
+    var parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
+    if (parts[0] === 'tro-choi' && window.TTMPlay) {
+      window.scrollTo(0, 0);
+      return window.TTMPlay.render(parts.slice(1));
+    }
     if (!token) return renderLogin();
     if (!me) return boot();
-    var parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
     if (parts[0] && ['khoa', 'bai', 'luyen', 'soan-de', 'giao-bai', 'tai-khoan', 'hoc-phi', 'dau', 'dau-host'].indexOf(parts[0]) >= 0) refreshMe();
     window.scrollTo(0, 0);
     switch (parts[0]) {
@@ -917,12 +921,17 @@
 
   function renderNav() {
     if (!me) {
-      fill(navUser, h('a', { href: '../', class: 'nav-link' }, '← Trang chủ'));
+      fill(navUser,
+        h('a', { href: '../', class: 'nav-link nav-home-link' }, '← Trang chủ'),
+        h('a', { href: '#/tro-choi', class: 'nav-link' }, '🎨 Trò chơi'),
+        h('a', { href: '#/', class: 'nav-link' }, 'Đăng nhập')
+      );
       return;
     }
     var links = [
       h('a', { href: '#/', class: 'nav-link' }, 'Khóa học'),
-      h('a', { href: '#/dau', class: 'nav-link' }, '🎮 Đấu cả lớp')
+      h('a', { href: '#/dau', class: 'nav-link' }, '🎮 Đấu cả lớp'),
+      h('a', { href: '#/tro-choi', class: 'nav-link' }, '🎨 Trò chơi')
     ];
     if (me.role === 'admin') {
       links.push(h('a', { href: '#/hoc-phi', class: 'nav-link' }, 'Học phí'));
@@ -938,6 +947,7 @@
         h('div', { class: 'user-menu-list' },
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/'); } }, 'Khóa học'),
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/dau'); } }, '🎮 Đấu cả lớp'),
+          h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tro-choi'); } }, '🎨 Trò chơi'),
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/hoc-phi'); } }, 'Thống kê & học phí') : null,
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tai-khoan'); } }, 'Quản lý tài khoản') : null,
           h('button', { onclick: function (e) { closeMenu(e); changePassword(); } }, 'Đổi mật khẩu'),
@@ -1008,7 +1018,11 @@
         h('p', { class: 'muted' }, 'Dùng tài khoản do trung tâm cấp để vào lớp học.'),
         !API ? h('p', { class: 'notice' }, 'Khu học tập đang được cài đặt, vui lòng quay lại sau.') : null,
         form,
-        h('p', { class: 'small muted' }, 'Chưa có tài khoản hoặc quên mật khẩu? Liên hệ ' + CONTACT + '.'))));
+        h('p', { class: 'small muted' }, 'Chưa có tài khoản hoặc quên mật khẩu? Liên hệ ' + CONTACT + '.'),
+        h('div', { class: 'login-free-game' },
+          h('p', null, '🎨 Chưa có tài khoản? Chơi thử trò chơi miễn phí'),
+          h('a', { href: '#/tro-choi', class: 'btn btn-sm btn-ghost' }, 'Chơi trò chơi →')
+        ))));
     u.focus();
   }
 

@@ -1,0 +1,747 @@
+/* Trò chơi – Toán Thầy Minh
+ * Dùng chung biến màu với app.css và ../style.css.
+ * Tất cả class có tiền tố tc- để không xung đột.
+ */
+
+/* ═════════ Nhãn Free / Plus ═════════ */
+.tc-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+.tc-free {
+  background: #eafaf4;
+  color: var(--brand-dark);
+  border: 1px solid #c0ebdb;
+}
+.tc-plus {
+  background: #fff5e6;
+  color: #b45309;
+  border: 1px solid #fcd34d;
+}
+
+/* Link trang chủ trên nav khi chưa đăng nhập (ẩn trên điện thoại hẹp) */
+@media (max-width: 480px) {
+  .nav-user .nav-home-link { display: none; }
+}
+
+/* Khối gợi ý trò chơi trong trang đăng nhập */
+.login-free-game {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+}
+.login-free-game p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* ═════════ 1a. Trang danh sách trò chơi #/tro-choi ═════════ */
+.tc-game-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+.tc-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  transition: transform .2s, box-shadow .2s;
+}
+.tc-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(18, 32, 28, 0.07);
+}
+.tc-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.tc-card-icon {
+  font-size: 38px;
+  line-height: 1;
+  background: var(--bg-alt);
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.tc-card-heading {
+  flex: 1;
+}
+.tc-card-heading h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+.tc-card-desc {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+.tc-card-sections {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tc-sec-box {
+  background: var(--bg-alt);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+.tc-sec-box.tc-sec-plus {
+  background: #fffbf2;
+  border: 1px solid #fef3c7;
+}
+.tc-sec-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.tc-sec-status {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.tc-sec-status a {
+  color: var(--brand-dark);
+  font-weight: 600;
+  text-decoration: underline;
+}
+.tc-sec-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.tc-sec-list li {
+  margin-bottom: 3px;
+}
+.tc-card-action {
+  margin-top: 16px;
+}
+
+/* ═════════ 1b. Giao diện trò Họa sĩ mã QR ═════════ */
+.tc-game-header {
+  margin-bottom: 22px;
+}
+.tc-game-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.tc-game-title-row h1 {
+  font-size: clamp(24px, 4vw, 32px);
+  font-weight: 800;
+  margin: 0;
+}
+
+/* Thanh bước: 1 Chọn mã · 2 Chép vào vở · 3 Kiểm tra */
+.tc-steps-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tc-step-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  cursor: default;
+}
+.tc-step-item.clickable {
+  cursor: pointer;
+  color: var(--ink);
+}
+.tc-step-item.clickable:hover {
+  background: var(--bg-alt);
+}
+.tc-step-item.active {
+  background: var(--brand);
+  color: #fff;
+}
+.tc-step-item.done {
+  color: var(--brand-dark);
+}
+.tc-step-sep {
+  color: var(--line);
+  font-size: 14px;
+  user-select: none;
+}
+
+/* ═════════ BƯỚC 1: Chọn mã ═════════ */
+.tc-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 18px;
+  margin-top: 16px;
+}
+.tc-choice-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+}
+.tc-choice-card h3 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tc-choice-card p {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+/* Camera scan box */
+.tc-camera-box {
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 14px;
+  position: relative;
+  text-align: center;
+}
+.tc-camera-box video {
+  width: 100%;
+  max-height: 280px;
+  object-fit: cover;
+  display: block;
+}
+.tc-camera-target {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 180px;
+  height: 180px;
+  transform: translate(-50%, -50%);
+  border: 2px dashed rgba(255, 255, 255, 0.85);
+  border-radius: 12px;
+  box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.tc-scan-btns {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Bộ đếm ký tự & xem trước */
+.tc-char-counter {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.tc-size-preview {
+  font-weight: 600;
+  color: var(--brand-dark);
+}
+
+/* Danh sách mã có sẵn */
+.tc-preset-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tc-preset-group-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0 0 8px;
+}
+.tc-preset-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+.tc-btn-preset {
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: center;
+  transition: all .15s;
+}
+.tc-btn-preset:hover {
+  background: #eafaf4;
+  border-color: #a7dfc9;
+  color: var(--brand-dark);
+  transform: translateY(-1px);
+}
+
+/* ═════════ BƯỚC 2: Chép vào vở ═════════ */
+.tc-stage-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.tc-code-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 15px;
+}
+.tc-toolbar {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.tc-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tc-seg-btn {
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--muted);
+  transition: all .15s;
+}
+.tc-seg-btn.active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+.tc-zoom-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--bg-alt);
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tc-zoom-btn:hover {
+  background: #fff;
+  border-color: var(--ink);
+}
+
+/* Thanh điều khiển từng hàng */
+.tc-row-ctrl {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+.tc-row-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.tc-row-cur-label {
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+}
+.tc-row-desc {
+  background: var(--bg-alt);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.5;
+  margin-bottom: 10px;
+  word-break: break-word;
+}
+.tc-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.tc-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-alt);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.tc-progress-fill {
+  height: 100%;
+  background: var(--brand);
+  border-radius: 999px;
+  transition: width .2s;
+}
+
+/* Khung cuộn Canvas */
+.tc-canvas-wrap {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 12px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.tc-canvas-wrap canvas {
+  display: inline-block;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.tc-canvas-note {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 10px;
+}
+
+/* Mẹo 3 góc & Cách chép */
+.tc-tip-box {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  color: #9a3412;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.tc-tip-box strong {
+  color: #7c2d12;
+}
+.tc-guide-box {
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.tc-guide-box strong {
+  color: var(--ink);
+}
+
+/* Khối xem mã gốc nhỏ */
+.tc-orig-box {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.tc-orig-canvas-wrap {
+  background: #fff;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: inline-block;
+}
+.tc-orig-canvas-wrap canvas {
+  display: block;
+}
+.tc-orig-text {
+  flex: 1;
+  min-width: 200px;
+}
+.tc-orig-text p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* Hàng nút chuyển bước lớn */
+.tc-action-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ═════════ BƯỚC 3: Kiểm tra ═════════ */
+.tc-check-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  text-align: center;
+  max-width: 580px;
+  margin: 0 auto 24px;
+}
+.tc-check-card h2 {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0 0 12px;
+}
+.tc-check-ways {
+  text-align: left;
+  background: var(--bg-alt);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin: 18px 0 24px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.tc-check-ways h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.tc-check-ways ol {
+  margin: 0;
+  padding-left: 20px;
+}
+.tc-check-ways li {
+  margin-bottom: 8px;
+}
+.tc-check-status-box {
+  margin: 20px 0;
+  padding: 18px;
+  border-radius: 14px;
+  text-align: center;
+}
+.tc-check-status-box.tc-success {
+  background: #eafaf4;
+  border: 1.5px solid #a7dfc9;
+  color: var(--brand-dark);
+}
+.tc-check-status-box.tc-mismatch {
+  background: #fffbeb;
+  border: 1.5px solid #fde68a;
+  color: #b45309;
+}
+.tc-check-status-box.tc-fail {
+  background: #fef2f2;
+  border: 1.5px solid #fecaca;
+  color: #b91c1c;
+  text-align: left;
+}
+.tc-secret-box {
+  background: #fff;
+  border: 2px dashed var(--brand);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin: 14px 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  word-break: break-word;
+}
+.tc-win-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--brand-dark);
+  margin-top: 8px;
+}
+
+/* ═════════ Hiệu ứng Pháo giấy Confetti ═════════ */
+.tc-confetti-holder {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 9999;
+}
+.tc-confetti-piece {
+  position: absolute;
+  width: 10px;
+  height: 14px;
+  opacity: 0.9;
+  animation: tc-fall 3.6s ease-in-out forwards;
+}
+@keyframes tc-fall {
+  0% {
+    transform: translateY(-20px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(105vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tc-confetti-holder { display: none; }
+}
+
+/* ═════════ Modal Luyện trên màn hình ═════════ */
+.tc-practice-intro {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+.tc-practice-grid-row {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.tc-practice-col {
+  background: var(--bg-alt);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+}
+.tc-practice-col h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.tc-canvas-practice {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  touch-action: none; /* Rất quan trọng: cho phép kéo tô mượt mà không cuộn trang */
+  cursor: crosshair;
+  background: #fff;
+  border-radius: 4px;
+}
+.tc-practice-score {
+  margin: 12px 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  background: var(--bg-alt);
+  color: var(--ink);
+}
+.tc-practice-score.tc-sc-pass {
+  background: #eafaf4;
+  color: var(--brand-dark);
+  border: 1px solid #a7dfc9;
+}
+.tc-practice-score.tc-sc-fail {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.tc-practice-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ═════════ Responsive cho điện thoại ≤ 760px và 360px ═════════ */
+@media (max-width: 760px) {
+  .tc-card {
+    padding: 18px;
+  }
+  .tc-choice-card {
+    padding: 16px;
+  }
+  .tc-toolbar {
+    padding: 10px 12px;
+  }
+  .tc-row-ctrl {
+    padding: 12px 14px;
+  }
+  .tc-check-card {
+    padding: 20px 16px;
+  }
+  .tc-orig-box {
+    padding: 14px 16px;
+  }
+  .tc-step-item {
+    padding: 4px 10px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .tc-preset-buttons {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .tc-action-row .btn {
+    width: 100%;
+  }
+  .tc-scan-btns .btn {
+    width: 100%;
+  }
+}
