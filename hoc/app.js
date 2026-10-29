@@ -2277,6 +2277,27 @@
   }
 
   /** Ô chụp / chọn ảnh dùng cho một câu tự luận (q) hoặc cả bài (q = null). */
+  /** Hàng nút gõ nhanh ký hiệu (², ³, ×, π) cho ô trả lời: iPad/điện thoại không gõ được số mũ. */
+  function symbolKeys(input) {
+    return h('div', { class: 'sym-keys' }, ['²', '³', '×', 'π'].map(function (ch) {
+      var b = h('button', { type: 'button', class: 'chip-btn', 'aria-label': 'Gõ ' + ch }, ch);
+      // Giữ con trỏ trong ô trả lời (bấm nút không làm ô mất chọn)
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      b.addEventListener('click', function () {
+        var v = input.value;
+        var a = typeof input.selectionStart === 'number' ? input.selectionStart : v.length;
+        var z = typeof input.selectionEnd === 'number' ? input.selectionEnd : a;
+        input.value = v.slice(0, a) + ch + v.slice(z);
+        input.focus();
+        try { input.setSelectionRange(a + ch.length, a + ch.length); } catch (e) { /* bỏ qua */ }
+        var ev;
+        try { ev = new Event('input'); } catch (e) { ev = document.createEvent('Event'); ev.initEvent('input', true, true); }
+        input.dispatchEvent(ev);
+      });
+      return b;
+    }));
+  }
+
   function photoPicker(s, q, state, onChange) {
     var grid = h('div', { class: 'file-grid' });
     var pick = h('input', { type: 'file', multiple: true, accept: 'image/*,application/pdf', hidden: true });
@@ -2386,12 +2407,12 @@
       } else if (x.type === 'short') {
         var inp = h('input', { class: 'short-input', value: answers[i] || '', placeholder: 'Nhập đáp án…', autocomplete: 'off' });
         inp.addEventListener('input', function () { answers[i] = inp.value; drawProgress(); saveDraft(); });
-        body = inp;
+        body = [inp, symbolKeys(inp)];
       } else {
         var ta = h('textarea', { rows: '4', maxlength: '5000', placeholder: 'Gõ lời giải (không bắt buộc nếu em chụp ảnh bài làm bên dưới)' });
         ta.value = answers[i] || '';
         ta.addEventListener('input', function () { answers[i] = ta.value; saveDraft(); });
-        body = [ta, h('p', { class: 'muted small photo-hint' }, 'Ảnh lời giải câu ' + (i + 1) + ':'), photoPicker(s, i, state)];
+        body = [ta, symbolKeys(ta), h('p', { class: 'muted small photo-hint' }, 'Ảnh lời giải câu ' + (i + 1) + ':'), photoPicker(s, i, state)];
       }
       return h('div', { class: 'panel q-card' },
         h('div', { class: 'review-head' },
@@ -2955,7 +2976,7 @@
         var inp = h('input', { class: 'short-input', value: answers[cur] || '', placeholder: 'Nhập đáp số…', autocomplete: 'off', inputmode: 'text' });
         inp.addEventListener('input', function () { answers[cur] = inp.value; drawNav(); saveDraft(); });
         inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') next.click(); });
-        body = h('div', null, inp);
+        body = h('div', null, inp, symbolKeys(inp));
         setTimeout(function () { inp.focus(); }, 0);
       }
       fill(stage,

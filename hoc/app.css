@@ -397,7 +397,12 @@ a.card { display: block; }
 .grade-work { display: grid; gap: 12px; align-content: start; }
 .work-img { background: var(--bg-alt); border-radius: 12px; overflow: hidden; min-height: 80px; display: grid; place-items: center; }
 .work-img img { width: 100%; display: block; cursor: zoom-in; }
-.grade-side { display: grid; gap: 12px; align-content: start; position: sticky; top: 0; }
+/* Cột điểm + nhận xét trượt theo khi thầy cuộn xem các câu bên trái (align-self: start để sticky có chỗ trượt) */
+.grade-side {
+  display: grid; gap: 12px; align-content: start; align-self: start;
+  position: -webkit-sticky; position: sticky; top: 0;
+  max-height: calc(100vh - 150px); overflow-y: auto;
+}
 .score-input { font-size: 26px !important; font-weight: 800; text-align: center; }
 .quick-scores { display: flex; gap: 6px; flex-wrap: wrap; }
 .quick-scores .chip-btn { padding: 5px 12px; }
@@ -427,6 +432,8 @@ a.card { display: block; }
 }
 .option.picked .opt-letter { background: var(--brand); color: #fff; }
 .opt-text { flex: 1; overflow-wrap: anywhere; }
+.sym-keys { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.sym-keys .chip-btn { min-width: 44px; font-size: 17px; padding: 6px 12px; }
 .short-input { font-size: 22px !important; font-weight: 700; padding: 14px 18px !important; max-width: 420px; }
 .q-buttons { display: flex; justify-content: space-between; gap: 10px; margin-top: 26px; }
 .q-nav-wrap { margin-top: 18px; }
@@ -501,7 +508,7 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
   .quiz-src { min-height: 320px; }
   .quiz-preview { max-height: none; }
   .grade { grid-template-columns: 1fr; }
-  .grade-side { position: static; }
+  .grade-side { position: static; max-height: none; overflow: visible; }
 }
 @media (max-width: 760px) {
   .row.two { grid-template-columns: 1fr; }
