@@ -885,10 +885,7 @@ function submit_(me, p) {
   if (existing && existing.status === 'returned') {
     throw err_('Bài đã được chốt điểm nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
   }
-  // Nộp lại thoải mái khi còn hạn; sau hạn chỉ nộp lại được khi giáo viên đã bấm "Cho nộp lại" (status 'reopened').
-  if (existing && existing.status !== 'reopened' && a.dueAt && Date.now() > new Date(a.dueAt).getTime()) {
-    throw err_('Đã hết hạn nộp nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
-  }
+  // Chưa chốt điểm thì nộp lại / nộp bổ sung được, kể cả sau hạn (khi đó bài ghi là nộp muộn).
 
   var questions = parseQuestions_(a);
   var keep = Array.isArray(p.keepFileIds) ? p.keepFileIds.map(String) : [];
@@ -940,9 +937,6 @@ function submit_(me, p) {
       var curExisting = rows_('submissions').filter(function (s) { return s.assignmentId === curA.id && s.username === me.username; })[0];
       if (curExisting && curExisting.status === 'returned') {
         throw err_('Bài đã được chốt điểm nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
-      }
-      if (curExisting && curExisting.status !== 'reopened' && curA.dueAt && Date.now() > new Date(curA.dueAt).getTime()) {
-        throw err_('Đã hết hạn nộp nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
       }
 
       var curQuestions = parseQuestions_(curA);

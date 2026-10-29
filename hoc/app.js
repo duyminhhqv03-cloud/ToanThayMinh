@@ -2230,8 +2230,9 @@
     var graded = s.status === 'returned';
     var reopened = s.status === 'reopened';
     var dueMs = a.dueAt ? new Date(a.dueAt).getTime() : 0;
-    // Nộp lại được khi chưa chốt điểm và còn hạn (hoặc thầy cô đã bấm "Cho nộp lại").
-    var canRedo = !graded && (reopened || !dueMs || Date.now() < dueMs);
+    // Chưa chốt điểm thì sửa / nộp bổ sung được, kể cả sau hạn (máy chủ ghi là nộp muộn).
+    var canRedo = !graded;
+    var pastDue = !!dueMs && Date.now() > dueMs && !reopened;
     var card = h('div', { class: 'panel status-card ' + (graded ? 'graded' : 'waiting') },
       graded
         ? h('div', { class: 'score-big' }, h('span', null, fmtScore(s.score)), h('small', null, '/' + fmtScore(a.maxScore)))
@@ -2243,9 +2244,9 @@
           (graded ? ' · ' + s.gradedBy : '')),
         hasQ && graded && !d.reveal ? h('p', { class: 'muted small' }, a.dueAt ? 'Đáp án và lời giải sẽ hiện sau hạn nộp.' : 'Đáp án và lời giải sẽ hiện sau khi cả lớp được chấm bài.') : null,
         !graded ? h('p', { class: 'muted small' }, (hasQ ? 'Điểm và kết quả từng câu' : 'Điểm') + ' sẽ hiện khi thầy cô chốt điểm.') : null,
-        canRedo && !reopened && dueMs ? h('p', { class: 'muted small' }, 'Em vẫn được sửa và nộp lại đến ' + fmtDateTime(a.dueAt) + '. Thầy cô chấm bài em nộp sau cùng.') : null,
+        canRedo && !reopened && dueMs && !pastDue ? h('p', { class: 'muted small' }, 'Em vẫn được sửa và nộp lại đến ' + fmtDateTime(a.dueAt) + '. Thầy cô chấm bài em nộp sau cùng.') : null,
         canRedo && !dueMs ? h('p', { class: 'muted small' }, 'Em vẫn được sửa và nộp lại cho đến khi thầy cô chốt điểm.') : null,
-        !graded && !canRedo ? h('p', { class: 'muted small' }, 'Đã hết hạn nộp nên không sửa bài được nữa.') : null,
+        pastDue ? h('p', { class: 'muted small' }, 'Đã hết hạn nộp, nhưng thầy cô chưa chốt điểm nên em vẫn nộp bổ sung được (bài sẽ ghi là nộp muộn).') : null,
         s.feedback ? h('div', { class: 'feedback' }, h('strong', null, 'Nhận xét của giáo viên'), h('p', { class: 'prewrap' }, s.feedback)) : null));
 
     var general = s.files.filter(function (f) { return f.q === null || f.q === undefined; });
@@ -2256,7 +2257,7 @@
       s.text ? h('div', { class: 'panel prewrap' }, hasQ ? h('strong', null, 'Lời nhắn: ') : null, s.text) : null,
       general.length ? h('div', { class: 'file-grid' }, general.map(function (f) { return submissionFileTile(s, f); })) : null,
       canRedo ? h('div', { class: 'actions-end' },
-        h('button', { class: reopened ? 'btn' : 'btn btn-ghost', onclick: function () { fill(box, hasQ ? questionForm(d, s) : submitForm(d, s)); } }, 'Sửa / nộp lại')) : null);
+        h('button', { class: reopened ? 'btn' : 'btn btn-ghost', onclick: function () { fill(box, hasQ ? questionForm(d, s) : submitForm(d, s)); } }, pastDue ? 'Nộp bổ sung' : 'Sửa / nộp lại')) : null);
   }
 
   /** Xem lại một câu của bài tập đã nộp (phía học sinh). */
@@ -2459,7 +2460,7 @@
       h('div', { class: 'panel mode-note' },
         h('strong', null, s ? 'Sửa bài nộp' : 'Làm bài'), ' · ',
         'Trắc nghiệm và trả lời ngắn làm ngay trên máy' + (hasEssay ? '; câu tự luận gõ lời giải hoặc chụp ảnh riêng cho từng câu.' : '.') +
-          ' Điểm hiện sau khi thầy cô chốt' + (a.dueAt ? '; trước hạn nộp em được sửa và nộp lại.' : '.'),
+          ' Điểm hiện sau khi thầy cô chốt; trước khi chốt em được sửa và nộp lại' + (a.dueAt ? ' (sau hạn nộp thì ghi là nộp muộn).' : '.'),
         a.file ? [h('br'), 'Có thể bấm ', h('strong', null, 'Xem'), ' ở file đề phía trên để xem đề gốc (hình vẽ, bảng…).'] : null),
       cards,
       h('div', { class: 'panel' },
@@ -2606,7 +2607,7 @@
       btn.addEventListener('click', function () {
         modal('Chốt điểm ' + n + ' bài?', h('div', null,
           h('p', null, 'Điểm máy chấm (kể cả câu thầy đã sửa) của ' + n + ' bài đang chờ sẽ được công bố cho học sinh.'),
-          open ? h('p', { class: 'err' }, 'Bài còn hạn nộp đến ' + fmtDateTime(a.dueAt) + ': sau khi chốt, các em này không nộp lại được nữa.') : null,
+          h('p', { class: 'err' }, (open ? 'Bài còn hạn nộp đến ' + fmtDateTime(a.dueAt) + '. ' : '') + 'Sau khi chốt, các em này không sửa / nộp bổ sung được nữa.'),
           h('p', { class: 'muted small' }, 'Nên mở từng bài xem các câu trả lời ngắn máy chấm Sai trước khi chốt — có thể em viết đúng mà đáp án chưa có cách viết đó.')), function (close) {
           var ok = h('button', { class: 'btn' }, 'Chốt điểm');
           ok.addEventListener('click', function () {
