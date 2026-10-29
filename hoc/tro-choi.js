@@ -4,7 +4,7 @@
 (function () {
   'use strict';
 
-  var VER = '23';
+  var VER = '24';
   var TTM = window.TTM;
   var h = TTM.h;
   var fill = TTM.fill;
