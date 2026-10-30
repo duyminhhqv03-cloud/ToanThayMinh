@@ -34,7 +34,7 @@ var SHEET_NAMES = {
 var COLUMNS = {
   users: ['username', 'fullName', 'role', 'courses', 'active', 'salt', 'passwordHash', 'createdAt'],
   courses: ['id', 'name', 'grade', 'order', 'branches'],
-  docs: ['id', 'courseId', 'title', 'description', 'type', 'fileId', 'fileName', 'mimeType', 'size', 'url', 'uploadedBy', 'uploadedAt', 'topic', 'branch'],
+  docs: ['id', 'courseId', 'title', 'description', 'type', 'fileId', 'fileName', 'mimeType', 'size', 'url', 'uploadedBy', 'uploadedAt', 'topic', 'branch', 'free'],
   assignments: ['id', 'courseId', 'topic', 'title', 'instructions', 'dueAt', 'maxScore', 'fileId', 'fileName', 'mimeType', 'size', 'createdBy', 'createdAt', 'source', 'questions', 'images', 'branch'],
   submissions: ['id', 'assignmentId', 'courseId', 'username', 'text', 'files', 'submittedAt', 'late', 'status', 'score', 'feedback', 'gradedBy', 'gradedAt', 'answers', 'itemScores', 'autoScore', 'aiSuggest'],
   quizzes: ['id', 'courseId', 'topic', 'title', 'description', 'source', 'questions', 'timeLimit', 'showAnswers', 'createdBy', 'createdAt', 'updatedAt', 'images', 'gameOnly', 'branch'],
@@ -64,6 +64,7 @@ var SESSION_DAYS = 7;
 var MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 var MAX_SUBMIT_FILES = 10;
 var MAX_LOGIN_FAILS = 5;
+var PUBLIC_USER_ = { username: '_public', role: 'guest', courses: '' };
 
 /* ───────────────────────── Cài đặt lần đầu ───────────────────────── */
 
@@ -129,6 +130,11 @@ function doPost(e) {
 function handle_(p) {
   var action = String(p.action || '');
   if (action === 'login') return login_(p);
+
+  // Công khai (không cần đăng nhập): mục lục các lớp và kho tài liệu miễn phí.
+  if (action === 'catalog') return { courses: cached_('catalog', PUBLIC_USER_, '', catalog_) };
+  if (action === 'freeDocs') return { docs: cached_('freeDocs', PUBLIC_USER_, '', freeDocs_) };
+  if (action === 'freeFile') return freeFile_(String(p.id || ''));
 
   var me = auth_(p.token);
   var id = String(p.id || p.docId || '');
@@ -574,7 +580,8 @@ function upload_(me, p) {
     title: title,
     description: clean_(p.description, 2000),
     uploadedBy: me.username,
-    uploadedAt: new Date().toISOString()
+    uploadedAt: new Date().toISOString(),
+    free: p.free ? '1' : ''
   };
 
   var createdFileId = '';
@@ -616,7 +623,8 @@ function updateDoc_(me, p) {
     title: title,
     description: p.description !== undefined ? clean_(p.description, 2000) : d.description,
     topic: p.topic !== undefined ? clean_(p.topic, 100) : d.topic,
-    branch: p.branch !== undefined ? itemBranch_(c, p) : d.branch
+    branch: p.branch !== undefined ? itemBranch_(c, p) : d.branch,
+    free: p.free !== undefined ? (p.free ? '1' : '') : (d.free || '')
   });
   return {};
 }
@@ -636,6 +644,83 @@ function getFile_(me, docId) {
   if (!canSee_(me, d.courseId)) throw err_('Bạn chưa được ghi danh vào khóa học này.', 403);
   if (d.type !== 'file') throw err_('Tài liệu này là đường link, không phải file.');
   return fileData_(d.fileId, d.fileName, d.mimeType);
+}
+
+function freeFile_(docId) {
+  var d = findBy_('docs', docId);
+  if (!d) throw err_('Không tìm thấy tài liệu.', 404);
+  if (d.free !== '1') throw err_('Tài liệu này dành cho học sinh của lớp. Vui lòng đăng nhập để xem.', 403);
+  if (d.type !== 'file') throw err_('Tài liệu này là đường link, không phải file.');
+  return fileData_(d.fileId, d.fileName, d.mimeType);
+}
+
+/** Mục lục công khai: mọi khóa học, từng nhánh, tên chủ đề và tên từng tài liệu/luyện tập. */
+function catalog_() {
+  var docs = rows_('docs');
+  var quizzes = rows_('quizzes', LITE_COLS.quizzes);
+  return rows_('courses')
+    .sort(function (a, b) { return Number(a.order) - Number(b.order); })
+    .map(function (c) {
+      var inCourse = function (r) { return r.courseId === c.id; };
+      var cDocs = docs.filter(inCourse);
+      var cQuizzes = quizzes.filter(function (q) { return q.courseId === c.id && q.gameOnly !== '1'; });
+      var items = [];
+      cDocs.forEach(function (d) {
+        var isFree = d.free === '1';
+        var it = {
+          kind: 'doc',
+          branch: itemBranch_(c, d),
+          topic: d.topic || '',
+          title: d.title,
+          free: isFree,
+          _time: d.uploadedAt || ''
+        };
+        if (isFree) {
+          it.id = d.id;
+          it.type = d.type;
+          it.fileName = d.fileName || '';
+          it.mimeType = d.mimeType || '';
+          if (d.type === 'link') it.url = d.url || '';
+        }
+        items.push(it);
+      });
+      cQuizzes.forEach(function (q) {
+        items.push({
+          kind: 'quiz',
+          branch: itemBranch_(c, q),
+          topic: q.topic || '',
+          title: q.title,
+          free: false,
+          _time: q.createdAt || ''
+        });
+      });
+      items.sort(function (a, b) { return a._time < b._time ? 1 : (a._time > b._time ? -1 : 0); });
+      items.forEach(function (it) { delete it._time; });
+      return {
+        id: c.id,
+        name: c.name,
+        grade: c.grade,
+        branches: branchesOf_(c),
+        items: items
+      };
+    });
+}
+
+/** Kho tài liệu miễn phí: gom mọi tài liệu free === '1' theo khóa còn tồn tại, mới nhất trước. */
+function freeDocs_() {
+  var courseMap = {};
+  rows_('courses').forEach(function (c) { courseMap[c.id] = c; });
+  return rows_('docs')
+    .filter(function (d) { return d.free === '1' && courseMap[d.courseId]; })
+    .sort(function (a, b) { return a.uploadedAt < b.uploadedAt ? 1 : (a.uploadedAt > b.uploadedAt ? -1 : 0); })
+    .map(function (d) {
+      var c = courseMap[d.courseId];
+      var o = publicDoc_(d, null, c);
+      delete o.uploadedBy;
+      o.courseName = c.name;
+      o.courseGrade = c.grade;
+      return o;
+    });
 }
 
 /* ───────────────────────── Bài tập về nhà ───────────────────────── */
@@ -2074,7 +2159,8 @@ function publicDoc_(d, names, course) {
     size: Number(d.size || 0),
     url: d.type === 'link' ? d.url : '',
     uploadedBy: (names && names[d.uploadedBy]) || d.uploadedBy,
-    uploadedAt: d.uploadedAt
+    uploadedAt: d.uploadedAt,
+    free: d.free === '1'
   };
 }
 

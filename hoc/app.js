@@ -852,6 +852,14 @@
       window.scrollTo(0, 0);
       return window.TTMPlay.render(parts.slice(1));
     }
+    if (parts[0] === 'muc-luc') {
+      window.scrollTo(0, 0);
+      return renderCatalog(parts[1]);
+    }
+    if (parts[0] === 'tai-lieu-mien-phi') {
+      window.scrollTo(0, 0);
+      return renderFreeDocs(parts[1]);
+    }
     if (!token) return renderLogin();
     if (!me) return boot();
     if (parts[0] && ['khoa', 'bai', 'luyen', 'soan-de', 'giao-bai', 'tai-khoan', 'hoc-phi', 'dau', 'dau-host'].indexOf(parts[0]) >= 0) refreshMe();
@@ -921,17 +929,32 @@
 
   function renderNav() {
     if (!me) {
+      var guestClose = function (e) { var d = e.target.closest('details'); if (d) d.open = false; };
       fill(navUser,
-        h('a', { href: '../', class: 'nav-link nav-home-link' }, '← Trang chủ'),
-        h('a', { href: '#/tro-choi', class: 'nav-link' }, '🎨 Trò chơi'),
-        h('a', { href: '#/', class: 'nav-link' }, 'Đăng nhập')
+        h('nav', { class: 'nav-links' },
+          h('a', { href: '../', class: 'nav-link nav-home-link' }, '← Trang chủ'),
+          h('a', { href: '#/muc-luc', class: 'nav-link' }, '📚 Các lớp'),
+          h('a', { href: '#/tai-lieu-mien-phi', class: 'nav-link' }, '🎁 Tài liệu miễn phí'),
+          h('a', { href: '#/tro-choi', class: 'nav-link' }, '🎨 Trò chơi')
+        ),
+        h('details', { class: 'user-menu guest-menu' },
+          h('summary', { 'aria-label': 'Menu' }, '☰', h('span', { class: 'guest-menu-word' }, ' Menu')),
+          h('div', { class: 'user-menu-list' },
+            h('a', { href: '../', class: 'nav-home-link', onclick: guestClose }, '← Trang chủ'),
+            h('a', { href: '#/muc-luc', onclick: guestClose }, '📚 Các lớp'),
+            h('a', { href: '#/tai-lieu-mien-phi', onclick: guestClose }, '🎁 Tài liệu miễn phí'),
+            h('a', { href: '#/tro-choi', onclick: guestClose }, '🎨 Trò chơi')
+          )
+        ),
+        h('a', { href: '#/', class: 'btn btn-sm' }, 'Đăng nhập')
       );
       return;
     }
     var links = [
       h('a', { href: '#/', class: 'nav-link' }, 'Khóa học'),
       h('a', { href: '#/dau', class: 'nav-link' }, '🎮 Đấu cả lớp'),
-      h('a', { href: '#/tro-choi', class: 'nav-link' }, '🎨 Trò chơi')
+      h('a', { href: '#/tro-choi', class: 'nav-link' }, '🎨 Trò chơi'),
+      h('a', { href: '#/tai-lieu-mien-phi', class: 'nav-link' }, '🎁 Tài liệu miễn phí')
     ];
     if (me.role === 'admin') {
       links.push(h('a', { href: '#/hoc-phi', class: 'nav-link' }, 'Học phí'));
@@ -948,6 +971,7 @@
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/'); } }, 'Khóa học'),
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/dau'); } }, '🎮 Đấu cả lớp'),
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tro-choi'); } }, '🎨 Trò chơi'),
+          h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tai-lieu-mien-phi'); } }, '🎁 Tài liệu miễn phí'),
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/hoc-phi'); } }, 'Thống kê & học phí') : null,
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tai-khoan'); } }, 'Quản lý tài khoản') : null,
           h('button', { onclick: function (e) { closeMenu(e); changePassword(); } }, 'Đổi mật khẩu'),
@@ -1021,7 +1045,12 @@
         h('p', { class: 'small muted' }, 'Chưa có tài khoản hoặc quên mật khẩu? Liên hệ ' + CONTACT + '.'),
         h('div', { class: 'login-free-game' },
           h('p', null, '🎨 Chưa có tài khoản? Chơi thử trò chơi miễn phí'),
-          h('a', { href: '#/tro-choi', class: 'btn btn-sm btn-ghost' }, 'Chơi trò chơi →')
+          h('a', { href: '#/tro-choi', class: 'btn btn-sm btn-ghost' }, 'Chơi trò chơi →'),
+          h('div', { class: 'login-free-links' },
+            h('a', { href: '#/muc-luc', class: 'small muted' }, '📚 Xem các lớp và chủ đề bài học'),
+            h('span', { class: 'muted small' }, ' · '),
+            h('a', { href: '#/tai-lieu-mien-phi', class: 'small muted' }, '🎁 Kho tài liệu miễn phí')
+          )
         ))));
     u.focus();
   }
@@ -1121,8 +1150,10 @@
         c.canEdit && me.role !== 'student' ? h('span', { class: 'pill p-blue' }, 'Bạn quản lý') : null));
   }
 
+  var catalogOrder = []; // thứ tự các lớp trong mục lục công khai: tô màu lớp khi chưa đăng nhập
   function courseColor(id) {
     var idx = (coursesCache || []).findIndex(function (c) { return c.id === id; });
+    if (idx < 0) idx = catalogOrder.indexOf(id);
     return COURSE_COLORS[(idx < 0 ? 0 : idx) % COURSE_COLORS.length];
   }
 
@@ -1337,7 +1368,7 @@
     return h('article', { class: 'item' },
       h('span', { class: 'kind ' + kind[1] }, kind[0]),
       h('div', { class: 'item-main' },
-        h('h3', null, doc.title),
+        h('h3', null, doc.title, doc.free ? ' ' : null, doc.free ? h('span', { class: 'pill p-done' }, 'Miễn phí') : null),
         doc.description ? h('p', { class: 'item-desc' }, doc.description) : null,
         h('p', { class: 'item-meta' }, meta)),
       h('div', { class: 'item-actions' }, actions));
@@ -1430,6 +1461,7 @@
     var title = h('input', { maxlength: '200', value: doc ? doc.title : '', placeholder: 'VD: Bài 3 – Phân số (lý thuyết + bài tập)' });
     var desc = h('textarea', { rows: '2', maxlength: '2000', placeholder: 'Ghi chú cho học sinh (không bắt buộc)' });
     desc.value = doc ? doc.description : '';
+    var free = h('input', { type: 'checkbox', checked: doc ? !!doc.free : false });
     var file = h('input', { type: 'file' });
     var url = h('input', { type: 'url', placeholder: 'https://youtu.be/… hoặc link Google Drive, Quizizz…' });
     var fileField = field('Chọn file (PDF, Word, ảnh… tối đa 20 MB)', file, 'PDF và ảnh: học sinh xem trực tiếp trên web hoặc tải về.');
@@ -1457,12 +1489,14 @@
       br ? field('Nhánh', br) : null,
       field('Tiêu đề', title),
       field('Chủ đề', ti, 'Chọn chủ đề có sẵn hoặc gõ tên chủ đề mới.'),
-      field('Mô tả', desc));
+      field('Mô tả', desc),
+      h('div', { class: 'field' },
+        h('label', { class: 'check' }, free, '🎁 Miễn phí – ai cũng xem được (hiện trong Kho tài liệu miễn phí)')));
 
     modal(doc ? 'Sửa tài liệu' : 'Thêm tài liệu', body, function (close) {
       var ok = h('button', { class: 'btn' }, doc ? 'Lưu' : 'Đăng tài liệu');
       ok.addEventListener('click', function () {
-        var params = { courseId: c.id, title: title.value.trim(), description: desc.value.trim(), topic: ti[0].value.trim(), branch: br ? br.value : '' };
+        var params = { courseId: c.id, title: title.value.trim(), description: desc.value.trim(), topic: ti[0].value.trim(), branch: br ? br.value : '', free: free.checked };
         var job;
         if (doc) {
           if (!params.title) return toast('Vui lòng nhập tiêu đề.', 'error');
@@ -1486,13 +1520,271 @@
         job.then(function () {
           close();
           toast(doc ? 'Đã lưu.' : 'Đã đăng tài liệu.', 'success');
-          if (doc) { doc.title = params.title; doc.description = params.description; doc.topic = params.topic; if (br) doc.branch = br.value; }
+          if (doc) { doc.title = params.title; doc.description = params.description; doc.topic = params.topic; if (br) doc.branch = br.value; doc.free = params.free; }
           else if (br) setActiveBranch(c.id, br.value);
           onDone();
         }, function (err) { busy(ok, false); toast(err.message, 'error'); });
       });
       return [h('button', { class: 'btn btn-ghost', onclick: close }, 'Hủy'), ok];
     });
+  }
+
+  /* ═════════ Mục lục lớp học công khai ═════════ */
+
+  var catalogBranch = {};
+
+  function renderCatalog(courseId) {
+    if (!viewCache['catalog']) fill(app, loading());
+    showCached('catalog', function () {
+      return api('catalog');
+    }, function (d) {
+      drawCatalog(d.courses || [], courseId);
+    }, function (e) {
+      fill(app, errorBox(e.message, function () { renderCatalog(courseId); }));
+    });
+  }
+
+  function drawCatalog(courses, courseId) {
+    catalogOrder = courses.map(function (c) { return c.id; });
+    var cur = courses.filter(function (c) { return c.id === courseId; })[0] || courses[0];
+    if (!cur) {
+      fill(app, h('div', { class: 'panel empty' }, h('p', { class: 'muted' }, 'Chưa có thông tin lớp học.')));
+      return;
+    }
+
+    var branches = cur.branches || [];
+    var curBranch = catalogBranch[cur.id] || (branches.length ? branches[0] : '');
+    if (branches.indexOf(curBranch) < 0 && branches.length) curBranch = branches[0];
+
+    var branchBar = branches.length > 1 ? h('div', { class: 'branch-tabs', role: 'tablist', style: '--c:' + courseColor(cur.id) }) : null;
+    var content = h('div');
+
+    function drawBranchTabs() {
+      if (!branchBar) return;
+      fill(branchBar, branches.map(function (b) {
+        var on = b === curBranch;
+        return h('button', {
+          type: 'button', role: 'tab', 'aria-selected': on ? 'true' : 'false',
+          class: 'branch-tab' + (on ? ' active' : ''),
+          onclick: function () {
+            curBranch = b;
+            catalogBranch[cur.id] = b;
+            drawBranchTabs();
+            drawBranchItems();
+          }
+        }, b);
+      }));
+    }
+
+    function drawBranchItems() {
+      var items = (cur.items || []).filter(function (it) {
+        if (!branches.length || branches.length <= 1) return true;
+        return it.branch === curBranch;
+      });
+
+      if (!items.length) {
+        fill(content, h('div', { class: 'panel empty' },
+          h('p', { class: 'muted' }, 'Lớp này đang cập nhật bài học.')));
+        return;
+      }
+
+      var labels = topicLabels(items.map(function (it) { return it.topic; }));
+      var groups = {};
+      items.forEach(function (it) {
+        var t = it.topic ? labels[topicKey(it.topic)] : NO_TOPIC;
+        (groups[t] = groups[t] || []).push(it);
+      });
+
+      var topicBlocks = Object.keys(groups).sort(topicSort).map(function (t) {
+        var list = groups[t];
+        var nDocs = 0, nQuizzes = 0;
+        list.forEach(function (it) {
+          if (it.kind === 'doc') nDocs++;
+          else if (it.kind === 'quiz') nQuizzes++;
+        });
+        var counts = [];
+        if (nDocs) counts.push(nDocs + ' tài liệu');
+        if (nQuizzes) counts.push(nQuizzes + ' bài luyện tập');
+
+        var itemEls = list.map(function (it) {
+          var isYt = it.type === 'link' && /youtu\.?be/i.test(it.url || '');
+          var icon = it.kind === 'quiz' ? '✏️' : (isYt ? '🎬' : '📄');
+          var right;
+          if (it.free) {
+            var btns = it.type === 'link'
+              ? [h('a', { class: 'btn btn-sm', href: it.url, target: '_blank', rel: 'noopener' }, 'Mở link')]
+              : fileButtons(it.title, { mimeType: it.mimeType, name: it.fileName }, 'free:' + it.id, function () { return api('freeFile', { id: it.id }); });
+            right = [h('span', { class: 'pill p-done' }, 'Miễn phí')].concat(btns);
+          } else {
+            right = h('span', { class: 'ml-lock' }, me ? '🔒 Dành cho học sinh của lớp' : '🔒 Đăng nhập để xem');
+          }
+          return h('article', { class: 'item ml-item' },
+            h('span', { class: 'ml-icon' }, icon),
+            h('div', { class: 'item-main' },
+              h('h4', { class: 'ml-item-title' }, it.title)
+            ),
+            h('div', { class: 'item-actions ml-item-actions' }, right)
+          );
+        });
+
+        return h('div', { class: 'panel ml-topic' },
+          h('div', { class: 'ml-topic-head' },
+            h('h3', { class: 'ml-topic-title' }, t),
+            counts.length ? h('span', { class: 'ml-topic-count muted small' }, counts.join(' · ')) : null
+          ),
+          h('div', { class: 'ml-topic-items' }, itemEls)
+        );
+      });
+
+      fill(content, topicBlocks);
+    }
+
+    var chips = h('div', { class: 'ml-chips' }, courses.map(function (c) {
+      var on = c.id === cur.id;
+      var col = courseColor(c.id);
+      return h('a', {
+        href: '#/muc-luc/' + encodeURIComponent(c.id),
+        class: 'ml-chip' + (on ? ' active' : ''),
+        style: on ? ('--c:' + col) : ''
+      }, c.name + ' · ' + c.grade);
+    }));
+
+    var cta = !me ? h('div', { class: 'ml-cta' },
+      h('span', null, 'Muốn cho con học? Liên hệ ' + CONTACT),
+      h('a', { href: '#/', class: 'btn btn-sm' }, 'Đăng nhập')
+    ) : null;
+
+    fill(app,
+      h('div', { class: 'page-head' },
+        h('h1', null, 'Các lớp học'),
+        h('p', { class: 'muted' }, 'Xem các chủ đề và bài học của từng lớp. Học sinh đăng nhập để học; tài liệu có nhãn Miễn phí thì ai cũng xem được.')
+      ),
+      cta,
+      chips,
+      branchBar,
+      content
+    );
+
+    drawBranchTabs();
+    drawBranchItems();
+  }
+
+  /* ═════════ Kho tài liệu miễn phí ═════════ */
+
+  function renderFreeDocs(courseId) {
+    if (!viewCache['freeDocs']) fill(app, loading());
+    showCached('freeDocs', function () {
+      return api('freeDocs');
+    }, function (d) {
+      drawFreeDocs(d.docs || [], courseId);
+    }, function (e) {
+      fill(app, errorBox(e.message, function () { renderFreeDocs(courseId); }));
+    });
+  }
+
+  function drawFreeDocs(docs, courseId) {
+    var courseSeen = {};
+    var coursesList = [];
+    docs.forEach(function (d) {
+      if (!courseSeen[d.courseId]) {
+        courseSeen[d.courseId] = true;
+        coursesList.push({ id: d.courseId, name: d.courseName || d.courseId, grade: d.courseGrade || '' });
+      }
+    });
+
+    var chips = null;
+    if (coursesList.length > 0) {
+      var allChip = h('a', {
+        href: '#/tai-lieu-mien-phi',
+        class: 'ml-chip' + (!courseId ? ' active' : '')
+      }, 'Tất cả');
+      var courseChips = coursesList.map(function (c) {
+        var on = courseId === c.id;
+        var col = courseColor(c.id);
+        return h('a', {
+          href: '#/tai-lieu-mien-phi/' + encodeURIComponent(c.id),
+          class: 'ml-chip' + (on ? ' active' : ''),
+          style: on ? ('--c:' + col) : ''
+        }, c.name + (c.grade ? ' · ' + c.grade : ''));
+      });
+      chips = h('div', { class: 'ml-chips' }, [allChip].concat(courseChips));
+    }
+
+    var content = h('div');
+    if (!docs.length) {
+      fill(content, h('div', { class: 'panel empty' },
+        h('p', { class: 'muted' }, 'Thầy cô chưa chia sẻ tài liệu miễn phí nào. Quay lại sau nhé!')));
+    } else {
+      var filtered = courseId ? docs.filter(function (d) { return d.courseId === courseId; }) : docs;
+      if (!filtered.length) {
+        fill(content, h('div', { class: 'panel empty' },
+          h('p', { class: 'muted' }, 'Chưa có tài liệu miễn phí nào cho lớp này.')));
+      } else {
+        var byCourse = {};
+        var courseOrder = [];
+        filtered.forEach(function (d) {
+          if (!byCourse[d.courseId]) {
+            byCourse[d.courseId] = [];
+            courseOrder.push(d.courseId);
+          }
+          byCourse[d.courseId].push(d);
+        });
+
+        var sections = [];
+        courseOrder.forEach(function (cId) {
+          var cDocs = byCourse[cId];
+          var cName = (cDocs[0] && cDocs[0].courseName) || cId;
+          var cGrade = (cDocs[0] && cDocs[0].courseGrade) || '';
+          sections.push(h('h2', { class: 'section-title' }, cName + (cGrade ? ' · ' + cGrade : '')));
+
+          var labels = topicLabels(cDocs.map(function (d) { return d.topic; }));
+          var byTopic = {};
+          cDocs.forEach(function (d) {
+            var t = d.topic ? labels[topicKey(d.topic)] : NO_TOPIC;
+            (byTopic[t] = byTopic[t] || []).push(d);
+          });
+
+          var topicEls = Object.keys(byTopic).sort(topicSort).map(function (t) {
+            var topicDocs = byTopic[t];
+            var items = topicDocs.map(function (d) {
+              var kind = d.type === 'link' ? (/youtu\.?be/i.test(d.url) ? ['VIDEO', 'k-video'] : ['LINK', 'k-link']) : fileKind(d.mimeType, d.fileName);
+              var fetcher = function () { return api('freeFile', { id: d.id }); };
+              var actions = d.type === 'link'
+                ? [h('a', { class: 'btn btn-sm', href: d.url, target: '_blank', rel: 'noopener' }, 'Mở link')]
+                : fileButtons(d.title, { mimeType: d.mimeType, name: d.fileName }, 'free:' + d.id, fetcher);
+              var meta = [fmtDate(d.uploadedAt), d.type === 'file' ? fmtSize(d.size) : null].filter(Boolean).join(' · ');
+              return h('article', { class: 'item' },
+                h('span', { class: 'kind ' + kind[1] }, kind[0]),
+                h('div', { class: 'item-main' },
+                  h('h3', null, d.title),
+                  d.description ? h('p', { class: 'item-desc' }, d.description) : null,
+                  h('p', { class: 'item-meta' }, meta)
+                ),
+                h('div', { class: 'item-actions' }, actions)
+              );
+            });
+            return h('details', { class: 'topic', open: true },
+              h('summary', null,
+                h('span', { class: 'topic-name' }, t),
+                h('span', { class: 'topic-count' }, topicDocs.length + ' tài liệu')
+              ),
+              h('div', { class: 'topic-items' }, items)
+            );
+          });
+          sections.push(topicEls);
+        });
+        fill(content, sections);
+      }
+    }
+
+    fill(app,
+      h('div', { class: 'page-head' },
+        h('h1', null, '🎁 Kho tài liệu miễn phí'),
+        h('p', { class: 'muted' }, 'Tài liệu thầy chọn chia sẻ miễn phí. Xem trực tiếp hoặc tải về, không cần tài khoản.')
+      ),
+      chips,
+      content
+    );
   }
 
   /* ═════════ Bài tập về nhà ═════════ */
