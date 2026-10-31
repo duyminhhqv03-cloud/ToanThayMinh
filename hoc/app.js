@@ -1879,6 +1879,156 @@
 
   var TYPE_LABEL = { mc: 'Trắc nghiệm', short: 'Trả lời ngắn', essay: 'Tự luận' };
 
+  /** Tìm các gạch phân số (đường kẻ ngang ngắn, cao < 2.5pt, rộng ~5-45pt) trên trang. */
+  function fractionBars(lib, ol) {
+    var OPS = lib.OPS;
+    var U = lib.Util;
+    var ctm = [1, 0, 0, 1, 0, 0];
+    var stack = [];
+    var bars = [];
+    function bbox(pts) {
+      var xs = pts.map(function (q) { return q[0]; });
+      var ys = pts.map(function (q) { return q[1]; });
+      return [Math.min.apply(null, xs), Math.min.apply(null, ys), Math.max.apply(null, xs), Math.max.apply(null, ys)];
+    }
+    var PAINT = [OPS.stroke, OPS.closeStroke, OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke];
+    for (var i = 0; i < ol.fnArray.length; i++) {
+      var fn = ol.fnArray[i];
+      var a = ol.argsArray[i];
+      if (fn === OPS.save) stack.push(ctm.slice());
+      else if (fn === OPS.restore) { if (stack.length) ctm = stack.pop(); }
+      else if (fn === OPS.transform) ctm = U.transform(ctm, a);
+      else if (fn === OPS.paintFormXObjectBegin) { stack.push(ctm.slice()); if (a && a[0]) ctm = U.transform(ctm, a[0]); }
+      else if (fn === OPS.paintFormXObjectEnd) { if (stack.length) ctm = stack.pop(); }
+      else if (fn === OPS.constructPath && a && a[2] && a[2].length === 4 && PAINT.indexOf(ol.fnArray[i + 1]) >= 0) {
+        var mm = a[2];
+        var pb = bbox([[mm[0], mm[2]], [mm[1], mm[2]], [mm[0], mm[3]], [mm[1], mm[3]]].map(function (q) { return U.applyTransform(q, ctm); }));
+        var w = pb[2] - pb[0];
+        var h = pb[3] - pb[1];
+        if (h <= 2.5 && w >= 4 && w <= 50) {
+          bars.push({ x0: pb[0], y0: pb[1], x1: pb[2], y1: pb[3], y: (pb[1] + pb[3]) / 2, w: w, h: h });
+        }
+      }
+    }
+    return bars;
+  }
+
+  function isNumFracPart(s) {
+    var t = String(s || '').trim();
+    if (!t || t.length > 12) return false;
+    return /^[-+]?[\d.,\s]*[a-zA-Z]?[\d.,\s]*$/.test(t);
+  }
+
+  /** Ghép tử trên gạch và mẫu dưới gạch thành "tử/mẫu". */
+  function mergeFractions(items, bars) {
+    var usedBars = [];
+    bars.forEach(function (bar) {
+      var topItems = [];
+      var botItems = [];
+
+      items.forEach(function (it) {
+        if (!it || !it.str || !it.transform) return;
+        var cx = it.transform[4] + (it.width || 0) / 2;
+        if (cx < bar.x0 - 3.5 || cx > bar.x1 + 3.5) return;
+
+        var y = it.transform[5];
+        var dyTop = y - bar.y;
+        if (dyTop >= 1.5 && dyTop <= 11) {
+          topItems.push(it);
+          return;
+        }
+        var dyBot = bar.y - y;
+        if (dyBot >= 7 && dyBot <= 17) {
+          botItems.push(it);
+          return;
+        }
+      });
+
+      if (!topItems.length || !botItems.length) return;
+
+      topItems.sort(function (a, b) { return a.transform[4] - b.transform[4]; });
+      botItems.sort(function (a, b) { return a.transform[4] - b.transform[4]; });
+
+      var topStr = topItems.map(function (it) { return it.str; }).join('').trim();
+      var botStr = botItems.map(function (it) { return it.str; }).join('').trim();
+
+      if (!isNumFracPart(topStr) || !isNumFracPart(botStr)) return;
+
+      var yDong = bar.y - 3;
+      var bestDist = Infinity;
+      items.forEach(function (it) {
+        if (!it || !it.str || !it.transform) return;
+        if (topItems.indexOf(it) >= 0 || botItems.indexOf(it) >= 0) return;
+        var y = it.transform[5];
+        if (Math.abs(y - (bar.y - 3)) <= 6) {
+          var x = it.transform[4];
+          var dx = Math.min(Math.abs(x - bar.x0), Math.abs(x + (it.width || 0) - bar.x0));
+          if (dx < 80 && dx < bestDist) {
+            bestDist = dx;
+            yDong = y;
+          }
+        }
+      });
+
+      var fracStr = topStr + '/' + botStr;
+      var baseTr = topItems[0].transform ? topItems[0].transform.slice() : [1, 0, 0, 1, 0, 0];
+      baseTr[4] = bar.x0;
+      baseTr[5] = yDong;
+
+      var fracItem = {
+        str: fracStr,
+        transform: baseTr,
+        width: bar.w,
+        height: 10
+      };
+
+      topItems.concat(botItems).forEach(function (rem) {
+        var idx = items.indexOf(rem);
+        if (idx >= 0) items.splice(idx, 1);
+      });
+      items.push(fracItem);
+      usedBars.push(bar);
+    });
+    return usedBars;
+  }
+
+  /** Ghép số mũ ² ³ của đơn vị đo (km², m², cm³...). */
+  function mergeSuperscripts(items) {
+    var UNIT = /(?:km|dm|cm|mm|m)$/i;
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (!it || !it.str || !it.transform) continue;
+      var s = it.str.trim();
+      if (s !== '2' && s !== '3') continue;
+      var itH = it.height || Math.abs(it.transform[3]) || 0;
+      var itX = it.transform[4];
+      var itY = it.transform[5];
+
+      for (var j = 0; j < items.length; j++) {
+        if (j === i) continue;
+        var prev = items[j];
+        if (!prev || !prev.str || !prev.transform) continue;
+        if (!UNIT.test(prev.str.trim())) continue;
+        var prevH = prev.height || Math.abs(prev.transform[3]) || 0;
+        var prevX = prev.transform[4];
+        var prevY = prev.transform[5];
+        var prevW = prev.width || 0;
+
+        if (prevH > 0 && itH >= 0.75 * prevH) continue;
+        var dy = itY - prevY;
+        if (dy < 2 || dy > 9) continue;
+        var dx = itX - (prevX + prevW);
+        if (dx < -1 || dx > 3.5) continue;
+
+        prev.str = prev.str.trim() + (s === '2' ? '²' : '³');
+        prev.width = (prev.width || 0) + (it.width || 0) + Math.max(0, dx);
+        items.splice(i, 1);
+        i--;
+        break;
+      }
+    }
+  }
+
   /** Đọc PDF bằng PDF.js: dòng chữ (kèm toạ độ) và vị trí hình / bảng trên từng trang. */
   function pdfAnalyze(file) {
     return loadPdfJs().then(function (lib) {
@@ -1889,7 +2039,12 @@
           (function (n) {
             chain = chain.then(function () { return doc.getPage(n); }).then(function (page) {
               return Promise.all([page.getTextContent(), page.getOperatorList()]).then(function (res) {
-                pages.push({ page: page, rows: textRows(res[0].items), figs: figureBoxes(lib, res[1], page.view) });
+                var textItems = res[0].items;
+                var ol = res[1];
+                var bars = fractionBars(lib, ol);
+                var usedBars = mergeFractions(textItems, bars);
+                mergeSuperscripts(textItems);
+                pages.push({ page: page, rows: textRows(textItems), figs: figureBoxes(lib, ol, page.view, usedBars) });
               });
             });
           })(i);
@@ -1922,7 +2077,8 @@
           pages.forEach(function (pg, pi) {
             if (pi) lines.push({ p: pi, y: pg.page.view[3], str: window.QuizFormat.PAGE_MARK, mark: true });
             pg.rows.forEach(function (r) {
-              if (pages.length > 1 && atEdge(pg, r) && Object.keys(seen[hfKey(r)]).length > 1) return;
+              // "ĐỀ SỐ 2", "ĐỀ SỐ 3" ở đầu trang giống đầu trang lặp lại nhưng là tiêu đề đề → giữ.
+              if (pages.length > 1 && atEdge(pg, r) && Object.keys(seen[hfKey(r)]).length > 1 && !window.QuizFormat.isExamHead(r.str)) return;
               // 3) Chữ nằm trong hình (nhãn của sơ đồ, chữ trong bảng vẽ) thuộc về hình, không phải câu hỏi.
               //    Nhãn ngắn ngay sát ngoài hình (tên đỉnh A, B, C; "5 cm"; "60°") cũng thuộc về hình —
               //    cùng vùng mà bước cắt hình nới ra để lấy nhãn.
@@ -1963,7 +2119,8 @@
       var out = '';
       var end = null;
       r.items.forEach(function (t) {
-        if (end !== null && t.x - end > 1.5 && !/\s$/.test(out) && !/^\s/.test(t.str)) out += ' ';
+        var isFracAfterNum = /\d$/.test(out) && /^\d+\//.test(t.str);
+        if (end !== null && (t.x - end > 1.5 || (isFracAfterNum && t.x - end > 0.3)) && !/\s$/.test(out) && !/^\s/.test(t.str)) out += ' ';
         out += t.str;
         end = t.x + t.w;
       });
@@ -2022,7 +2179,7 @@
     return out;
   }
 
-  function figureBoxes(lib, ol, view) {
+  function figureBoxes(lib, ol, view, usedBars) {
     var OPS = lib.OPS;
     var U = lib.Util;
     var ctm = [1, 0, 0, 1, 0, 0];
@@ -2053,6 +2210,10 @@
       } else if (fn === OPS.constructPath && a && a[2] && a[2].length === 4 && PAINT.indexOf(ol.fnArray[i + 1]) >= 0) {
         var mm = a[2]; // [minX, maxX, minY, maxY]
         var pb = bbox([[mm[0], mm[2]], [mm[1], mm[2]], [mm[0], mm[3]], [mm[1], mm[3]]].map(function (q) { return U.applyTransform(q, ctm); }));
+        var isFracBar = (usedBars || []).some(function (b) {
+          return Math.abs(pb[0] - b.x0) < 1.5 && Math.abs(pb[1] - b.y0) < 1.5 && Math.abs(pb[2] - b.x1) < 1.5 && Math.abs(pb[3] - b.y1) < 1.5;
+        });
+        if (isFracBar) continue;
         // Bỏ dải nền chạm mép trang (băng tiêu đề, khung trang) trước khi gộp, để không dính vào hình thật.
         var edge = pb[0] <= view[0] + 4 || pb[2] >= view[2] - 4 || pb[3] >= view[3] - 4 || pb[1] <= view[1] + 4;
         if (ok(pb) && !edge && (pb[2] - pb[0] >= 3 || pb[3] - pb[1] >= 3)) paths.push(pb);
@@ -2082,7 +2243,7 @@
     var keyAt = { p: Infinity, y: -Infinity };
     if (starts.length) {
       for (var i = starts[starts.length - 1] + 1; i < strs.length; i++) {
-        if (/^\s*(?:bảng\s+)?(?:đáp\s*án|hướng\s*dẫn\s*(?:giải|chấm)|lời\s*giải|answer\s*key)\b/i.test(strs[i]) && strs[i].length < 60) { keyAt = an.lines[i]; break; }
+        if (window.QuizFormat.isKeyHead ? window.QuizFormat.isKeyHead(strs[i]) : (/^\s*(?:bảng\s+)?(?:đáp\s*án|hướng\s*dẫn\s*(?:giải|chấm)|lời\s*giải|answer\s*key)\b/i.test(strs[i]) && strs[i].length < 60 && !/^\s*đáp\s*án(?:\s*mẫu)?\s*[:：]\s*\S+/i.test(strs[i]))) { keyAt = an.lines[i]; break; }
       }
     }
     function before(a, b) { return a.p < b.p || (a.p === b.p && a.y > b.y); } // a đứng trước b trong tài liệu
@@ -2343,36 +2504,141 @@
     return h('div', { class: 'img-tools' }, add, del, sw);
   }
 
+  /** Cắt phân tích PDF thành một đoạn đề (từ dòng fromLine đến toLine). */
+  function sliceAnalysis(an, fromLine, toLine) {
+    var slicedLines = an.lines.slice(fromLine, toLine);
+    if (!slicedLines.length) return { pages: an.pages, lines: [], text: '' };
+
+    var first = slicedLines[0];
+    var last = slicedLines[slicedLines.length - 1];
+    var next = toLine < an.lines.length ? an.lines[toLine] : null;
+
+    var textParts = [];
+    var lastP = -1;
+    slicedLines.forEach(function (l) {
+      if (lastP !== -1 && l.p !== lastP) {
+        textParts.push(window.QuizFormat.PAGE_MARK);
+      }
+      lastP = l.p;
+      textParts.push(l.str);
+    });
+    var text = textParts.join('\n');
+
+    var pages = an.pages.map(function (pg, pi) {
+      var figs = (pg.figs || []).filter(function (b) {
+        var ym = (b[1] + b[3]) / 2;
+        if (pi < first.p) return false;
+        if (pi === first.p && ym > first.y + 10) return false;
+        if (next) {
+          if (pi > next.p) return false;
+          if (pi === next.p && ym <= next.y) return false;
+        } else {
+          if (pi > last.p) return false;
+          if (pi === last.p && ym < last.y - 30) return false;
+        }
+        return true;
+      });
+      return { page: pg.page, rows: pg.rows, figs: figs };
+    });
+
+    return { pages: pages, lines: slicedLines, text: text };
+  }
+
   /** Hộp "Lấy đề từ PDF": đọc đề (+ đáp án), tự tách câu & phân loại, trả về bản soạn để xem lại. */
   function importPdfDialog(allowEssay, onDone) {
     var de = h('input', { type: 'file', accept: 'application/pdf,.pdf' });
     var key = h('input', { type: 'file', accept: 'application/pdf,.pdf' });
     var keyText = h('textarea', { rows: '3', placeholder: 'Ví dụ: 1.B 2.C 3.A\nCâu 4: 4/5\nCâu 5: 24 cm' });
+    var examSelect = h('select', null);
+    var examField = field('File có nhiều đề – chọn đề cần lấy', examSelect);
+    examField.style.display = 'none';
+
+    var cachedAn = null;
+    var cachedKeyText = null;
+    var examSecs = [];
+
+    de.addEventListener('change', function () {
+      cachedAn = null;
+      cachedKeyText = null;
+      examSecs = [];
+      examSelect.innerHTML = '';
+      examField.style.display = 'none';
+    });
+
     modal('Lấy đề từ file PDF', h('div', { class: 'form' },
       h('p', { class: 'muted small' }, 'Hệ thống đọc chữ trong PDF, tự tách từng câu và phân loại: có A, B, C, D → trắc nghiệm; đáp án ngắn → trả lời ngắn' +
         (allowEssay ? '; lời giải dài hoặc nằm trong phần "Tự luận" → tự luận (giáo viên chấm)' : '') + '. Bạn xem lại và sửa trước khi lưu.'),
       field('File đề (PDF)', de),
-      field('File đáp án (PDF, không bắt buộc)', key, 'Bỏ trống nếu đáp án nằm cuối file đề, sau chữ "ĐÁP ÁN".'),
+      examField,
+      field('File đáp án (PDF, không bắt buộc)', key, 'Bỏ trống nếu đáp án nằm cuối file đề (sau chữ "ĐÁP ÁN") hoặc ngay dưới từng câu ("Đáp án: B", "Hướng dẫn"). Có thể chọn luôn file đáp án làm file đề.'),
       field('Hoặc dán đáp án', keyText),
-      h('p', { class: 'notice' }, 'Hình vẽ, bảng trong đề được tự cắt và gắn vào đúng câu. PDF xuất từ Word đọc tốt nhất. PDF là ảnh scan, dùng phông chữ cũ (.VnTime…) hoặc có phân số dạng công thức chồng thì máy không đọc được chữ — khi đó hãy dán đề dạng chữ.')),
+      h('p', { class: 'notice' }, 'Hình vẽ, bảng trong đề được tự cắt và gắn vào đúng câu; phân số viết chồng được đổi thành dạng 3/4. File có nhiều đề (ĐỀ SỐ 1, ĐỀ SỐ 2…) sẽ cho chọn đề cần lấy. PDF xuất từ Word đọc tốt nhất. PDF là ảnh scan hoặc dùng phông chữ cũ (.VnTime…) thì máy không đọc được chữ — khi đó hãy dán đề dạng chữ. Biểu thức nhiều tầng (ngoặc lớn, phân số lồng nhau) có thể bị lệch, hãy xem lại phần xem trước.')),
     function (close) {
       var ok = h('button', { class: 'btn' }, 'Đọc đề');
+
+      de.addEventListener('change', function () {
+        ok.textContent = 'Đọc đề';
+      });
+      key.addEventListener('change', function () { cachedKeyText = null; });
+
       ok.addEventListener('click', function () {
         var f = de.files[0];
         if (!f) return toast('Hãy chọn file đề PDF.', 'error');
+
+        var readDePromise = cachedAn ? Promise.resolve(cachedAn) : pdfAnalyze(f);
+        var readKeyPromise = cachedKeyText !== null ? Promise.resolve(cachedKeyText) : (key.files[0] ? pdfText(key.files[0]) : Promise.resolve(''));
+
         busy(ok, true, 'Đang đọc PDF…');
-        Promise.all([pdfAnalyze(f), key.files[0] ? pdfText(key.files[0]) : Promise.resolve('')]).then(function (t) {
+        Promise.all([readDePromise, readKeyPromise]).then(function (t) {
           var an = t[0];
+          cachedAn = an;
+          cachedKeyText = t[1];
+
           if (an.text.replace(/\s/g, '').length < 20) throw new Error('Không đọc được chữ trong file đề (có thể là ảnh scan). Hãy dán đề dạng chữ vào ô soạn đề.');
+
+          if (!examSecs.length) {
+            examSecs = window.QuizFormat.examSections(an.lines.map(function (l) { return l.str; }));
+            if (examSecs.length >= 2) {
+              examSelect.innerHTML = '';
+              examSecs.forEach(function (s, idx) {
+                examSelect.appendChild(h('option', { value: idx }, s.name));
+              });
+              var lbl = examField.querySelector('label');
+              if (lbl) lbl.textContent = 'File có ' + examSecs.length + ' đề – chọn đề cần lấy';
+              examField.style.display = '';
+              busy(ok, false);
+              ok.textContent = 'Đọc đề đã chọn';
+              return;
+            }
+          }
+
+          var selectedAn = an;
+          var examIdx = 0;
+          var chosenSec = null;
+          if (examSecs.length >= 2) {
+            examIdx = Number(examSelect.value || 0);
+            chosenSec = examSecs[examIdx];
+            var fromLine = chosenSec.start;
+            var toLine = examIdx + 1 < examSecs.length ? examSecs[examIdx + 1].start : an.lines.length;
+            selectedAn = sliceAnalysis(an, fromLine, toLine);
+          }
+
           ok.textContent = 'Đang cắt hình…';
-          return cropFigures(an).catch(function () { return { figures: [], images: {} }; }).then(function (cf) {
+          return cropFigures(selectedAn).catch(function () { return { figures: [], images: {} }; }).then(function (cf) {
             var figures = cf.figures;
             var images = cf.images;
             var k = (t[1] + '\n' + keyText.value).trim();
-            var r = window.QuizFormat.fromText(an.text, k || null, { figures: figures });
+            var opts = { figures: figures };
+            if (examSecs.length >= 2) {
+              opts.exam = examIdx;
+              opts.examKeyOnly = true;
+              if (chosenSec && chosenSec.num) opts.examNum = chosenSec.num;
+            }
+            var r = window.QuizFormat.fromText(selectedAn.text, k || null, opts);
             if (!r.count) throw new Error('Không tìm thấy câu hỏi nào. Đề cần đánh số "Câu 1", "Câu 2"… (hoặc "1.", "2.").');
             r.images = images;
             r.figureCount = Object.keys(images).length;
+            if (chosenSec) r.examName = chosenSec.name;
             close();
             onDone(r, f);
           });
@@ -2464,7 +2730,7 @@
           pickedFile = f;
           fileNote.textContent = 'File đề "' + f.name + '" sẽ được đính kèm để học sinh xem / tải về.';
         }
-        if (!title.value.trim()) title.value = f.name.replace(/\.pdf$/i, '');
+        if (!title.value.trim()) title.value = f.name.replace(/\.pdf$/i, '') + (r.examName ? ' – ' + r.examName : '');
         update();
         toast('Đã đọc ' + r.count + ' câu' + (r.figureCount ? ', ' + r.figureCount + ' hình' : '') + (r.hasKey ? ', ' + r.keyed + ' câu có đáp án' : ', chưa thấy đáp án') + '. Hãy kiểm tra lại phần xem trước.', r.keyed === r.count ? 'success' : '');
       });
@@ -3659,11 +3925,12 @@
             h('h2', null, 'Nội dung đề'),
             h('div', { class: 'add-bar' },
               h('button', { class: 'btn btn-sm', onclick: function () {
-                importPdfDialog(false, function (r) {
+                importPdfDialog(false, function (r, f) {
                   if (src.value.trim() && !confirm('Thay nội dung đề hiện tại bằng đề vừa đọc từ PDF?')) return;
                   src.value = r.source;
                   Object.keys(r.images || {}).forEach(function (k) { store.put(k, r.images[k]); });
                   dirty = true;
+                  if (!title.value.trim() && f) title.value = f.name.replace(/\.pdf$/i, '') + (r.examName ? ' – ' + r.examName : '');
                   update();
                   toast('Đã đọc ' + r.count + ' câu' + (r.figureCount ? ', ' + r.figureCount + ' hình' : '') + (r.hasKey ? ', ' + r.keyed + ' câu có đáp án' : ', chưa thấy đáp án') + '. Hãy kiểm tra lại.', r.keyed === r.count ? 'success' : '');
                 });

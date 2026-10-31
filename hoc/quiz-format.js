@@ -25,9 +25,22 @@
   var POINTS = /(\d+(?:[.,]\d+)?)\s*(?:điểm|đ|d)(?![a-zà-ỹđ])/i;
   var IMAGE = /^\s*\[\s*(?:hình|ảnh|hinh|anh)\s*:?\s*([A-Za-z0-9_-]{1,40})\s*\]\s*$/i;
 
-  /** Chữ nghiêng toán học trong PDF (𝑥, 𝑦…) → chữ thường để học sinh gõ được. */
+  // Phông Symbol của Word/MathType cho ra ký tự vùng riêng U+F0xx: đổi về ký tự thường.
+  // Ngoặc lớn ghép nhiều mảnh: mảnh giữa thành "(" ")", mảnh trên/dưới bỏ đi.
+  var SYMBOL_MAP = {
+    'B4': '×', 'B8': '÷', 'B3': '≥', 'A3': '≤', 'B9': '≠', 'B1': '±', 'B0': '°', 'BC': '…', 'D7': '·', 'B7': '•',
+    '2D': '−', '2B': '+', '3D': '=', '3C': '<', '3E': '>', '28': '(', '29': ')', '5B': '[', '5D': ']', '7B': '{', '7D': '}',
+    'AE': '→', 'DE': '⇒', 'DB': '⇔', 'CE': '∈', 'C6': '∅', 'D6': '√', 'A5': '∞', 'BB': '≈', 'D0': '∠', '5E': '⊥', 'B5': '∝',
+    'E7': '(', 'F7': ')', 'EA': '[', 'FA': ']', 'ED': '{', 'FD': '}',
+    'E6': '', 'E8': '', 'F6': '', 'F8': '', 'E9': '', 'EB': '', 'F9': '', 'FB': '', 'EC': '', 'EE': '', 'FC': '', 'FE': '', 'EF': ''
+  };
+  /** Chữ nghiêng toán học trong PDF (𝑥, 𝑦…) → chữ thường để học sinh gõ được; ký tự phông Symbol → ký tự thường. */
   function plainMath(t) {
-    return String(t).replace(/[\uD835][\uDC00-\uDFFF]/g, function (c) { return c.normalize('NFKC'); });
+    return String(t).replace(/[\uD835][\uDC00-\uDFFF]/g, function (c) { return c.normalize('NFKC'); })
+      .replace(/[\uF020-\uF0FF]/g, function (c) {
+        var k = c.charCodeAt(0).toString(16).slice(2).toUpperCase();
+        return SYMBOL_MAP[k] !== undefined ? SYMBOL_MAP[k] : c;
+      });
   }
 
   function splitBlocks(text) {
@@ -235,15 +248,62 @@
 
   /* ───── Đọc chữ lấy từ file PDF đề (+ đáp án) và tự phân loại ───── */
 
-  var QH = /^\s*(?:câu|bài)\s*(\d{1,3})\s*(?:\(([^)]*)\)|\[([^\]]*)\])?\s*[:.)\-–]?\s*(.*)$/i;
+  var QH = /^\s*(câu|bài)\s*(\d{1,3})\s*(?:\(([^)]*)\)|\[([^\]]*)\])?\s*[:.)\-–]?\s*(.*)$/i;
   var NUMQ = /^\s*(\d{1,2})\s*[.)]\s+(\S.*)$/;
   var SECTION = /^\s*(?:phần|part|dạng)\s*[IVX\d]*\b|^\s*[IVX]{1,4}\s*[.\-–)]\s+/i;
   var KEY_HEAD = /^\s*(?:bảng\s+)?(?:đáp\s*án|hướng\s*dẫn\s*(?:giải|chấm)|lời\s*giải|answer\s*key)\b/i;
+  var EXPLAIN_HEAD = /^\s*(?:hướng\s*dẫn(?:\s*(?:giải|chấm))?|lời\s*giải|bài\s*giải|giải(?:\s*thích)?)\s*[:：]?\s*(.*)$/i;
   var OPT_MARK = /(^|\s)\(?([A-H])\s*[.)]\s*/g;
 
   var PAGE_MARK = '⟦TRANG⟧';
   var RANGE = /(?:questions?|câu|bài)\s*(\d{1,3})\s*(?:[-–—]|đến|tới|to)\s*(\d{1,3})/i;
   var MARKS = /(\d+(?:[.,]\d+)?)\s*(?:điểm|marks?|points?|pts?)\b/i;
+
+  function matchExplainHead(line) {
+    var m = EXPLAIN_HEAD.exec(line);
+    if (!m) return null;
+    if (line.indexOf(':') < 0 && line.indexOf('：') < 0 && m[1].trim()) return null;
+    return m;
+  }
+
+  function isKeyHead(l) {
+    if (!l || l.length >= 60) return false;
+    if (!KEY_HEAD.test(l)) return false;
+    if (/^\s*đáp\s*án(?:\s*mẫu)?\s*[:：]\s*\S+/i.test(l)) return false;
+    return true;
+  }
+
+  var EXAM_RE = /^\s*đề\s*(?:thi\s*|kiểm\s*tra\s*)?(?:số\s*)?(\d{1,3})\b/i;
+  function isExamHead(line) {
+    var l = String(line || '').normalize('NFC').trim();
+    return l.length < 40 && EXAM_RE.test(l);
+  }
+
+  function examSections(lines) {
+    var list = [];
+    (lines || []).forEach(function (line, i) {
+      var l = String(line || '').normalize('NFC').trim();
+      if (!l || l.length >= 40) return;
+      var m = EXAM_RE.exec(l);
+      if (m) {
+        list.push({ name: l, num: m[1], start: i });
+      }
+    });
+    return list.length >= 2 ? list : [];
+  }
+
+  /**
+   * Tiêu đề phần: "I. TRẮC NGHIỆM", "PHẦN II", "Phần trắc nghiệm (3 điểm)", "Part 1".
+   * "Phần trồng cây xanh là: …" trong lời giải không phải tiêu đề: sau "phần/part/dạng" phải là số,
+   * số La Mã, chữ cái A–D, hoặc cả dòng là tên loại câu / viết HOA.
+   */
+  function isSection(line) {
+    if (!SECTION.test(line) || line.length >= 90 || QH.test(line)) return false;
+    if (!/^\s*(?:phần|part|dạng)\b/i.test(line)) return true;
+    if (/^\s*(?:phần|part|dạng)\s*(?:[IVX]+|\d+|[A-D])\b/i.test(line)) return true;
+    var head = line.split(/[(:]/)[0];
+    return !!sectionType(head) || (head === head.toUpperCase() && /[A-ZĐÀ-Ỹ]/.test(head));
+  }
 
   function sectionType(line) {
     if (/tự\s*luận|essay|written|open[-\s]*ended|extended/i.test(line)) return 'essay';
@@ -270,14 +330,51 @@
     });
   }
 
+  function extractBlockValue(blockLines) {
+    var ansText = '';
+    var hasAns = false;
+    var expLines = [];
+    var hasExp = false;
+    var mode = 'pre';
+    for (var i = 0; i < blockLines.length; i++) {
+      var line = blockLines[i];
+      var am = ANSWER.exec(line);
+      var em = matchExplainHead(line);
+      if (em) {
+        hasExp = true;
+        mode = 'exp';
+        if (em[1].trim()) expLines.push(em[1].trim());
+        continue;
+      }
+      if (am) {
+        hasAns = true;
+        ansText = am[1].trim();
+        mode = 'ans';
+        continue;
+      }
+      if (mode === 'exp' && line !== PAGE_MARK) {
+        expLines.push(line);
+      }
+    }
+    if (hasAns || hasExp) {
+      var parts = [];
+      if (hasAns && ansText) parts.push(ansText);
+      var expText = expLines.join('\n').trim();
+      if (hasExp && expText) parts.push(expText);
+      return parts.join('\n').trim();
+    }
+    return blockLines.join('\n').trim();
+  }
+
   function parseKey(lines) {
     var key = {};
+    var blocks = [];
     var cur = null;
-    var blocks = {};
     var skip = false;
     lines.forEach(function (line, i) {
       if (skip) { skip = false; return; }
-      if (KEY_HEAD.test(line) && line.length < 60 && !/\d/.test(line)) return;
+      if (isKeyHead(line) && !/\d/.test(line)) return;
+      if (isSection(line)) { cur = null; return; }
       // Bảng: "Câu | 1 | 2 | 3" rồi dòng dưới "Đáp án | B | C | A"
       if (/^\s*câu\b/i.test(line) && (line.match(/\d+/g) || []).length >= 2 && lines[i + 1] && /^\s*đáp\s*án\b/i.test(lines[i + 1])) {
         var ns = line.match(/\d+/g) || [];
@@ -288,13 +385,21 @@
         return;
       }
       var m = QH.exec(line);
-      if (m) { cur = Number(m[1]); blocks[cur] = [m[4]]; return; }
-      if (cur !== null) blocks[cur].push(line);
+      if (m) {
+        cur = { kw: m[1].toLowerCase(), n: Number(m[2]), lines: [m[5]] };
+        blocks.push(cur);
+        return;
+      }
+      if (cur !== null) cur.lines.push(line);
     });
-    Object.keys(blocks).forEach(function (n) { key[n] = blocks[n].join('\n').trim(); });
+    blocks.forEach(function (b) {
+      var val = extractBlockValue(b.lines);
+      if (b.kw) key[b.kw + b.n] = val;
+      if (key[b.n] === undefined) key[b.n] = val;
+    });
     // Dạng gọn: "1.B 2.C 3-A" hoặc "1B 2C"
     lines.join('\n').replace(/(?:^|[\s,;|])(\d{1,3})\s*[.:\-–)]?\s*([A-Ha-h])(?![\wÀ-ỹ])/g, function (all, n, l) {
-      if (!key[n]) key[n] = l.toUpperCase();
+      if (!key[n]) { key[n] = l.toUpperCase(); key['_short_' + n] = true; }
       return all;
     });
     return key;
@@ -313,8 +418,8 @@
       var l = lines[i];
       var isQ = QH.test(l) || (useNum && NUMQ.test(l));
       if (isQ) seenQ = true;
-      if (seenQ && KEY_HEAD.test(l) && l.length < 60) break;
-      if (isQ && !(SECTION.test(l) && l.length < 90 && !QH.test(l))) out.push(i);
+      if (seenQ && isKeyHead(l)) break;
+      if (isQ && !isSection(l)) out.push(i);
     }
     return out;
   }
@@ -330,17 +435,61 @@
     // Câu dẫn khi gặp NUMQ: bỏ các số trang lẻ.
     lines = lines.filter(function (l) { return l === PAGE_MARK || !/^\s*\d+\s*(?:\/|of|trên)\s*\d+\s*$/i.test(l); });
 
+    var allExams = examSections(lines);
+    var exams = allExams.map(function (s) { return s.name; });
+    var chosenExam = null;
+    if (opts.exam !== undefined && opts.exam !== null && allExams.length >= 2) {
+      var examIdx = Number(opts.exam);
+      if (examIdx >= 0 && examIdx < allExams.length) {
+        chosenExam = allExams[examIdx];
+        if (!opts.examKeyOnly) {
+          var start = chosenExam.start;
+          var end = (examIdx + 1 < allExams.length) ? allExams[examIdx + 1].start : lines.length;
+          lines = lines.slice(start, end);
+        }
+      }
+    }
+
+    if (keyLines) {
+      var keyExams = examSections(keyLines);
+      if (keyExams.length >= 2) {
+        var chosenKeyExam = null;
+        var targetNum = (chosenExam && chosenExam.num) || (opts.examNum ? String(opts.examNum) : null);
+        if (targetNum) {
+          for (var ki = 0; ki < keyExams.length; ki++) {
+            if (keyExams[ki].num === targetNum) { chosenKeyExam = keyExams[ki]; break; }
+          }
+        }
+        if (!chosenKeyExam && opts.exam !== undefined && opts.exam !== null) {
+          var kIdx = Number(opts.exam);
+          if (kIdx >= 0 && kIdx < keyExams.length) chosenKeyExam = keyExams[kIdx];
+        }
+        if (chosenKeyExam) {
+          var kStart = chosenKeyExam.start;
+          var kPos = keyExams.indexOf(chosenKeyExam);
+          var kEnd = kPos + 1 < keyExams.length ? keyExams[kPos + 1].start : keyLines.length;
+          keyLines = keyLines.slice(kStart, kEnd);
+        }
+      }
+    }
+
     if (!keyLines) {
       var seenQ = false;
       for (var i = 0; i < lines.length; i++) {
         if (QH.test(lines[i]) || (useNum && NUMQ.test(lines[i]))) seenQ = true;
-        if (seenQ && KEY_HEAD.test(lines[i]) && lines[i].length < 60) {
+        if (seenQ && isKeyHead(lines[i])) {
           keyLines = lines.slice(i + 1);
           lines = lines.slice(0, i);
           break;
         }
       }
     }
+
+    var inlineCount = 0;
+    lines.forEach(function (l) {
+      if (ANSWER.test(l) || matchExplainHead(l)) inlineCount++;
+    });
+    var hasInlineKeys = inlineCount >= 2;
 
     var qs = [];
     var section = null;
@@ -351,8 +500,9 @@
     var preamble = [];
     var groups = [];
     lines.forEach(function (line) {
-      if (line === PAGE_MARK) { afterBreak = true; return; }
-      if (SECTION.test(line) && line.length < 90 && !QH.test(line)) {
+      // Lời giải chèn sau câu có thể sang trang sau → vẫn thuộc câu đó, không phải lời dẫn câu kế.
+      if (line === PAGE_MARK) { if (!(hasInlineKeys && cur && cur.state !== 'body')) afterBreak = true; return; }
+      if (isSection(line)) {
         var t = sectionType(line);
         if (t) section = t;
         var mk = MARKS.exec(line);
@@ -365,7 +515,17 @@
       var m = QH.exec(line);
       var nm = !m && useNum ? NUMQ.exec(line) : null;
       if (m || nm) {
-        cur = { n: m ? Number(m[1]) : Number(nm[1]), meta: m ? (m[2] || m[3] || '') : '', text: [], options: [], section: section };
+        cur = {
+          kw: m ? m[1].toLowerCase() : '',
+          n: m ? Number(m[2]) : Number(nm[1]),
+          meta: m ? (m[3] || m[4] || '') : '',
+          text: [],
+          options: [],
+          section: section,
+          state: 'body',
+          inlineAns: '',
+          inlineExp: []
+        };
         if (sec) sec.qs.push(cur);
         if (preamble.length) {
           // Lời dẫn đứng trước nhóm câu ("Quan sát hình, trả lời câu 11–15") → đặt lên đầu câu đầu nhóm.
@@ -375,7 +535,7 @@
         }
         preamble = [];
         afterBreak = false;
-        var rest = m ? m[4] : nm[2];
+        var rest = m ? m[5] : nm[2];
         var inline = rest ? splitOptions(rest, 0) : null;
         if (rest) {
           // Lựa chọn có thể nằm ngay sau câu hỏi trên cùng dòng: "… là: A. 4 B. 5"
@@ -391,6 +551,36 @@
       }
       if (!cur) return; // tiêu đề, họ tên… trước câu 1
       if (afterBreak) { preamble.push(line); return; }
+
+      if (hasInlineKeys) {
+        if (cur.state === 'explain') {
+          cur.inlineExp.push(line);
+          return;
+        }
+        if (cur.state === 'answer') {
+          var em0 = matchExplainHead(line);
+          if (em0) {
+            cur.state = 'explain';
+            if (em0[1].trim()) cur.inlineExp.push(em0[1].trim());
+            return;
+          }
+          cur.inlineExp.push(line);
+          return;
+        }
+        var am = ANSWER.exec(line);
+        if (am) {
+          cur.state = 'answer';
+          cur.inlineAns = am[1].trim();
+          return;
+        }
+        var em = matchExplainHead(line);
+        if (em) {
+          cur.state = 'explain';
+          if (em[1].trim()) cur.inlineExp.push(em[1].trim());
+          return;
+        }
+      }
+
       var more = splitOptions(line, cur.options.length);
       if (more && more.length && (cur.options.length || /^\(?A\s*[.)]/.test(line))) { cur.options = cur.options.concat(more); return; }
       if (cur.options.length) cur.options[cur.options.length - 1] += ' ' + line;
@@ -407,10 +597,28 @@
       sc.qs.forEach(function (c) { perQ[qs.indexOf(c)] = Math.round(sc.marks / sc.qs.length * 100) / 100; });
     });
 
+    var countByN = {};
+    qs.forEach(function (c) { countByN[c.n] = (countByN[c.n] || 0) + 1; });
+
     var key = keyLines ? parseKey(keyLines) : {};
     var keyed = 0;
     var questions = qs.map(function (c) {
-      var k = key[c.n] !== undefined ? String(key[c.n]).trim() : '';
+      var k = '';
+      if (c.kw && key[c.kw + c.n] !== undefined) {
+        k = String(key[c.kw + c.n]).trim();
+      } else if (countByN[c.n] === 1 && key[c.n] !== undefined) {
+        k = String(key[c.n]).trim();
+      } else if (c.options.length >= 2 && key[c.n] !== undefined && key['_short_' + c.n]) {
+        k = String(key[c.n]).trim();
+      }
+
+      if (!k && (c.inlineAns || (c.inlineExp && c.inlineExp.length))) {
+        var parts = [];
+        if (c.inlineAns) parts.push(c.inlineAns);
+        if (c.inlineExp && c.inlineExp.length) parts.push(c.inlineExp.join('\n').trim());
+        k = parts.join('\n').trim();
+      }
+
       if (k) keyed++;
       var pm = POINTS.exec(c.meta);
       if (c.pre) c.text = c.pre.concat(c.text);
@@ -450,10 +658,18 @@
       }
       return q;
     });
-    return { source: toSource(questions), count: questions.length, keyed: keyed, hasKey: !!keyLines, groups: groups };
+    return {
+      source: toSource(questions),
+      count: questions.length,
+      keyed: keyed,
+      hasKey: !!keyLines || hasInlineKeys,
+      groups: groups,
+      exams: exams,
+      examName: chosenExam ? chosenExam.name : ''
+    };
   }
 
-  var api = { parse: parse, summary: summary, isCorrect: isCorrect, toSource: toSource, spreadPoints: spreadPoints, fromText: fromText, questionStarts: questionStarts, plainMath: plainMath, PAGE_MARK: PAGE_MARK, RANGE: RANGE, SAMPLE: SAMPLE, SAMPLE_HW: SAMPLE_HW };
+  var api = { parse: parse, summary: summary, isCorrect: isCorrect, toSource: toSource, spreadPoints: spreadPoints, fromText: fromText, questionStarts: questionStarts, plainMath: plainMath, PAGE_MARK: PAGE_MARK, RANGE: RANGE, SAMPLE: SAMPLE, SAMPLE_HW: SAMPLE_HW, examSections: examSections, isKeyHead: isKeyHead, isExamHead: isExamHead };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.QuizFormat = api;
 })(this);
