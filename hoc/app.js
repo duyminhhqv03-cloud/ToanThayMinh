@@ -1959,6 +1959,7 @@
       items.forEach(function (it) {
         if (!it || !it.str || !it.transform) return;
         if (topItems.indexOf(it) >= 0 || botItems.indexOf(it) >= 0) return;
+        if (isSymbolPiece(it.str)) return; // mảnh ngoặc lớn nằm lệch dòng, không dùng làm mốc
         var y = it.transform[5];
         if (Math.abs(y - (bar.y - 3)) <= 6) {
           var x = it.transform[4];
@@ -1990,6 +1991,35 @@
       usedBars.push(bar);
     });
     return usedBars;
+  }
+
+  /** Mảnh ngoặc lớn / ký hiệu phông Symbol (vùng U+F0xx) hoặc chữ rỗng. */
+  function isSymbolPiece(str) {
+    return /^[\s\uF000-\uF0FF]*$/.test(str || '');
+  }
+
+  /**
+   * Ngoặc lớn ghép nhiều mảnh (trên / giữa / dưới) nằm lệch dòng chính → kéo về dòng chữ gần nhất,
+   * để "(" ")" đứng đúng chỗ thay vì thành một dòng riêng. Chạy sau khi đã ghép phân số.
+   */
+  function snapSymbolPieces(items) {
+    items.forEach(function (it) {
+      if (!it || !it.transform || !/^\s*[\uF0E6-\uF0FE]\s*$/.test(it.str || '')) return;
+      var y = it.transform[5];
+      var x = it.transform[4];
+      var best = null;
+      items.forEach(function (o) {
+        if (o === it || !o || !o.transform || isSymbolPiece(o.str)) return;
+        var dy = Math.abs(o.transform[5] - y);
+        var ox = o.transform[4];
+        var dx = Math.max(0, Math.max(ox - x, x - (ox + (o.width || 0))));
+        if (dy <= 12 && dx < 80 && (!best || dy < best.dy)) best = { dy: dy, y: o.transform[5] };
+      });
+      if (best) {
+        it.transform = it.transform.slice();
+        it.transform[5] = best.y;
+      }
+    });
   }
 
   /** Ghép số mũ ² ³ của đơn vị đo (km², m², cm³...). */
@@ -2044,6 +2074,7 @@
                 var bars = fractionBars(lib, ol);
                 var usedBars = mergeFractions(textItems, bars);
                 mergeSuperscripts(textItems);
+                snapSymbolPieces(textItems);
                 pages.push({ page: page, rows: textRows(textItems), figs: figureBoxes(lib, ol, page.view, usedBars) });
               });
             });
