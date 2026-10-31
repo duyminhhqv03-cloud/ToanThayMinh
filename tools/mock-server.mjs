@@ -66,6 +66,12 @@ const MOCK_CATALOG = [
   }
 ];
 
+const MOCK_COURSES = [
+  { id: 'c1', name: 'Toán', grade: 'Lớp 5', branches: ['Toán', 'Toán tiếng Anh', 'Science'], canEdit: true },
+  { id: 'c2', name: 'Tiếng Việt', grade: 'Lớp 4', branches: [], canEdit: true },
+  { id: 'c3', name: 'Tiếng Anh', grade: 'Lớp 5', branches: [], canEdit: false }
+];
+
 const MOCK_FREE_DOCS = [
   {
     id: 'd1', courseId: 'c1', branch: 'Toán', topic: 'Phân số', title: 'Chuyên đề Phân số – Lý thuyết & bài tập',
@@ -115,7 +121,28 @@ http.createServer((req, res) => {
           quizzes: [{ id: 'q1', courseId: 'c1', topic: 'Phân số', title: 'Phân số – Đề 1', count: 2, timeLimit: 0, showAnswers: true, gameOnly: true, branch: 'Toán', stats: { attempts: 0, students: 0, totalStudents: 2 } },
                     { id: 'q2', courseId: 'c1', topic: 'Phân số', title: 'Ôn tập thường', count: 5, timeLimit: 0, showAnswers: true, gameOnly: false, branch: 'Science', stats: { attempts: 0, students: 0, totalStudents: 2 } }] };
         else if (p.action === 'saveQuiz') { console.log('saveQuiz gameOnly=', p.gameOnly); out = { ok: true, id: 'q1' }; }
-        else if (p.action === 'courses') out = { ok: true, courses: [] };
+        else if (p.action === 'courses') out = { ok: true, courses: me.role === 'student' ? [] : MOCK_COURSES };
+        // Thêm / sửa / xóa tài liệu: ghi thẳng vào Kho tài liệu miễn phí giả (chỉ tài liệu tích Miễn phí mới ở lại).
+        else if (p.action === 'upload') {
+          const c = MOCK_COURSES.find(x => x.id === p.courseId);
+          if (p.free && c) MOCK_FREE_DOCS.unshift({
+            id: 'd' + Date.now(), courseId: c.id, branch: p.branch || '', topic: p.topic || '', title: p.title, description: p.description || '',
+            type: p.url ? 'link' : 'file', fileName: p.fileName || '', mimeType: p.mimeType || '', size: p.data ? Math.round(p.data.length * 0.75) : 0, url: p.url || '',
+            uploadedAt: new Date().toISOString(), free: true, courseName: c.name, courseGrade: c.grade
+          });
+          out = { ok: true, doc: {} };
+        } else if (p.action === 'updateDoc') {
+          const i = MOCK_FREE_DOCS.findIndex(x => x.id === p.id);
+          if (i >= 0) {
+            if (!p.free) MOCK_FREE_DOCS.splice(i, 1);
+            else Object.assign(MOCK_FREE_DOCS[i], { title: p.title, description: p.description, topic: p.topic, branch: p.branch });
+          }
+          out = { ok: true };
+        } else if (p.action === 'deleteDoc') {
+          const i = MOCK_FREE_DOCS.findIndex(x => x.id === p.id);
+          if (i >= 0) MOCK_FREE_DOCS.splice(i, 1);
+          out = { ok: true };
+        }
         else if (p.action === 'saveMatch') { saved.push(p); console.log('saveMatch', JSON.stringify(p.results)); out = { ok: true, id: 'm' + saved.length }; }
         else out = { ok: false, error: 'Yêu cầu không hợp lệ.' };
       }
