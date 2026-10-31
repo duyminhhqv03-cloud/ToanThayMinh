@@ -160,8 +160,8 @@
     });
   }
 
-  function copy(text) {
-    var done = function () { toast('Đã sao chép.', 'success'); };
+  function copy(text, msg) {
+    var done = function () { toast(msg || 'Đã sao chép.', 'success'); };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text); done(); });
     } else { fallbackCopy(text); done(); }
@@ -860,6 +860,10 @@
       window.scrollTo(0, 0);
       return renderFreeDocs(parts[1]);
     }
+    if (parts[0] === 'tai-lieu' && parts[1]) {
+      window.scrollTo(0, 0);
+      return renderFreeDocs('', parts[1]);
+    }
     if (!token) return renderLogin();
     if (!me) return boot();
     if (parts[0] && ['khoa', 'bai', 'luyen', 'soan-de', 'giao-bai', 'tai-khoan', 'hoc-phi', 'dau', 'dau-host'].indexOf(parts[0]) >= 0) refreshMe();
@@ -1339,7 +1343,7 @@
   function rowMenu(items) {
     return h('details', { class: 'row-menu' },
       h('summary', { 'aria-label': 'Thêm thao tác', title: 'Thêm thao tác' }, '⋯'),
-      h('div', { class: 'row-menu-list' }, items.map(function (it) {
+      h('div', { class: 'row-menu-list' }, items.filter(Boolean).map(function (it) {
         return h('button', { class: it[2] ? 'danger' : '', onclick: function (e) { e.target.closest('details').open = false; it[1](); } }, it[0]);
       })));
   }
@@ -1353,6 +1357,7 @@
       : fileButtons(doc.title, { mimeType: doc.mimeType, name: doc.fileName }, 'doc:' + doc.id, fetcher);
     if (edit) {
       actions.push(rowMenu([
+        doc.free ? ['🔗 Chép link chia sẻ', function () { shareFreeDoc(doc); }] : null,
         ['Sửa tên / chủ đề', function () { docForm(c, topics, doc, reload); }],
         ['Xóa tài liệu', function () {
           confirmBox('Xóa tài liệu?', 'Tài liệu "' + doc.title + '" sẽ bị xóa khỏi khóa học. File gốc được chuyển vào Thùng rác của Google Drive.', 'Xóa', function () {
@@ -1714,26 +1719,38 @@
     return (coursesCache || []).filter(function (c) { return c.canEdit; });
   }
 
-  function renderFreeDocs(courseId) {
+  /** Link chia sẻ một tài liệu miễn phí: điện thoại mở bảng chia sẻ (Zalo, Messenger…), máy tính chép link. */
+  function shareFreeDoc(d) {
+    var url = location.href.split('#')[0] + '#/tai-lieu/' + encodeURIComponent(d.id);
+    if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      navigator.share({ title: d.title, text: d.title + ' – tài liệu miễn phí của Toán Thầy Minh', url: url }).catch(function () {});
+      return;
+    }
+    copy(url, 'Đã chép link. Dán vào Zalo / Facebook để gửi.');
+  }
+
+  var freeAutoOpened = {};
+
+  function renderFreeDocs(courseId, focusId) {
     if (!viewCache['freeDocs']) fill(app, loading());
     showCached('freeDocs', function () {
       var job = api('freeDocs');
       if (!me || me.role === 'student') return job;
       return Promise.all([job, getCourses().catch(function () { return []; })]).then(function (r) { return r[0]; });
     }, function (d) {
-      drawFreeDocs(d.docs || [], courseId);
+      drawFreeDocs(d.docs || [], courseId, focusId);
     }, function (e) {
-      fill(app, errorBox(e.message, function () { renderFreeDocs(courseId); }));
+      fill(app, errorBox(e.message, function () { renderFreeDocs(courseId, focusId); }));
     });
   }
 
-  function drawFreeDocs(docs, courseId) {
+  function drawFreeDocs(docs, courseId, focusId) {
     var editable = freeEditCourses();
     var editMap = {};
     editable.forEach(function (c) { editMap[c.id] = c; });
     var reload = function () {
       delete viewCache['freeDocs'];
-      renderFreeDocs(courseId);
+      renderFreeDocs(courseId, focusId);
     };
     var topicsOf = function (cId) {
       return docs.filter(function (d) { return d.courseId === cId; }).map(function (d) { return d.topic; }).filter(Boolean);
@@ -1750,6 +1767,45 @@
         }
       }, '＋ Thêm tài liệu miễn phí');
     }
+    function docItem(d) {
+      var kind = d.type === 'link' ? (/youtu\.?be/i.test(d.url) ? ['VIDEO', 'k-video'] : ['LINK', 'k-link']) : fileKind(d.mimeType, d.fileName);
+      var fetcher = function () { return api('freeFile', { id: d.id }); };
+      var actions = d.type === 'link'
+        ? [h('a', { class: 'btn btn-sm', href: d.url, target: '_blank', rel: 'noopener' }, 'Mở link')]
+        : fileButtons(d.title, { mimeType: d.mimeType, name: d.fileName }, 'free:' + d.id, fetcher);
+      actions.push(h('button', { class: 'btn btn-sm btn-ghost', title: 'Lấy link gửi tài liệu này', onclick: function () { shareFreeDoc(d); } }, '🔗 Chia sẻ'));
+      var ec = editMap[d.courseId];
+      if (ec) {
+        actions.push(rowMenu([
+          ['Sửa tên / chủ đề / Miễn phí', function () {
+            docForm(ec, topicsOf(ec.id), d, function () {
+              delete viewCache['course:' + ec.id];
+              reload();
+            });
+          }],
+          ['Xóa tài liệu', function () {
+            confirmBox('Xóa tài liệu?', 'Tài liệu "' + d.title + '" sẽ bị xóa khỏi lớp ' + (d.courseName || '') + ' và khỏi Kho. File gốc được chuyển vào Thùng rác của Google Drive.', 'Xóa', function () {
+              return api('deleteDoc', { id: d.id }).then(function () {
+                toast('Đã xóa tài liệu.', 'success');
+                delete viewCache['course:' + ec.id];
+                reload();
+              });
+            });
+          }, true]
+        ]));
+      }
+      var meta = [fmtDate(d.uploadedAt), d.type === 'file' ? fmtSize(d.size) : null].filter(Boolean).join(' · ');
+      return h('article', { class: 'item' },
+        h('span', { class: 'kind ' + kind[1] }, kind[0]),
+        h('div', { class: 'item-main' },
+          h('h3', null, d.title),
+          d.description ? h('p', { class: 'item-desc' }, d.description) : null,
+          h('p', { class: 'item-meta' }, meta)
+        ),
+        h('div', { class: 'item-actions' }, actions)
+      );
+    }
+
     var courseSeen = {};
     var coursesList = [];
     docs.forEach(function (d) {
@@ -1813,43 +1869,7 @@
 
           var topicEls = Object.keys(byTopic).sort(topicSort).map(function (t) {
             var topicDocs = byTopic[t];
-            var items = topicDocs.map(function (d) {
-              var kind = d.type === 'link' ? (/youtu\.?be/i.test(d.url) ? ['VIDEO', 'k-video'] : ['LINK', 'k-link']) : fileKind(d.mimeType, d.fileName);
-              var fetcher = function () { return api('freeFile', { id: d.id }); };
-              var actions = d.type === 'link'
-                ? [h('a', { class: 'btn btn-sm', href: d.url, target: '_blank', rel: 'noopener' }, 'Mở link')]
-                : fileButtons(d.title, { mimeType: d.mimeType, name: d.fileName }, 'free:' + d.id, fetcher);
-              var ec = editMap[d.courseId];
-              if (ec) {
-                actions.push(rowMenu([
-                  ['Sửa tên / chủ đề / Miễn phí', function () {
-                    docForm(ec, topicsOf(ec.id), d, function () {
-                      delete viewCache['course:' + ec.id];
-                      reload();
-                    });
-                  }],
-                  ['Xóa tài liệu', function () {
-                    confirmBox('Xóa tài liệu?', 'Tài liệu "' + d.title + '" sẽ bị xóa khỏi lớp ' + (d.courseName || '') + ' và khỏi Kho. File gốc được chuyển vào Thùng rác của Google Drive.', 'Xóa', function () {
-                      return api('deleteDoc', { id: d.id }).then(function () {
-                        toast('Đã xóa tài liệu.', 'success');
-                        delete viewCache['course:' + ec.id];
-                        reload();
-                      });
-                    });
-                  }, true]
-                ]));
-              }
-              var meta = [fmtDate(d.uploadedAt), d.type === 'file' ? fmtSize(d.size) : null].filter(Boolean).join(' · ');
-              return h('article', { class: 'item' },
-                h('span', { class: 'kind ' + kind[1] }, kind[0]),
-                h('div', { class: 'item-main' },
-                  h('h3', null, d.title),
-                  d.description ? h('p', { class: 'item-desc' }, d.description) : null,
-                  h('p', { class: 'item-meta' }, meta)
-                ),
-                h('div', { class: 'item-actions' }, actions)
-              );
-            });
+            var items = topicDocs.map(docItem);
             return h('details', { class: 'topic', open: true },
               h('summary', null,
                 h('span', { class: 'topic-name' }, t),
@@ -1864,12 +1884,26 @@
       }
     }
 
+    // Mở từ link chia sẻ: tài liệu đó lên đầu, tự mở trình xem một lần (PDF, ảnh).
+    var focus = null;
+    if (focusId) {
+      var fd = docs.filter(function (d) { return d.id === focusId; })[0];
+      focus = fd
+        ? h('div', { class: 'panel free-focus' }, h('p', { class: 'muted small' }, '📌 Tài liệu được gửi cho bạn'), docItem(fd))
+        : h('div', { class: 'panel empty' }, h('p', { class: 'muted' }, 'Tài liệu này không còn được chia sẻ miễn phí. Xem các tài liệu khác bên dưới.'));
+      if (fd && fd.type === 'file' && viewable(fd.mimeType, fd.fileName) && !freeAutoOpened[fd.id]) {
+        freeAutoOpened[fd.id] = true;
+        openViewer(fd.title, 'free:' + fd.id, function () { return api('freeFile', { id: fd.id }); });
+      }
+    }
+
     fill(app,
       h('div', { class: 'page-head' },
         h('h1', null, '🎁 Kho tài liệu miễn phí'),
         h('p', { class: 'muted' }, 'Tài liệu thầy chọn chia sẻ miễn phí. Xem trực tiếp hoặc tải về, không cần tài khoản.'),
         addBtn ? h('p', { class: 'free-tools' }, addBtn, h('span', { class: 'muted small' }, ' Chỉ giáo viên thấy nút này. Tài liệu thêm ở đây cũng hiện trong trang lớp.')) : null
       ),
+      focus,
       chips,
       content
     );
