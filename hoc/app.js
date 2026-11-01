@@ -998,7 +998,7 @@
       case 'giao-bai': return renderAssignmentEditor(parts[1], parts[2]);
       case 'dau-host':
         if (!window.TTMGame) return;
-        if (parts[1]) return window.TTMGame.renderHost(parts[1]);
+        if (parts[1]) return window.TTMGame.renderHost(parts[1], parts[2]);
         break;
       case 'dau':
         if (!window.TTMGame) return;

@@ -406,6 +406,7 @@
         h('label', { class: 'check game-hub-toggle' }, visible, stateText),
         h('div', { class: 'add-bar' },
           h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/soan-de/' + encodeURIComponent(cd.course.id) + '/' + x.id); } }, 'Sửa'),
+          h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/dau-host/' + encodeURIComponent(x.id) + '/on-tap'); } }, '⚡ Ôn từ vựng'),
           h('button', { class: 'btn btn-sm', onclick: function () { T.go('#/dau-host/' + encodeURIComponent(x.id)); } }, '🎮 Mở phòng')));
     }
 
@@ -574,16 +575,25 @@
           };
           var playerRef = roomRef.child('players/' + uid);
           var existingPlayer = snaps[3].val();
-          var joinPromise = existingPlayer && existingPlayer.name === (me.fullName || me.username)
-            ? Promise.resolve()
-            : playerRef.set({
-                name: String(me.fullName || me.username || 'Học sinh').slice(0, 80),
-                username: String(me.username || 'hs').slice(0, 60),
-                joinedAt: existingPlayer && existingPlayer.joinedAt ? existingPlayer.joinedAt : window.firebase.database.ServerValue.TIMESTAMP
-              });
+          var playerInfo = {
+            name: String(me.fullName || me.username || 'Học sinh').slice(0, 80),
+            username: String(me.username || 'hs').slice(0, 60)
+          };
+          var joinPromise;
+          if (existingPlayer) {
+            // Vào lại phòng: giữ nguyên bài đang làm dở trong players/$uid/log.
+            joinPromise = existingPlayer.name === (me.fullName || me.username) ? Promise.resolve() : playerRef.update(playerInfo);
+          } else {
+            playerInfo.joinedAt = window.firebase.database.ServerValue.TIMESTAMP;
+            joinPromise = playerRef.set(playerInfo);
+          }
 
           return joinPromise.then(function () {
             if (!tracker.alive()) return;
+            if ((stateSnap.val() || {}).mode === 'review' && window.TTMReview) {
+              window.TTMReview.runStudent(pin, roomRef, uid, me, tracker, roomMeta, function (on) { activeGame = on; });
+              return;
+            }
             runStudentRoom(pin, roomRef, uid, me, tracker, roomMeta);
           });
         });
@@ -1123,7 +1133,7 @@
     window.TTM.store.set(hostStoreKey(quizId), JSON.stringify(data));
   }
 
-  function renderHost(quizId) {
+  function renderHost(quizId, presetMode) {
     var T = window.TTM;
     var h = T.h;
     var backHref = '#/luyen/' + encodeURIComponent(quizId);
@@ -1187,7 +1197,7 @@
       if (!tracker.alive()) return;
       T.fill(T.app,
         h('a', { href: backHref, class: 'back' }, '← Quay lại'),
-        T.errorBox(err.message || 'Không tải được dữ liệu.', function () { renderHost(quizId); }));
+        T.errorBox(err.message || 'Không tải được dữ liệu.', function () { renderHost(quizId, presetMode); }));
     });
 
     function drawSetup(d, baseQuestions, fb, existing) {
@@ -1196,6 +1206,77 @@
       var duration = 20;
       var shuffleBox = h('input', { type: 'checkbox' });
       var durBar = h('div', { class: 'chips filter' });
+      var gameMode = presetMode === 'on-tap' ? 'review' : 'match';
+      var limitMin = 5;
+      var modeBar = h('div', { class: 'chips filter' });
+      var limitBar = h('div', { class: 'chips filter' });
+      var modeHint = h('small', { class: 'muted small' });
+      var durField = h('div', { class: 'field' }, h('span', null, 'Thời gian suy nghĩ mỗi câu'), durBar);
+      var limitField = h('div', { class: 'field' }, h('span', null, 'Thời gian cho cả lượt ôn'), limitBar);
+      var shuffleField = h('label', { class: 'check' }, shuffleBox, 'Trộn thứ tự câu hỏi');
+
+      function drawMode() {
+        var isReview = gameMode === 'review';
+        T.fill(modeBar, [
+          { id: 'match', label: '🎮 Đấu từng câu' },
+          { id: 'review', label: '⚡ Ôn từ vựng' }
+        ].map(function (m) {
+          return h('button', {
+            type: 'button',
+            class: 'chip-btn' + (gameMode === m.id ? ' active' : ''),
+            onclick: function () { gameMode = m.id; drawMode(); }
+          }, m.label);
+        }));
+        T.fill(limitBar, window.TTMReview.LIMITS.map(function (min) {
+          return h('button', {
+            type: 'button',
+            class: 'chip-btn' + (limitMin === min ? ' active' : ''),
+            onclick: function () { limitMin = min; drawMode(); }
+          }, min + ' phút');
+        }));
+        modeHint.textContent = isReview
+          ? 'Học sinh tự làm theo tốc độ riêng, mỗi em một thứ tự câu. Thầy cô theo dõi từng em và xếp hạng cuối lượt. Chỉ dùng câu trắc nghiệm.'
+          : 'Thầy cô điều khiển, cả lớp trả lời cùng một câu rồi xem đáp án. Có thể chia 3 nhóm ở sảnh chờ.';
+        durField.style.display = isReview ? 'none' : '';
+        shuffleField.style.display = isReview ? 'none' : '';
+        limitField.style.display = isReview ? '' : 'none';
+      }
+
+      function openReviewRoom() {
+        var deck = window.TTMReview.buildDeck(baseQuestions);
+        if (!deck.length) return T.toast('Đề này không có câu trắc nghiệm để ôn từ vựng.', 'error');
+        T.busy(openBtn, true, 'Đang tạo mã phòng…');
+        createUniquePin(fb.db, 0).then(function (pin) {
+          if (!tracker.alive()) return;
+          var me = T.getMe() || { username: 'gv', fullName: 'Giáo viên' };
+          return fb.db.ref('rooms/' + pin).set({
+            host: fb.uid,
+            hostName: String(me.fullName || me.username || 'Giáo viên').slice(0, 100),
+            quizId: q.id,
+            quizTitle: String(q.title || '').slice(0, 300),
+            courseId: c.id,
+            courseName: String(c.name + (c.grade ? ' · ' + c.grade : '')).slice(0, 200),
+            createdAt: window.firebase.database.ServerValue.TIMESTAMP,
+            state: {
+              phase: 'lobby',
+              index: -1,
+              total: deck.length,
+              startedAt: 0,
+              mode: 'review',
+              limitSec: limitMin * 60,
+              deck: deck
+            }
+          }).then(function () {
+            if (!tracker.alive()) return;
+            var hostState = { pin: pin, quizId: q.id, mode: 'review', savedMatch: false };
+            saveHostState(quizId, hostState);
+            startReviewHost(d, fb, hostState);
+          });
+        }).catch(function (err) {
+          T.busy(openBtn, false);
+          T.toast(err.message || 'Không tạo được phòng.', 'error');
+        });
+      }
 
       function drawDur() {
         T.fill(durBar, DURATIONS.map(function (sec) {
@@ -1218,6 +1299,7 @@
 
       var openBtn = h('button', { class: 'btn btn-lg' }, '🎮 Mở phòng đấu');
       openBtn.addEventListener('click', function () {
+        if (gameMode === 'review') return openReviewRoom();
         var qs = shuffleBox.checked ? shuffleArray(baseQuestions) : baseQuestions.slice();
         T.busy(openBtn, true, 'Đang tạo mã phòng…');
         createUniquePin(fb.db, 0).then(function (pin) {
@@ -1266,8 +1348,13 @@
           reveal: 'Đang công bố câu ' + ((existing.room.state && existing.room.state.index || 0) + 1) + '/' + (existing.room.state && existing.room.state.total || baseQuestions.length),
           end: 'Đã kết thúc'
         }[(existing.room.state && existing.room.state.phase) || 'lobby'] || 'Đang mở';
+        var resumeReview = existing.room.state && existing.room.state.mode === 'review';
+        if (resumeReview && existing.room.state.phase === 'question') phaseLabel = 'Học sinh đang ôn từ vựng';
 
         var resumeBtn = h('button', { class: 'btn', onclick: function () {
+          if (resumeReview) {
+            return startReviewHost(d, fb, { pin: existing.pin, quizId: q.id, mode: 'review', savedMatch: !!existing.saved.savedMatch });
+          }
           var qs = existing.saved.questions && existing.saved.questions.length === (existing.room.state && existing.room.state.total)
             ? existing.saved.questions
             : baseQuestions.slice();
@@ -1310,10 +1397,19 @@
         resumeBanner,
         h('div', { class: 'panel form game-setup-panel' },
           h('div', { class: 'field' },
-            h('span', null, 'Thời gian suy nghĩ mỗi câu'),
-            durBar),
-          h('label', { class: 'check' }, shuffleBox, 'Trộn thứ tự câu hỏi'),
+            h('span', null, 'Kiểu chơi'),
+            modeBar,
+            modeHint),
+          durField,
+          limitField,
+          shuffleField,
           h('div', { class: 'actions-start' }, openBtn)));
+      drawMode();
+    }
+
+    function startReviewHost(d, fb, hostState) {
+      roomActive = true;
+      window.TTMReview.runHost(d, fb, hostState, tracker, function (on) { roomActive = on; }, backHref);
     }
 
     function createUniquePin(db, attempt) {
@@ -2096,7 +2192,10 @@
   window.TTMGame = {
     renderHost: renderHost,
     renderJoin: renderJoin,
-    renderPlay: renderPlay
+    renderPlay: renderPlay,
+    fmtPin: fmtPin,
+    serverNow: serverNow,
+    saveHostState: saveHostState
   };
 
   // Nếu mở trực tiếp đường dẫn #/dau hoặc #/dau-host khi mới tải trang, gọi lại route() sau khi TTMGame đã sẵn sàng
