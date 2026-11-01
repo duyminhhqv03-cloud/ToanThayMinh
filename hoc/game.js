@@ -357,7 +357,7 @@
     function loadQuizzes() {
       var id = curId;
       T.fill(box, T.loading('Đang tải bài đấu của lớp…'));
-      T.api('course', { id: id }).then(function (cd) {
+      T.api('course', { courseId: id }).then(function (cd) {
         if (!T.isCurrent(seq) || id !== curId) return;
         drawQuizzes(cd);
       }).catch(function (err) {
