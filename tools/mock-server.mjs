@@ -30,6 +30,7 @@ const QUIZ = {
 };
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 const saved = [];
+const MOCK_QUIZZES = {};
 
 const MOCK_PDF_BASE64 = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 3 3]>>endobj\nxref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000052 00000 n\n0000000101 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n147\n%%EOF\n').toString('base64');
 
@@ -122,6 +123,10 @@ http.createServer((req, res) => {
         const me = USERS[p.token];
         if (!me) out = { ok: false, code: 401, error: 'Hết phiên' };
         else if (p.action === 'me') out = { ok: true, user: me };
+        else if (p.action === 'quiz' && MOCK_QUIZZES[p.id]) {
+          const q = MOCK_QUIZZES[p.id];
+          out = { ok: true, quiz: q, branch: q.branch, course: { id: 'c1', name: 'Toán', grade: 'Lớp 5', branches: ['Toán', 'Toán tiếng Anh', 'Science'] }, canEdit: true, source: q.source, fullQuestions: q.fullQuestions, description: '', questions: q.fullQuestions, results: [], myAttempts: [] };
+        }
         else if (p.action === 'quiz') out = { ok: true, ...QUIZ, quiz: { ...QUIZ.quiz, gameOnly: false, count: QUIZ.fullQuestions.length, showAnswers: true }, source: QuizFormat.toSource(QUIZ.fullQuestions), questions: QUIZ.fullQuestions.map(q => ({ type: q.type, text: q.text, options: q.options, points: q.points, image: q.image })), results: [], myAttempts: [], canEdit: me.role !== 'student' };
         else if (p.action === 'assignment') {
           const qs = QUIZ.fullQuestions;
@@ -195,8 +200,13 @@ http.createServer((req, res) => {
         }
         else if (p.action === 'course') out = { ok: true, course: { id: 'c1', name: 'Toán', grade: 'Lớp 5', canEdit: true, branches: ['Toán', 'Toán tiếng Anh', 'Science'] }, docs: [{ id: 'd1', courseId: 'c1', title: 'Chủ đề 10-13', type: 'file', mimeType: 'application/pdf', fileName: 'a.pdf', size: 323000, uploadedBy: 'Quản trị viên', uploadedAt: '2026-10-26T00:00:00Z', topic: '', branch: 'Toán', free: true }, { id: 'd2', courseId: 'c1', title: 'Fractions vocabulary', type: 'link', url: 'https://example.com', uploadedBy: 'Thầy Minh', uploadedAt: '2026-10-26T00:00:00Z', topic: 'Unit 1', branch: 'Toán tiếng Anh' }], assignments: [{ id: 'a1', courseId: 'c1', branch: 'Toán', topic: 'Topic 5 - Logic', title: 'Bài tập về nhà - Thứ 7 24 tháng 10', dueAt: '2026-10-29T14:00:00Z', createdAt: '2026-10-24T03:00:00Z', maxScore: 10, questionCount: 8, essayCount: 3, stats: { submitted: 0, students: 11, ungraded: 0 } }, { id: 'a2', courseId: 'c1', branch: 'Toán', topic: 'Topic 4', title: 'Bài tập về nhà Thứ 7 17/10', dueAt: '2026-10-22T15:00:00Z', createdAt: '2026-10-17T03:00:00Z', maxScore: 10, questionCount: 0, essayCount: 0, stats: { submitted: 5, students: 11, ungraded: 0 } }, { id: 'a3', courseId: 'c1', branch: 'Toán', topic: '', title: 'Bài tập tuần sau', dueAt: '2026-11-05T14:00:00Z', createdAt: '2026-10-27T03:00:00Z', maxScore: 10, questionCount: 5, essayCount: 0, stats: { submitted: 0, students: 11, ungraded: 0 } }], topics: ['Phân số'],
           quizzes: [{ id: 'q1', courseId: 'c1', topic: 'Phân số', title: 'Phân số – Đề 1', count: 2, timeLimit: 0, showAnswers: true, gameOnly: true, branch: 'Toán', stats: { attempts: 0, students: 0, totalStudents: 2 } },
-                    { id: 'q2', courseId: 'c1', topic: 'Phân số', title: 'Ôn tập thường', count: 5, timeLimit: 0, showAnswers: true, gameOnly: false, branch: 'Science', stats: { attempts: 0, students: 0, totalStudents: 2 } }] };
-        else if (p.action === 'saveQuiz') { console.log('saveQuiz gameOnly=', p.gameOnly); out = { ok: true, id: 'q1' }; }
+                    { id: 'q2', courseId: 'c1', topic: 'Phân số', title: 'Ôn tập thường', count: 5, timeLimit: 0, showAnswers: true, gameOnly: false, branch: 'Science', stats: { attempts: 0, students: 0, totalStudents: 2 } }].concat(Object.values(MOCK_QUIZZES)) };
+        else if (p.action === 'saveQuiz') {
+          console.log('saveQuiz gameOnly=', p.gameOnly, 'title=', p.title, 'questions=', (p.questions || []).length);
+          const id = p.id || 'q' + Date.now();
+          MOCK_QUIZZES[id] = { id, courseId: p.courseId || 'c1', topic: p.topic || '', title: p.title, count: (p.questions || []).length, timeLimit: p.timeLimit || 0, showAnswers: p.showAnswers !== false, gameOnly: !!p.gameOnly, branch: p.branch || '', source: p.source, fullQuestions: p.questions };
+          out = { ok: true, id };
+        }
         else if (p.action === 'courses') out = { ok: true, courses: me.role === 'student' ? [] : MOCK_COURSES };
         // Thêm / sửa / xóa tài liệu: ghi thẳng vào Kho tài liệu miễn phí giả (chỉ tài liệu tích Miễn phí mới ở lại).
         else if (p.action === 'upload') {

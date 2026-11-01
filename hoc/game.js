@@ -83,6 +83,116 @@
     return out;
   }
 
+  // Bộ câu hỏi soạn sẵn, giáo viên bấm một nút là điền vào ô nhập đề.
+  var GAME_PRESETS = [
+    { label: 'Dùng bộ 15 từ Energy & Resources', title: 'Ôn nhanh 15 từ vựng Energy & Resources', file: '../de-mau/energy-resources-15-tu.txt' }
+  ];
+
+  var TEAMS = [
+    { name: 'Nhóm Đỏ', icon: '🔴', color: '#e21b3c' },
+    { name: 'Nhóm Xanh', icon: '🔵', color: '#1368ce' },
+    { name: 'Nhóm Vàng', icon: '🟡', color: '#d89e00' }
+  ];
+
+  function splitTeams(uids) {
+    var shuffled = shuffleArray(uids || []);
+    var res = {};
+    for (var i = 0; i < shuffled.length; i++) {
+      res[shuffled[i]] = i % 3;
+    }
+    return res;
+  }
+
+  function teamStandings(teamOf, playersMap, scoresMap) {
+    teamOf = teamOf || {};
+    playersMap = playersMap || {};
+    scoresMap = scoresMap || {};
+    var list = [];
+    for (var t = 0; t < 3; t++) {
+      var total = 0;
+      var n = 0;
+      for (var uid in playersMap) {
+        if (Object.prototype.hasOwnProperty.call(playersMap, uid)) {
+          if (teamOf[uid] === t) {
+            n++;
+            var sObj = scoresMap[uid];
+            total += (sObj && typeof sObj.score === 'number') ? sObj.score : 0;
+          }
+        }
+      }
+      if (n > 0) {
+        var avg = Math.round(total / n * 10) / 10;
+        list.push({ t: t, avg: avg, total: total, n: n, rank: 1 });
+      }
+    }
+    list.sort(function (a, b) {
+      if (b.avg !== a.avg) return b.avg - a.avg;
+      if (b.total !== a.total) return b.total - a.total;
+      return a.t - b.t;
+    });
+    for (var i = 0; i < list.length; i++) {
+      if (i > 0 && list[i].avg === list[i - 1].avg) {
+        list[i].rank = list[i - 1].rank;
+      } else {
+        list[i].rank = i + 1;
+      }
+    }
+    return list;
+  }
+
+  function smallestTeam(teamOf, playersMap) {
+    teamOf = teamOf || {};
+    playersMap = playersMap || {};
+    var counts = [0, 0, 0];
+    for (var uid in playersMap) {
+      if (Object.prototype.hasOwnProperty.call(playersMap, uid)) {
+        var t = teamOf[uid];
+        if (t === 0 || t === 1 || t === 2) {
+          counts[t]++;
+        }
+      }
+    }
+    var minIdx = 0;
+    var minCount = counts[0];
+    for (var i = 1; i < 3; i++) {
+      if (counts[i] < minCount) {
+        minCount = counts[i];
+        minIdx = i;
+      }
+    }
+    return minIdx;
+  }
+
+  function teamBoardEl(teams, myTeam) {
+    var T = window.TTM;
+    var h = T.h;
+    if (!teams || !teams.length) {
+      return h('p', { class: 'muted' }, 'Chưa có dữ liệu điểm nhóm.');
+    }
+    return h('div', { class: 'game-team-board' }, teams.map(function (tm) {
+      var info = TEAMS[tm.t] || { name: 'Nhóm ' + (tm.t + 1), icon: '👥', color: '#1368ce' };
+      var isMine = (myTeam !== null && myTeam !== undefined && Number(myTeam) === Number(tm.t));
+      var medal = tm.rank === 1 ? '🥇 ' : tm.rank === 2 ? '🥈 ' : tm.rank === 3 ? '🥉 ' : '';
+      return h('div', {
+        class: 'game-team-row' + (isMine ? ' is-mine' : ''),
+        style: '--team-color:' + info.color
+      },
+        h('span', { class: 'game-team-rank' }, medal + '#' + tm.rank),
+        h('div', { class: 'game-team-info' },
+          h('div', { class: 'game-team-name' },
+            h('span', { class: 'game-team-dot' }, info.icon),
+            h('strong', null, info.name),
+            isMine ? h('span', { class: 'pill p-blue small game-team-mine-badge' }, 'Nhóm của em') : null
+          ),
+          h('div', { class: 'muted small' }, 'Tổng ' + T.fmtScore(tm.total) + ' đ · ' + tm.n + ' bạn')
+        ),
+        h('div', { class: 'game-team-score' },
+          h('span', { class: 'pill p-done game-team-avg' }, T.fmtScore(tm.avg) + ' đ')
+        )
+      );
+    }));
+  }
+
   /** Quản lý các listener Firebase và đồng hồ đếm ngược, tự dọn sạch khi rời trang. */
   function createTracker(seq) {
     var listeners = [];
@@ -138,6 +248,8 @@
     var T = window.TTM;
     var h = T.h;
     if (!hasConfig()) return missingConfigView('#/', 'Khóa học');
+    var viewer = T.getMe();
+    if (viewer && viewer.role !== 'student') return renderTeacherHub();
 
     var lastPin = T.store.get('ttm_last_pin') || '';
     var inp = h('input', {
@@ -177,6 +289,231 @@
           h('p', { class: 'muted' }, 'Trả lời đúng và nhanh nhất để lên bục vinh quang!'),
           form)));
     setTimeout(function () { inp.focus(); inp.select(); }, 0);
+  }
+
+  /* ═══════════════════ MÀN HÌNH GIÁO VIÊN: QUẢN LÝ GAME (#/dau) ═══════════════════ */
+
+  function loadPreset(preset) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', preset.file);
+      xhr.onload = function () {
+        if (xhr.status === 200) resolve(xhr.responseText);
+        else reject(new Error('Không tải được bộ câu hỏi có sẵn.'));
+      };
+      xhr.onerror = function () { reject(new Error('Không tải được bộ câu hỏi có sẵn.')); };
+      xhr.send();
+    });
+  }
+
+  function renderTeacherHub() {
+    var T = window.TTM;
+    var h = T.h;
+    var seq = T.getSeq();
+    var box = h('div', { class: 'game-hub-box' });
+    var classBar = h('div', { class: 'chips filter' });
+    var formDirty = false;
+    var courses = [];
+    var curId = '';
+
+    T.setLeaveGuard(function () { return formDirty; }, 'Bài đấu chưa được lưu. Rời trang?');
+    T.fill(T.app, T.loading('Đang tải danh sách lớp…'));
+
+    T.api('courses').then(function (r) {
+      if (!T.isCurrent(seq)) return;
+      courses = (r.courses || []).filter(function (c) { return c.canEdit; });
+      T.fill(T.app,
+        h('div', { class: 'page-head' },
+          h('h1', null, '🎮 Đấu cả lớp'),
+          h('p', { class: 'muted' }, 'Chọn lớp, thêm bài đấu rồi mở phòng cho học sinh nhập mã.')),
+        h('div', { class: 'panel' },
+          h('h3', { class: 'game-subhead' }, 'Chọn lớp'),
+          courses.length ? classBar : h('p', { class: 'muted' }, 'Bạn chưa được giao quản lý lớp nào.')),
+        box);
+      if (!courses.length) return;
+      var saved = T.store.get('ttm_game_course');
+      var found = courses.filter(function (c) { return c.id === saved; })[0];
+      pickCourse((found || courses[0]).id);
+    }).catch(function (err) {
+      if (!T.isCurrent(seq)) return;
+      T.fill(T.app, T.errorBox(err.message || 'Không tải được danh sách lớp.', renderTeacherHub));
+    });
+
+    function pickCourse(id) {
+      if (formDirty && !confirm('Bài đấu chưa được lưu. Đổi lớp?')) return;
+      formDirty = false;
+      curId = id;
+      T.store.set('ttm_game_course', id);
+      T.fill(classBar, courses.map(function (c) {
+        return h('button', {
+          type: 'button',
+          class: 'chip-btn' + (c.id === curId ? ' active' : ''),
+          onclick: function () { pickCourse(c.id); }
+        }, c.name + (c.grade ? ' · ' + c.grade : ''));
+      }));
+      loadQuizzes();
+    }
+
+    function loadQuizzes() {
+      var id = curId;
+      T.fill(box, T.loading('Đang tải bài đấu của lớp…'));
+      T.api('course', { id: id }).then(function (cd) {
+        if (!T.isCurrent(seq) || id !== curId) return;
+        drawQuizzes(cd);
+      }).catch(function (err) {
+        if (!T.isCurrent(seq) || id !== curId) return;
+        T.fill(box, T.errorBox(err.message || 'Không tải được bài đấu của lớp.', loadQuizzes));
+      });
+    }
+
+    function drawQuizzes(cd) {
+      var formBox = h('div');
+      var quizzes = cd.quizzes || [];
+      T.fill(box,
+        h('div', { class: 'list-head game-hub-head' },
+          h('h2', null, 'Bài đấu của lớp (' + quizzes.length + ')'),
+          h('button', { class: 'btn', onclick: function () { drawAddForm(cd, formBox); } }, '+ Thêm bài đấu')),
+        formBox,
+        quizzes.length
+          ? h('div', { class: 'game-hub-list' }, quizzes.map(function (x) { return quizRow(x, cd); }))
+          : h('div', { class: 'panel empty' }, h('p', { class: 'muted' }, 'Lớp này chưa có bài nào. Bấm "+ Thêm bài đấu" để tạo bài đầu tiên.')));
+    }
+
+    function quizRow(x, cd) {
+      var meta = (x.count || 0) + ' câu' + (x.branch ? ' · ' + x.branch : '') + (x.topic ? ' · ' + x.topic : '');
+      var visible = h('input', { type: 'checkbox', checked: !x.gameOnly });
+      var stateText = h('span', null, x.gameOnly ? 'Đang ẩn với học sinh' : 'Đang hiện cho học sinh');
+      visible.addEventListener('change', function () {
+        var show = visible.checked;
+        visible.disabled = true;
+        stateText.textContent = 'Đang lưu…';
+        setQuizVisible(x.id, show).then(function () {
+          x.gameOnly = !show;
+          T.forgetCourse(cd.course.id);
+          T.toast(show ? 'Học sinh đã thấy bài này trong lớp.' : 'Đã ẩn bài này với học sinh.', 'success');
+        }).catch(function (err) {
+          visible.checked = !show;
+          T.toast(err.message || 'Không đổi được trạng thái hiển thị.', 'error');
+        }).then(function () {
+          visible.disabled = false;
+          stateText.textContent = x.gameOnly ? 'Đang ẩn với học sinh' : 'Đang hiện cho học sinh';
+        });
+      });
+      return h('div', { class: 'panel game-hub-row' },
+        h('div', { class: 'game-hub-info' },
+          h('strong', null, x.title),
+          h('span', { class: 'muted small' }, meta)),
+        h('label', { class: 'check game-hub-toggle' }, visible, stateText),
+        h('div', { class: 'add-bar' },
+          h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/soan-de/' + encodeURIComponent(cd.course.id) + '/' + x.id); } }, 'Sửa'),
+          h('button', { class: 'btn btn-sm', onclick: function () { T.go('#/dau-host/' + encodeURIComponent(x.id)); } }, '🎮 Mở phòng')));
+    }
+
+    /** saveQuiz ghi đè cả bài nên phải đọc đủ nội dung rồi gửi lại, chỉ đổi cờ gameOnly. */
+    function setQuizVisible(quizId, show) {
+      return T.api('quiz', { id: quizId }).then(function (d) {
+        return T.api('saveQuiz', {
+          id: quizId,
+          title: d.quiz.title,
+          topic: d.quiz.topic,
+          branch: d.branch || d.quiz.branch || '',
+          description: d.description || '',
+          timeLimit: d.quiz.timeLimit,
+          showAnswers: d.quiz.showAnswers,
+          gameOnly: !show,
+          source: d.source,
+          questions: d.fullQuestions
+        });
+      });
+    }
+
+    function drawAddForm(cd, formBox) {
+      var c = cd.course;
+      var title = h('input', { maxlength: '200', placeholder: 'VD: Ôn nhanh từ vựng Energy' });
+      var br = T.branchSelect(c, '');
+      var topic = T.topicInput(cd.topics, '');
+      var src = h('textarea', { class: 'game-hub-src', rows: '12', spellcheck: 'false', placeholder: window.QuizFormat.SAMPLE });
+      var visible = h('input', { type: 'checkbox' });
+      var status = h('div', { class: 'parse-status' });
+      var parsed = { questions: [], errors: [] };
+      var saveBtn = h('button', { class: 'btn' }, 'Lưu bài đấu');
+
+      function update() {
+        formDirty = !!(src.value.trim() || title.value.trim());
+        parsed = window.QuizFormat.parse(src.value);
+        if (!src.value.trim()) {
+          T.fill(status, h('span', { class: 'muted' }, 'Dán đề vào ô trên, mỗi câu bắt đầu bằng "Câu 1:", đáp án đúng có dấu * trước chữ cái.'));
+          return;
+        }
+        T.fill(status, parsed.errors.length
+          ? h('div', { class: 'errors' }, h('strong', null, 'Cần sửa ' + parsed.errors.length + ' lỗi:'), h('ul', null, parsed.errors.map(function (e) { return h('li', null, e); })))
+          : h('span', { class: 'ok' }, '✓ Đọc được ' + parsed.questions.length + ' câu, không có lỗi.'));
+      }
+      src.addEventListener('input', update);
+      title.addEventListener('input', update);
+
+      saveBtn.addEventListener('click', function () {
+        update();
+        if (!title.value.trim()) return T.toast('Vui lòng nhập tên bài đấu.', 'error');
+        if (!src.value.trim()) return T.toast('Vui lòng dán nội dung đề.', 'error');
+        if (parsed.errors.length) return T.toast('Đề còn lỗi, xem danh sách lỗi bên dưới ô nhập.', 'error');
+        T.busy(saveBtn, true, 'Đang lưu…');
+        T.api('saveQuiz', {
+          courseId: c.id,
+          title: title.value.trim(),
+          topic: topic[0].value.trim(),
+          branch: br ? br.value : '',
+          description: '',
+          timeLimit: 0,
+          showAnswers: true,
+          gameOnly: !visible.checked,
+          source: src.value,
+          questions: parsed.questions
+        }).then(function () {
+          formDirty = false;
+          T.forgetCourse(c.id);
+          T.toast('Đã lưu bài đấu.', 'success');
+          if (T.isCurrent(seq)) loadQuizzes();
+        }, function (err) {
+          T.busy(saveBtn, false);
+          T.toast(err.message || 'Không lưu được bài đấu.', 'error');
+        });
+      });
+
+      var presetBtns = GAME_PRESETS.map(function (p) {
+        return h('button', {
+          type: 'button',
+          class: 'btn btn-sm btn-ghost',
+          onclick: function () {
+            if (src.value.trim() && !confirm('Thay nội dung đang có bằng bộ câu hỏi này?')) return;
+            loadPreset(p).then(function (text) {
+              src.value = text;
+              if (!title.value.trim()) title.value = p.title;
+              update();
+            }).catch(function (err) { T.toast(err.message, 'error'); });
+          }
+        }, '📋 ' + p.label);
+      });
+
+      T.fill(formBox,
+        h('div', { class: 'panel form game-hub-form' },
+          h('h3', { class: 'game-subhead' }, 'Thêm bài đấu cho ' + c.name + (c.grade ? ' · ' + c.grade : '')),
+          h('div', { class: 'row' + (br ? '' : ' two') }, T.field('Tên bài', title), br ? T.field('Nhánh', br) : null, T.field('Chủ đề', topic)),
+          h('div', { class: 'add-bar' }, presetBtns),
+          T.field('Nội dung đề', src),
+          status,
+          h('label', { class: 'check' }, visible, 'Hiện cho học sinh luyện tập (bỏ chọn: chỉ dùng để đấu)'),
+          h('div', { class: 'actions-start' },
+            saveBtn,
+            h('button', { type: 'button', class: 'btn btn-ghost', onclick: function () {
+              if (formDirty && !confirm('Bỏ bài đấu đang soạn?')) return;
+              formDirty = false;
+              T.fill(formBox);
+            } }, 'Hủy'))));
+      update();
+      formDirty = false;
+      title.focus();
+    }
   }
 
   /* ═══════════════════ MÀN HÌNH HỌC SINH: TRONG PHÒNG (#/dau/{pin}) ═══════════════════ */
@@ -269,6 +606,7 @@
       var q = null;
       var rev = null;
       var myScoreObj = { score: 0, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, rank: null };
+      var playersRoster = {};
       var playerCount = 1;
       var currentPhase = '';
       var currentQIndex = -1;
@@ -299,6 +637,7 @@
       // Lắng nghe danh sách người chơi để đếm số bạn trong phòng và tự ghi danh lại nếu mất mạng
       tr.on(roomRef.child('players'), 'value', function (snap) {
         var players = snap.val() || {};
+        playersRoster = players;
         playerCount = Object.keys(players).length;
         if (st && st.phase !== 'end' && !players[uid]) {
           roomRef.child('players/' + uid).set({
@@ -307,8 +646,13 @@
             joinedAt: window.firebase.database.ServerValue.TIMESTAMP
           }).catch(function () {});
         }
-        if (currentPhase === 'lobby' && lobbyCountPill) {
-          lobbyCountPill.textContent = playerCount + ' bạn đang trong phòng';
+        if (currentPhase === 'lobby') {
+          if (lobbyCountPill) {
+            lobbyCountPill.textContent = playerCount + ' bạn đang trong phòng';
+          }
+          if (st && st.teamMode && st.teamOf) {
+            drawStudentLobby();
+          }
         } else if (currentPhase === 'end' && st) {
           drawStudentEnd(room, st, myScoreObj, playerCount);
         }
@@ -344,8 +688,79 @@
         rev = snap.val() || null;
         if (st && st.phase === 'reveal') {
           drawStudentReveal(room, st, rev || {}, myScoreObj, q);
+        } else if (st && st.phase === 'end') {
+          drawStudentEnd(room, st, myScoreObj, playerCount);
         }
       });
+
+      function drawStudentLobby() {
+        lobbyCountPill = h('p', { class: 'pill p-done' }, playerCount + ' bạn đang trong phòng');
+        var isTeam = !!(st && st.teamMode);
+        if (!isTeam) {
+          T.fill(stage,
+            h('div', { class: 'panel game-lobby-student' },
+              h('div', { class: 'game-status-icon' }, '⏳'),
+              h('h2', null, 'Đã vào phòng – chờ giáo viên bắt đầu'),
+              h('p', { class: 'muted' }, (room.quizTitle || 'Bài luyện tập') + (room.courseName ? ' · ' + room.courseName : '')),
+              h('div', { class: 'game-self-box' },
+                h('span', { class: 'muted small' }, 'Người chơi'),
+                h('strong', null, me.fullName || me.username)),
+              lobbyCountPill));
+          return;
+        }
+
+        var teamMap = (st && st.teamOf) || {};
+        var myT = teamMap[uid];
+        var teamContent;
+        if (myT !== undefined && myT !== null && TEAMS[myT]) {
+          var tmInfo = TEAMS[myT];
+          var teammates = [];
+          for (var u in playersRoster) {
+            if (Object.prototype.hasOwnProperty.call(playersRoster, u)) {
+              if (teamMap[u] === myT) {
+                var pName = (playersRoster[u] && (playersRoster[u].name || playersRoster[u].username)) || 'Học sinh';
+                if (u === uid) {
+                  teammates.unshift({ name: pName, isMe: true });
+                } else {
+                  teammates.push({ name: pName, isMe: false });
+                }
+              }
+            }
+          }
+          if (!teammates.length) {
+            teammates.push({ name: me.fullName || me.username || 'Học sinh', isMe: true });
+          }
+
+          teamContent = h('div', {
+            class: 'panel game-team-card-mine',
+            style: '--team-color:' + tmInfo.color
+          },
+            h('div', { class: 'game-team-card-mine-head' },
+              h('span', null, tmInfo.icon),
+              h('strong', null, tmInfo.name)),
+            h('p', { class: 'muted small', style: 'margin:0 0 10px' }, 'Các bạn cùng nhóm (' + teammates.length + ' bạn):'),
+            h('div', { class: 'game-players', style: 'justify-content:center' }, teammates.map(function (m) {
+              return h('span', { class: 'game-player-chip' + (m.isMe ? ' is-me' : '') }, m.name + (m.isMe ? ' (em)' : ''));
+            }))
+          );
+        } else {
+          teamContent = h('div', { class: 'panel game-team-waiting' },
+            h('div', { class: 'game-status-icon' }, '🎲'),
+            h('h3', null, 'Thầy cô sắp chia nhóm…'),
+            h('p', { class: 'muted small', style: 'margin:6px 0 0' }, 'Em sẽ được xếp ngẫu nhiên vào một trong 3 nhóm khi bắt đầu.'));
+        }
+
+        T.fill(stage,
+          h('div', { class: 'panel game-lobby-student' },
+            h('div', { class: 'game-status-icon' }, '⏳'),
+            h('h2', null, 'Đã vào phòng – chờ giáo viên bắt đầu'),
+            h('p', { class: 'muted' }, (room.quizTitle || 'Bài luyện tập') + (room.courseName ? ' · ' + room.courseName : '')),
+            h('div', { class: 'game-self-box' },
+              h('span', { class: 'muted small' }, 'Người chơi'),
+              h('strong', null, me.fullName || me.username)),
+            teamContent,
+            lobbyCountPill));
+      }
 
       // Lắng nghe trạng thái phòng (khi phòng bị xóa, state thành null)
       tr.on(roomRef.child('state'), 'value', function (snap) {
@@ -372,16 +787,7 @@
           currentPhase = 'lobby';
           currentQIndex = -1;
           drawnQIndex = -1;
-          lobbyCountPill = h('p', { class: 'pill p-done' }, playerCount + ' bạn đang trong phòng');
-          T.fill(stage,
-            h('div', { class: 'panel game-lobby-student' },
-              h('div', { class: 'game-status-icon' }, '⏳'),
-              h('h2', null, 'Đã vào phòng – chờ giáo viên bắt đầu'),
-              h('p', { class: 'muted' }, (room.quizTitle || 'Bài luyện tập') + (room.courseName ? ' · ' + room.courseName : '')),
-              h('div', { class: 'game-self-box' },
-                h('span', { class: 'muted small' }, 'Người chơi'),
-                h('strong', null, me.fullName || me.username)),
-              lobbyCountPill));
+          drawStudentLobby();
           return;
         }
 
@@ -558,10 +964,22 @@
           }
         }
 
+        var teamMap = (st && st.teamOf) || {};
+        var myT = teamMap[uid];
+        var myTeamPill = null;
+        if (st && st.teamMode && myT !== undefined && myT !== null && TEAMS[myT]) {
+          var tmInfo = TEAMS[myT];
+          myTeamPill = h('span', {
+            class: 'pill game-team-pill',
+            style: '--team-color:' + tmInfo.color
+          }, tmInfo.icon + ' ' + tmInfo.name);
+        }
+
         T.fill(stage,
           h('div', { class: 'panel game-student-q' },
             h('div', { class: 'game-q-top' },
               h('span', { class: 'q-num' }, 'Câu ' + (qIdx + 1) + ' / ' + (st.total || 1)),
+              myTeamPill,
               clockEl,
               qScorePill),
             q.blanks && q.blanks >= 2 ? null : h('p', { class: 'game-student-qtext prewrap' }, T.qNodes(q.text || '')),
@@ -589,6 +1007,16 @@
           }
         }
 
+        var teamMap = (st && st.teamOf) || {};
+        var myT = teamMap[uid];
+        var teamBoardSection = null;
+        if (rev && rev.teams && rev.teams.length) {
+          teamBoardSection = h('div', { class: 'game-student-team-wrap' },
+            h('h3', { class: 'game-subhead', style: 'margin-bottom:8px' }, '👥 Bảng điểm nhóm'),
+            teamBoardEl(rev.teams, myT)
+          );
+        }
+
         T.fill(stage,
           h('div', { class: 'panel game-reveal-student ' + (right ? 'is-ok' : 'is-bad') },
             h('div', { class: 'game-verdict-icon' }, right ? '✅' : '❌'),
@@ -601,6 +1029,7 @@
               h('div', { class: 'stat' }, h('strong', null, T.fmtScore(myScoreObj.score || 0)), h('span', null, 'Tổng điểm')),
               h('div', { class: 'stat' }, h('strong', null, rank ? '#' + rank : '–'), h('span', null, 'Hạng hiện tại')),
               h('div', { class: 'stat' }, h('strong', null, streak ? '🔥 ' + streak : '0'), h('span', null, 'Chuỗi đúng'))),
+            teamBoardSection,
             h('p', { class: 'muted small' }, 'Chờ thầy cô chuyển sang câu tiếp theo…')));
       }
 
@@ -610,11 +1039,49 @@
         var medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🏁';
         var rankTitle = rank === 1 ? 'Hạng Nhất xuất sắc!' : rank === 2 ? 'Hạng Nhì tuyệt vời!' : rank === 3 ? 'Hạng Ba giỏi lắm!' : (rank ? 'Hạng #' + rank + ' / ' + playerCount : 'Hoàn thành trận đấu');
 
+        var teamMap = (st && st.teamOf) || {};
+        var myT = teamMap[uid];
+        var teamSection = null;
+
+        if (st && st.teamMode && rev && rev.teams && rev.teams.length) {
+          var myTeamStanding = null;
+          if (myT !== undefined && myT !== null) {
+            for (var ti = 0; ti < rev.teams.length; ti++) {
+              if (rev.teams[ti].t === myT) {
+                myTeamStanding = rev.teams[ti];
+                break;
+              }
+            }
+          }
+          if (myTeamStanding) {
+            var tRank = myTeamStanding.rank;
+            var tInfo = TEAMS[myT] || { name: 'Nhóm ' + (myT + 1) };
+            if (tRank === 1) {
+              medal = '🥇';
+              rankTitle = tInfo.name + ' về Nhất!';
+            } else if (tRank === 2) {
+              medal = '🥈';
+              rankTitle = tInfo.name + ' về Nhì!';
+            } else if (tRank === 3) {
+              medal = '🥉';
+              rankTitle = tInfo.name + ' về Ba!';
+            } else {
+              medal = '🏁';
+              rankTitle = '#' + tRank + ' ' + tInfo.name;
+            }
+          }
+          teamSection = h('div', { class: 'game-student-team-wrap' },
+            h('h3', { class: 'game-subhead', style: 'margin-bottom:8px' }, '👥 Bảng điểm nhóm'),
+            teamBoardEl(rev.teams, myT)
+          );
+        }
+
         T.fill(stage,
           h('div', { class: 'panel game-end-student' },
             h('div', { class: 'game-medal-big' }, medal),
             h('h1', null, rankTitle),
             h('p', { class: 'muted' }, room.quizTitle || ''),
+            teamSection,
             h('div', { class: 'stats game-student-stats' },
               h('div', { class: 'stat' }, h('strong', null, T.fmtScore(myScoreObj.score || 0)), h('span', null, 'Tổng điểm')),
               h('div', { class: 'stat' }, h('strong', null, (myScoreObj.correctCount || 0) + '/' + (st.total || 0)), h('span', null, 'Câu trả lời đúng')),
@@ -804,7 +1271,8 @@
           var qs = existing.saved.questions && existing.saved.questions.length === (existing.room.state && existing.room.state.total)
             ? existing.saved.questions
             : baseQuestions.slice();
-          runHostRoom(d, fb, {
+          var isTeam = !!((existing.room.state && existing.room.state.teamMode) || (existing.saved && existing.saved.teamMode));
+          var hsObj = {
             pin: existing.pin,
             quizId: q.id,
             duration: Number((existing.room.state && existing.room.state.duration) || existing.saved.duration || 20),
@@ -812,7 +1280,9 @@
             scores: existing.room.scores || existing.saved.scores || {},
             savedMatch: !!existing.saved.savedMatch,
             resumedRoom: existing.room
-          });
+          };
+          if (isTeam) hsObj.teamMode = true;
+          runHostRoom(d, fb, hsObj);
         } }, 'Tiếp tục phòng ' + fmtPin(existing.pin));
 
         var closeOldBtn = h('button', { class: 'btn btn-ghost danger-text', onclick: function () {
@@ -862,6 +1332,9 @@
       var duration = hostState.duration;
       var roomRef = fb.db.ref('rooms/' + pin);
 
+      var teamMode = !!(hostState.teamMode || (hostState.resumedRoom && hostState.resumedRoom.state && hostState.resumedRoom.state.teamMode));
+      var teamOf = (hostState.resumedRoom && hostState.resumedRoom.state && hostState.resumedRoom.state.teamOf) || hostState.teamOf || {};
+
       var playersMap = (hostState.resumedRoom && hostState.resumedRoom.players) || {};
       var scoresMap = hostState.scores || (hostState.resumedRoom && hostState.resumedRoom.scores) || {};
       var phase = (hostState.resumedRoom && hostState.resumedRoom.state && hostState.resumedRoom.state.phase) || 'lobby';
@@ -876,6 +1349,7 @@
       var lobbyListEl = null;
       var lobbyCountEl = null;
       var lobbyStartBtn = null;
+      var splitBtn = null;
       var qAnsweredEl = null;
       var currentQAnswers = {};
       var curStartedAt = (hostState.resumedRoom && hostState.resumedRoom.state && hostState.resumedRoom.state.startedAt) || 0;
@@ -889,14 +1363,16 @@
       }
 
       function persistLocal() {
-        saveHostState(quizId, {
+        var hsObj = {
           pin: pin,
           quizId: q.id,
           duration: duration,
           questions: questions,
           scores: scoresMap,
           savedMatch: !!hostState.savedMatch
-        });
+        };
+        if (teamMode) hsObj.teamMode = true;
+        saveHostState(quizId, hsObj);
       }
 
       function closeRoomAndExit(skipConfirm) {
@@ -922,6 +1398,15 @@
       tracker.on(roomRef.child('players'), 'value', function (snap) {
         playersMap = snap.val() || {};
         var uids = Object.keys(playersMap);
+        if (teamMode && Object.keys(teamOf).length > 0 && phase !== 'end') {
+          uids.forEach(function (u) {
+            if (teamOf[u] === undefined) {
+              var stIdx = smallestTeam(teamOf, playersMap);
+              teamOf[u] = stIdx;
+              roomRef.child('state/teamOf/' + u).set(stIdx).catch(function () {});
+            }
+          });
+        }
         if (phase === 'lobby') {
           updateLobbyPlayers();
         } else if (phase === 'question') {
@@ -943,17 +1428,55 @@
 
       function updateLobbyPlayers() {
         if (!lobbyListEl || !lobbyCountEl || !lobbyStartBtn) return;
-        var list = Object.keys(playersMap).map(function (u) { return playersMap[u]; });
+        var list = Object.keys(playersMap).map(function (u) {
+          var p = playersMap[u] || {};
+          return {
+            uid: u,
+            name: p.name || p.username || 'Học sinh',
+            username: p.username || '',
+            joinedAt: p.joinedAt || 0
+          };
+        });
         list.sort(function (a, b) { return (a.joinedAt || 0) - (b.joinedAt || 0); });
         lobbyCountEl.textContent = list.length + ' học sinh đã vào phòng';
+
         lobbyStartBtn.disabled = list.length < 1;
-        if (!list.length) {
-          T.fill(lobbyListEl, h('p', { class: 'muted' }, 'Đang chờ học sinh nhập mã vào phòng…'));
-          return;
+        if (splitBtn) {
+          splitBtn.disabled = list.length < 3;
+          splitBtn.textContent = teamMode ? '🎲 Chia lại' : '🎲 Chia 3 nhóm';
         }
-        T.fill(lobbyListEl, list.map(function (p) {
-          return h('span', { class: 'game-player-chip' }, p.name || p.username);
-        }));
+
+        if (teamMode) {
+          var cols = [0, 1, 2].map(function (t) {
+            var tmInfo = TEAMS[t];
+            var members = list.filter(function (p) {
+              return teamOf[p.uid] === t;
+            });
+            return h('div', {
+              class: 'game-team-col',
+              style: '--team-color:' + tmInfo.color
+            },
+              h('div', { class: 'game-team-col-head' },
+                h('span', { class: 'game-team-col-title' }, tmInfo.icon + ' ' + tmInfo.name),
+                h('span', { class: 'pill small' }, members.length + ' bạn')
+              ),
+              h('div', { class: 'game-team-col-chips' },
+                members.length ? members.map(function (p) {
+                  return h('span', { class: 'game-player-chip' }, p.name);
+                }) : h('span', { class: 'muted small' }, 'Chưa có thành viên')
+              )
+            );
+          });
+          T.fill(lobbyListEl, h('div', { class: 'game-team-cols' }, cols));
+        } else {
+          if (!list.length) {
+            T.fill(lobbyListEl, h('p', { class: 'muted' }, 'Đang chờ học sinh nhập mã vào phòng…'));
+            return;
+          }
+          T.fill(lobbyListEl, list.map(function (p) {
+            return h('span', { class: 'game-player-chip' }, p.name || p.username);
+          }));
+        }
       }
 
       function updateAnsweredCount() {
@@ -969,6 +1492,29 @@
         roomActive = true;
         lobbyCountEl = h('span', { class: 'pill p-blue game-count-pill' }, '0 học sinh đã vào phòng');
         lobbyListEl = h('div', { class: 'game-players' });
+
+        // Giáo viên chủ động chia khi học sinh đã vào đủ; không bấm thì trận đấu tính điểm cá nhân như cũ.
+        splitBtn = h('button', {
+          class: 'btn btn-ghost',
+          disabled: true,
+          onclick: function () {
+            var uids = Object.keys(playersMap);
+            if (uids.length < 3) return;
+            var nextTeams = splitTeams(uids);
+            T.busy(splitBtn, true, 'Đang chia…');
+            roomRef.child('state').update({ teamMode: true, teamOf: nextTeams }).then(function () {
+              teamMode = true;
+              teamOf = nextTeams;
+              T.busy(splitBtn, false);
+              updateLobbyPlayers();
+            }).catch(function (err) {
+              T.busy(splitBtn, false);
+              updateLobbyPlayers();
+              T.toast('Lỗi khi chia nhóm: ' + err.message, 'error');
+            });
+          }
+        }, '🎲 Chia 3 nhóm');
+
         lobbyStartBtn = h('button', {
           class: 'btn btn-lg',
           disabled: true,
@@ -982,6 +1528,7 @@
               h('h2', null, q.title)),
             h('div', { class: 'add-bar' },
               h('button', { class: 'btn btn-ghost', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'),
+              splitBtn,
               lobbyStartBtn)),
           h('div', { class: 'panel game-lobby-hero' },
             h('p', { class: 'game-lobby-step' }, 'Vào Khu học tập → 🎮 Đấu cả lớp → nhập mã'),
@@ -1062,16 +1609,21 @@
             image: item.image || null
           };
           if (bCount >= 2) qPayload.blanks = bCount;
+          var statePayload = {
+            phase: 'question',
+            index: idx,
+            // Khóa câu dạng chuỗi: luật Firebase so với tên nút answers/$i (luôn là chuỗi).
+            qkey: String(idx),
+            total: questions.length,
+            startedAt: window.firebase.database.ServerValue.TIMESTAMP,
+            duration: duration
+          };
+          if (teamMode) {
+            statePayload.teamMode = true;
+            statePayload.teamOf = teamOf;
+          }
           applyPromise = roomRef.update({
-            state: {
-              phase: 'question',
-              index: idx,
-              // Khóa câu dạng chuỗi: luật Firebase so với tên nút answers/$i (luôn là chuỗi).
-              qkey: String(idx),
-              total: questions.length,
-              startedAt: window.firebase.database.ServerValue.TIMESTAMP,
-              duration: duration
-            },
+            state: statePayload,
             question: qPayload,
             reveal: null
           }).then(function () {
@@ -1222,6 +1774,9 @@
             counts: counts,
             top: top
           };
+          if (teamMode) {
+            revealObj.teams = teamStandings(teamOf, playersMap, newScores);
+          }
 
           scoresMap = newScores;
           persistLocal();
@@ -1322,6 +1877,22 @@
           ];
         }
 
+        var rightCol;
+        if (teamMode) {
+          rightCol = h('div', { class: 'panel' },
+            h('h3', { class: 'game-subhead' }, '👥 Bảng điểm nhóm'),
+            teamBoardEl(revealObj.teams || [], null));
+        } else {
+          rightCol = h('div', { class: 'panel' },
+            h('h3', { class: 'game-subhead' }, '🔥 Top 5 dẫn đầu'),
+            top.length ? h('div', { class: 'game-top-list' }, top.map(function (t, i) {
+              return h('div', { class: 'game-top-row' },
+                h('span', { class: 'game-top-rank' }, '#' + (i + 1)),
+                h('strong', { class: 'game-top-name' }, t.name),
+                h('span', { class: 'pill p-done' }, T.fmtScore(t.score) + ' đ'));
+            })) : h('p', { class: 'muted' }, 'Chưa có dữ liệu điểm.'));
+        }
+
         T.fill(stage,
           h('div', { class: 'game-host-top' },
             h('span', { class: 'pill p-blue game-count-pill' }, 'Kết quả câu ' + (idx + 1) + ' / ' + questions.length),
@@ -1337,20 +1908,17 @@
             h('div', { class: 'panel' },
               h('h3', { class: 'game-subhead' }, 'Thống kê câu trả lời'),
               h('div', { class: 'game-chart' }, chartCols)),
-            h('div', { class: 'panel' },
-              h('h3', { class: 'game-subhead' }, '🔥 Top 5 dẫn đầu'),
-              top.length ? h('div', { class: 'game-top-list' }, top.map(function (t, i) {
-                return h('div', { class: 'game-top-row' },
-                  h('span', { class: 'game-top-rank' }, '#' + (i + 1)),
-                  h('strong', { class: 'game-top-name' }, t.name),
-                  h('span', { class: 'pill p-done' }, T.fmtScore(t.score) + ' đ'));
-              })) : h('p', { class: 'muted' }, 'Chưa có dữ liệu điểm.'))));
+            rightCol));
       }
 
       function finishMatch() {
         clearQuestionWatchers();
         phase = 'end';
         roomActive = false;
+        if (teamMode) {
+          var finalTeams = teamStandings(teamOf, playersMap, scoresMap);
+          roomRef.child('reveal/teams').set(finalTeams).catch(function () {});
+        }
         roomRef.child('state/phase').set('end').catch(function () {});
         drawEndView();
       }
@@ -1427,6 +1995,53 @@
           });
         }
 
+        var podiumOrTeamBlock = null;
+        if (teamMode) {
+          var endTeams = teamStandings(teamOf, playersMap, scoresMap);
+          podiumOrTeamBlock = h('div', { class: 'panel' },
+            h('h3', { class: 'game-subhead', style: 'margin-bottom:14px' }, '🏆 Bảng xếp hạng nhóm chung cuộc'),
+            h('div', { class: 'game-team-cols game-team-end-grid' }, endTeams.map(function (tm) {
+              var tmInfo = TEAMS[tm.t] || { name: 'Nhóm ' + (tm.t + 1), icon: '👥', color: '#1368ce' };
+              var medal = tm.rank === 1 ? '🥇' : tm.rank === 2 ? '🥈' : tm.rank === 3 ? '🥉' : '🏁';
+              var members = results.filter(function (r) {
+                return teamOf[r.uid] === tm.t;
+              });
+              return h('div', {
+                class: 'game-team-end-card',
+                style: '--team-color:' + tmInfo.color
+              },
+                h('div', { class: 'game-team-end-head' },
+                  h('span', { class: 'game-team-end-medal' }, medal),
+                  h('span', null, tmInfo.icon + ' ' + tmInfo.name)
+                ),
+                h('div', { class: 'game-team-big-score' }, T.fmtScore(tm.avg) + ' đ'),
+                h('div', { class: 'muted small' }, 'Tổng ' + T.fmtScore(tm.total) + ' đ · ' + tm.n + ' bạn'),
+                h('div', { class: 'game-team-member-list' },
+                  members.length ? members.map(function (m) {
+                    return h('div', { class: 'game-team-member-item' },
+                      h('span', null, m.fullName),
+                      h('strong', null, T.fmtScore(m.score) + ' đ')
+                    );
+                  }) : h('span', { class: 'muted small' }, 'Không có thành viên')
+                )
+              );
+            }))
+          );
+        } else {
+          if (results.length) {
+            podiumOrTeamBlock = h('div', { class: 'panel game-podium-panel' },
+              h('div', { class: 'game-podium' }, podiumOrder.map(function (slot) {
+                if (!slot.r) return h('div', { class: 'game-podium-col empty ' + slot.cls });
+                return h('div', { class: 'game-podium-col ' + slot.cls },
+                  h('div', { class: 'game-podium-medal' }, slot.medal),
+                  h('strong', { class: 'game-podium-name' }, slot.r.fullName),
+                  h('span', { class: 'game-podium-score' }, T.fmtScore(slot.r.score) + ' điểm'),
+                  h('span', { class: 'muted small' }, 'Đúng ' + slot.r.correctCount + '/' + questions.length + ' câu'),
+                  h('div', { class: 'game-podium-pedestal' }, slot.place));
+              })));
+          }
+        }
+
         T.fill(stage,
           h('div', { class: 'game-host-top' },
             h('div', null,
@@ -1435,16 +2050,7 @@
             h('div', { class: 'add-bar' },
               saveStatusBox,
               h('button', { class: 'btn btn-lg', onclick: function () { closeRoomAndExit(true); } }, 'Đóng phòng'))),
-          results.length ? h('div', { class: 'panel game-podium-panel' },
-            h('div', { class: 'game-podium' }, podiumOrder.map(function (slot) {
-              if (!slot.r) return h('div', { class: 'game-podium-col empty ' + slot.cls });
-              return h('div', { class: 'game-podium-col ' + slot.cls },
-                h('div', { class: 'game-podium-medal' }, slot.medal),
-                h('strong', { class: 'game-podium-name' }, slot.r.fullName),
-                h('span', { class: 'game-podium-score' }, T.fmtScore(slot.r.score) + ' điểm'),
-                h('span', { class: 'muted small' }, 'Đúng ' + slot.r.correctCount + '/' + questions.length + ' câu'),
-                h('div', { class: 'game-podium-pedestal' }, slot.place));
-            }))) : null,
+          podiumOrTeamBlock,
           h('div', { class: 'panel' },
             h('h3', { class: 'game-subhead' }, 'Bảng xếp hạng đầy đủ (' + results.length + ' học sinh)'),
             results.length ? h('div', { class: 'table-wrap' },
@@ -1453,13 +2059,20 @@
                   h('tr', null,
                     h('th', null, 'Hạng'),
                     h('th', null, 'Học sinh'),
+                    teamMode ? h('th', null, 'Nhóm') : null,
                     h('th', null, 'Số câu đúng'),
                     h('th', null, 'Tổng điểm'))),
                 h('tbody', null, results.map(function (r) {
                   var medal = r.rank === 1 ? '🥇 ' : r.rank === 2 ? '🥈 ' : r.rank === 3 ? '🥉 ' : '';
+                  var tmIdx = teamOf[r.uid];
+                  var tmInfo = (tmIdx !== undefined && TEAMS[tmIdx]) ? TEAMS[tmIdx] : null;
                   return h('tr', null,
                     h('td', null, h('strong', null, medal + '#' + r.rank)),
                     h('td', null, r.fullName, r.username ? h('span', { class: 'muted small' }, ' (' + r.username + ')') : null),
+                    teamMode ? h('td', null, tmInfo ? h('span', {
+                      class: 'pill',
+                      style: 'border-color:' + tmInfo.color + ';color:' + tmInfo.color + ';font-weight:700'
+                    }, tmInfo.icon + ' ' + tmInfo.name) : '–') : null,
                     h('td', null, r.correctCount + ' / ' + questions.length),
                     h('td', null, h('span', { class: 'pill p-done' }, T.fmtScore(r.score) + ' điểm')));
                 })))) : h('p', { class: 'muted' }, 'Không có học sinh nào tham gia.')));
