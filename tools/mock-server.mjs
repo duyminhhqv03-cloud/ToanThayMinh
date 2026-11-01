@@ -2,6 +2,10 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const QuizFormat = require('../hoc/quiz-format.js');
 
 // Chạy: node tools/mock-server.mjs  → http://localhost:8765/hoc/ (API_URL được thay bằng /mock-api).
 // Đăng nhập giả: đặt localStorage ttm_token = tk-teacher | tk-student | tk-student2 và ttm_me tương ứng.
@@ -17,7 +21,9 @@ const QUIZ = {
   course: { id: 'c1', name: 'Toán tư duy', grade: 'Lớp 5' },
   canEdit: true,
   fullQuestions: [
+    { type: 'mc', text: 'Chọn hỗn số bằng 234/100:', options: ['2 34/100', '23 4/100', '2 345/1000', '234/10'], correct: 0, explain: '234/100 = 2 34/100', points: 1 },
     { type: 'mc', text: '3/4 + 1/4 = ?', options: ['4/8', '1', '5/4', '3/16'], correct: 1, explain: '3/4 + 1/4 = 4/4 = 1', points: 1 },
+    { type: 'fill', text: 'Viết số thích hợp vào chỗ trống:\na) 3 m² 2 cm² = …… m²\nb) 123 tạ = …… tấn', answers: [['3,0002'], ['12,3', '123/10']], explain: 'a) 3,0002 m²\nb) 12,3 tấn', points: 2 },
     { type: 'short', text: '1/2 + 1/4 = ? (viết số thập phân)', answers: ['0,75', '3/4'], explain: '', points: 1 },
     { type: 'essay', text: 'Trình bày lời giải…', points: 2 }
   ]
@@ -116,7 +122,77 @@ http.createServer((req, res) => {
         const me = USERS[p.token];
         if (!me) out = { ok: false, code: 401, error: 'Hết phiên' };
         else if (p.action === 'me') out = { ok: true, user: me };
-        else if (p.action === 'quiz') out = { ok: true, ...QUIZ, quiz: { ...QUIZ.quiz, gameOnly: true, count: 3, showAnswers: true }, source: 'Câu 1: 3/4 + 1/4 = ?\nA. 4/8\n*B. 1', results: [], myAttempts: [], canEdit: me.role !== 'student' };
+        else if (p.action === 'quiz') out = { ok: true, ...QUIZ, quiz: { ...QUIZ.quiz, gameOnly: false, count: QUIZ.fullQuestions.length, showAnswers: true }, source: QuizFormat.toSource(QUIZ.fullQuestions), questions: QUIZ.fullQuestions.map(q => ({ type: q.type, text: q.text, options: q.options, points: q.points, image: q.image })), results: [], myAttempts: [], canEdit: me.role !== 'student' };
+        else if (p.action === 'assignment') {
+          const qs = QUIZ.fullQuestions;
+          out = {
+            ok: true,
+            assignment: { id: 'a1', courseId: 'c1', title: 'Bài tập phân số & điền khuyết', dueAt: '2026-11-20T14:00:00Z', maxScore: 10 },
+            course: { id: 'c1', name: 'Toán', grade: 'Lớp 5', canEdit: true },
+            fullQuestions: qs,
+            questions: qs.map(q => ({ type: q.type, text: q.text, options: q.options, points: q.points, image: q.image })),
+            submission: null,
+            canSubmit: me.role === 'student',
+            students: []
+          };
+        }
+        else if (p.action === 'submit') {
+          out = { ok: true, submission: { id: 'sub_' + Date.now(), status: 'submitted' } };
+        }
+        else if (p.action === 'submitQuiz') {
+          const ans = p.answers || [];
+          let score = 0;
+          const review = QUIZ.fullQuestions.map((q, i) => {
+            const a = ans[i];
+            let correct = false;
+            let blanks = null;
+            let correctAnswer = null;
+            if (q.type === 'mc') {
+              correct = a === q.correct;
+              correctAnswer = q.correct;
+              if (correct) score += 1;
+            } else if (q.type === 'fill') {
+              const bCount = QuizFormat.blankCount(q.text);
+              const clean = Array.isArray(a) ? a.slice(0, bCount).map(v => String(v || '').trim()) : [];
+              while (clean.length < bCount) clean.push('');
+              const ratio = QuizFormat.fillScore(q, clean);
+              correct = (ratio === 1);
+              score += ratio;
+              blanks = [];
+              for (let b = 0; b < bCount; b++) {
+                blanks.push(QuizFormat.isCorrect({ type: 'short', answers: q.answers[b] }, clean[b]));
+              }
+              correctAnswer = q.answers.map(ansList => Array.isArray(ansList) ? ansList[0] : ansList);
+            } else if (q.type === 'short') {
+              correct = QuizFormat.isCorrect(q, String(a || '').trim());
+              correctAnswer = q.answers[0];
+              if (correct) score += 1;
+            }
+            return {
+              type: q.type,
+              text: q.text,
+              options: q.options,
+              answer: a,
+              correct,
+              blanks,
+              correctAnswer,
+              explain: q.explain
+            };
+          });
+          const roundedScore = Math.round(score * 100) / 100;
+          out = {
+            ok: true,
+            attempt: {
+              id: 'att_' + Date.now(),
+              quizId: p.quizId,
+              score: roundedScore,
+              total: QUIZ.fullQuestions.length,
+              submittedAt: new Date().toISOString()
+            },
+            showAnswers: true,
+            review
+          };
+        }
         else if (p.action === 'course') out = { ok: true, course: { id: 'c1', name: 'Toán', grade: 'Lớp 5', canEdit: true, branches: ['Toán', 'Toán tiếng Anh', 'Science'] }, docs: [{ id: 'd1', courseId: 'c1', title: 'Chủ đề 10-13', type: 'file', mimeType: 'application/pdf', fileName: 'a.pdf', size: 323000, uploadedBy: 'Quản trị viên', uploadedAt: '2026-10-26T00:00:00Z', topic: '', branch: 'Toán', free: true }, { id: 'd2', courseId: 'c1', title: 'Fractions vocabulary', type: 'link', url: 'https://example.com', uploadedBy: 'Thầy Minh', uploadedAt: '2026-10-26T00:00:00Z', topic: 'Unit 1', branch: 'Toán tiếng Anh' }], assignments: [{ id: 'a1', courseId: 'c1', branch: 'Toán', topic: 'Topic 5 - Logic', title: 'Bài tập về nhà - Thứ 7 24 tháng 10', dueAt: '2026-10-29T14:00:00Z', createdAt: '2026-10-24T03:00:00Z', maxScore: 10, questionCount: 8, essayCount: 3, stats: { submitted: 0, students: 11, ungraded: 0 } }, { id: 'a2', courseId: 'c1', branch: 'Toán', topic: 'Topic 4', title: 'Bài tập về nhà Thứ 7 17/10', dueAt: '2026-10-22T15:00:00Z', createdAt: '2026-10-17T03:00:00Z', maxScore: 10, questionCount: 0, essayCount: 0, stats: { submitted: 5, students: 11, ungraded: 0 } }, { id: 'a3', courseId: 'c1', branch: 'Toán', topic: '', title: 'Bài tập tuần sau', dueAt: '2026-11-05T14:00:00Z', createdAt: '2026-10-27T03:00:00Z', maxScore: 10, questionCount: 5, essayCount: 0, stats: { submitted: 0, students: 11, ungraded: 0 } }], topics: ['Phân số'],
           quizzes: [{ id: 'q1', courseId: 'c1', topic: 'Phân số', title: 'Phân số – Đề 1', count: 2, timeLimit: 0, showAnswers: true, gameOnly: true, branch: 'Toán', stats: { attempts: 0, students: 0, totalStudents: 2 } },
                     { id: 'q2', courseId: 'c1', topic: 'Phân số', title: 'Ôn tập thường', count: 5, timeLimit: 0, showAnswers: true, gameOnly: false, branch: 'Science', stats: { attempts: 0, students: 0, totalStudents: 2 } }] };

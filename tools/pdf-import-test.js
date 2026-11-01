@@ -130,8 +130,9 @@ var QuizFormat = require('../hoc/quiz-format.js');
   assert.strictEqual(p.questions[2].type, 'mc', 'Ca 3: Câu 3 là trắc nghiệm');
   assert.strictEqual(p.questions[2].correct, 0, 'Ca 3: Câu 3 đúng A');
 
-  // 2 câu tự luận
-  assert.strictEqual(p.questions[3].type, 'essay', 'Ca 3: Bài 1 là tự luận');
+  // 1 câu điền khuyết (tự luận nhưng có 2 chỗ trống) và 1 câu tự luận
+  assert.strictEqual(p.questions[3].type, 'fill', 'Ca 3: Bài 1 có 2 chỗ trống nên là điền khuyết');
+  assert.deepStrictEqual(p.questions[3].answers, [['200'], ['5000']], 'Ca 3: Bài 1 đoán đúng đáp án');
   assert.ok(p.questions[3].explain.indexOf('200 dm²') >= 0, 'Ca 3: Bài 1 có lời giải đúng');
   assert.ok(p.questions[3].explain.indexOf('50 kg') < 0, 'Ca 3: Bài 1 không lẫn lời giải Bài 2');
 
@@ -190,7 +191,7 @@ var QuizFormat = require('../hoc/quiz-format.js');
   assert.strictEqual(p.questions[0].correct, 1, 'Ca 4: Câu 1 đúng B');
   assert.strictEqual(p.questions[1].correct, 2, 'Ca 4: Câu 2 đúng C');
   assert.strictEqual(p.questions[2].correct, 0, 'Ca 4: Câu 3 đúng A');
-  assert.strictEqual(p.questions[3].type, 'essay', 'Ca 4: Bài 1 tự luận');
+  assert.strictEqual(p.questions[3].type, 'fill', 'Ca 4: Bài 1 điền khuyết');
   assert.ok(p.questions[3].explain.indexOf('200 dm²') >= 0, 'Ca 4: Lời giải bài 1 đúng');
   assert.strictEqual(p.questions[4].type, 'essay', 'Ca 4: Bài 2 tự luận');
   assert.ok(p.questions[4].explain.indexOf('50 kg') >= 0, 'Ca 4: Lời giải bài 2 đúng');
@@ -288,6 +289,116 @@ var QuizFormat = require('../hoc/quiz-format.js');
 // Ca 8: ký tự phông Symbol (×, ngoặc lớn) đổi về ký tự thường.
 (function testCase8() {
   assert.strictEqual(QuizFormat.plainMath('65kg \uf0b4 5 \uf0e6\uf0e7a\uf0f7\uf0f8'), '65kg × 5 (a)');
+})();
+
+// Ca 9: Mục 2 ví dụ thật chuyển thành điền khuyết với đúng 5 đáp án
+(function testCaseSection2RealExample() {
+  var text = [
+    'Câu 1 (tự luận): Viết số thích hợp vào chỗ trống.',
+    'a) 3 m² 2 cm² =…… m² b) 123 tạ = …… tấn',
+    'c) 403 460 m² = …… km² …… ha d) 6,5 ml = …… lít',
+    'Hướng dẫn:',
+    'a) 3 m² 2 cm² = 3 m² 2/10 000 m² = 3,0002 m²',
+    'b) 123 tạ = 123/10 tấn',
+    'c)',
+    '403 460 m² = 400 000 m² + 3 460 m²',
+    '= 400 000/1000 000 km² + 3 460/10 000 ha',
+    '= 0,4 km² 0,346 ha',
+    'd) 6, 5 ml = 65/10 ml = 65/10 × 1/1000 lít = 65/10 000 lít'
+  ].join('\n');
+
+  var r = QuizFormat.fromText(text, null);
+  assert.strictEqual(r.count, 1, 'Mục 2: Đúng 1 câu');
+  assert.strictEqual(r.fillCount, 1, 'Mục 2: fillCount = 1');
+  assert.strictEqual(r.guessed, 1, 'Mục 2: guessed = 1');
+  var p = QuizFormat.parse(r.source, { allowEssay: true });
+  assert.strictEqual(p.questions[0].type, 'fill', 'Mục 2: type là fill');
+  var expected = [['3,0002'], ['123/10'], ['0,4'], ['0,346'], ['65/10 000']];
+  assert.deepStrictEqual(p.questions[0].answers, expected, 'Mục 2: Đúng 5 đáp án theo thứ tự');
+})();
+
+// Ca 9b: đề PDF thật ghi nhầm "b)" hai lần (đáng lẽ "c)") — vẫn ghép đáp án theo thứ tự phần
+(function testCaseWrongLabel() {
+  var text = [
+    'Câu 1 (tự luận): Viết số thích hợp vào chỗ trống.',
+    'a) 3 m² 2 cm² =…… m² b) 123 tạ = …… tấn',
+    'b) 403 460 m² = …… km² …… ha d) 6,5 ml = …… lít',
+    'Hướng dẫn:',
+    'a) 3 m² 2 cm² = 3 m² 2/10 000 m² = 3,0002 m²',
+    'b) 123 tạ = 123/10 tấn',
+    'c)',
+    '403 460 m² = 400 000 m² + 3 460 m²',
+    '= 400 000/1000 000 km² + 3 460/10 000 ha',
+    '= 0,4 km² 0,346 ha',
+    'd) 6, 5 ml = 65/10 ml = 65/10 × 1/1000 lít = 65/10 000 lít'
+  ].join('\n');
+  var r = QuizFormat.fromText(text, null);
+  var p = QuizFormat.parse(r.source, { allowEssay: true });
+  assert.deepStrictEqual(p.questions[0].answers, [['3,0002'], ['123/10'], ['0,4'], ['0,346'], ['65/10 000']], 'Ca 9b: ghép theo thứ tự phần');
+})();
+
+// Ca 10: đề cũ không bị đổi nghĩa — tự luận chấm tay có "……" mà không có dòng Đáp án vẫn là tự luận;
+// lựa chọn trắc nghiệm chứa "…" vẫn là lựa chọn; dòng chấm dài để viết bài giải không thành ô trống.
+(function testCase10() {
+  var p = QuizFormat.parse('Câu 1: Viết số vào chỗ chấm: 3 m = …… cm; 2 kg = …… g', { allowEssay: true });
+  assert.strictEqual(p.questions[0].type, 'essay', 'Ca 10: không có Đáp án → tự luận');
+  p = QuizFormat.parse('Câu 1: Dãy số nào đúng?\nA. 1, 2, 3, …\n*B. 2, 4, 6, …\nC. 1, 3, 4', {});
+  assert.strictEqual(p.questions[0].type, 'mc', 'Ca 10: lựa chọn có … vẫn là trắc nghiệm');
+  assert.strictEqual(p.questions[0].options.length, 3);
+  var r = QuizFormat.fromText(['II. TỰ LUẬN', 'Bài 1. Giải bài toán: a) Tính …… b) Tìm ……', 'Bài giải', '…………………………………………………………'].join('\n'), null);
+  assert.ok(/tự luận/.test(r.source), 'Ca 10: dòng chấm dài → giữ tự luận');
+  // "Câu (…)" không có số không phải đầu câu mới.
+  assert.strictEqual(QuizFormat.questionStarts(['Câu 1: Đọc đoạn sau', 'Câu (a) nói về điều gì?']).length, 1);
+})();
+
+// Ca 10: Parse / toSource khứ hồi của câu fill
+(function testCaseFillRoundTrip() {
+  var src = [
+    'Câu 7 (1,4 điểm): Viết số thích hợp vào chỗ trống.',
+    'a) 3 m² 2 cm² = …… m²   b) 123 tạ = …… tấn',
+    'Đáp án: 3,0002; 12,3 | 123/10',
+    'Lời giải: a) 3,0002; b) 12,3'
+  ].join('\n');
+  var p = QuizFormat.parse(src);
+  assert.strictEqual(p.errors.length, 0, 'Parse fill không có lỗi');
+  assert.strictEqual(p.questions[0].type, 'fill', 'Là câu fill');
+  var genSrc = QuizFormat.toSource(p.questions);
+  var p2 = QuizFormat.parse(genSrc);
+  assert.strictEqual(p2.errors.length, 0, 'Parse lại source không có lỗi');
+  assert.strictEqual(p2.questions[0].type, 'fill', 'Parse lại vẫn là fill');
+  assert.deepStrictEqual(p2.questions[0].answers, p.questions[0].answers, 'Đáp án khứ hồi khớp');
+  assert.strictEqual(p2.questions[0].points, 1.4, 'Điểm khứ hồi khớp');
+})();
+
+// Ca 11: Lỗi số phần khác số ô và ô rỗng hoặc ?
+(function testCaseFillErrors() {
+  var src = [
+    'Câu 1: Điền vào chỗ trống: a) ……   b) ……   c) ……   d) ……   e) ……',
+    'Đáp án: 1; 2; 3; 4'
+  ].join('\n');
+  var p = QuizFormat.parse(src);
+  assert.ok(p.errors.length > 0, 'Có lỗi số phần ≠ số ô');
+  assert.strictEqual(p.errors[0], 'Câu 1: có 5 chỗ trống nhưng đáp án có 4 phần (ngăn cách bằng dấu ;).');
+
+  var src2 = [
+    'Câu 1: Điền vào chỗ trống: a) ……   b) ……   c) ……',
+    'Đáp án: 1; 2; ?'
+  ].join('\n');
+  var p2 = QuizFormat.parse(src2);
+  assert.ok(p2.errors.length > 0, 'Có lỗi chưa có đáp án cho ô 3');
+  assert.strictEqual(p2.errors[0], 'Câu 1: chưa có đáp án cho chỗ trống thứ 3.');
+})();
+
+// Ca 12: Câu 1 ô trống vẫn là short
+(function testCaseSingleBlankIsShort() {
+  var src = [
+    'Câu 1 (2 điểm): 2 m² = ... dm²',
+    'Đáp án: 200'
+  ].join('\n');
+  var p = QuizFormat.parse(src);
+  assert.strictEqual(p.errors.length, 0, 'Không lỗi');
+  assert.strictEqual(p.questions[0].type, 'short', 'Câu 1 ô trống là short');
+  assert.deepStrictEqual(p.questions[0].answers, ['200']);
 })();
 
 console.log('OK');

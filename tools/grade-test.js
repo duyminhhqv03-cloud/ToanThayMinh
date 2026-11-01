@@ -6,6 +6,7 @@ const QF = require(path.join(ROOT, 'hoc/quiz-format.js'));
 const gs = fs.readFileSync(path.join(ROOT, 'apps-script/Code.gs'), 'utf8');
 const pick = n => gs.match(new RegExp('function ' + n + '\\([\\s\\S]*?\\n}\\n'))[0];
 const GS = new Function(pick('isCorrect_') + pick('numPart_') + pick('normAnswer_') + 'return isCorrect_;')();
+const GS_fillScore = new Function(pick('fillScore_') + pick('isCorrect_') + pick('numPart_') + pick('normAnswer_') + 'return fillScore_;')();
 const cases = [
   // [đáp án, học sinh gõ, mong đợi]
   ['2,5', '2,50', true], ['2,5', '2.5', true], ['3/4', '0,75', true], ['0,75', '3/4', true],
@@ -34,3 +35,45 @@ for (let i = 0; i < 20000; i++) {
   if (QF.isCorrect(q, s) !== GS(q, s)) { diff++; if (diff < 5) console.log('KHÁC', q.answers[0], s); }
 }
 console.log(`\n${cases.length - fail}/${cases.length} ví dụ đạt; ${diff} khác biệt web/máy chủ trên 20000 lần thử ngẫu nhiên`);
+
+// Kiểm thử câu điền khuyết (fillScore web ↔ fillScore_ máy chủ)
+const fillCases = [
+  // [answers, stuAnswers, expectedScore]
+  [[['3,0002'], ['12,3', '123/10']], ['3,0002', '12.3'], 1],
+  [[['3,0002'], ['12,3', '123/10']], ['3,0002', '10'], 0.5],
+  [[['3,0002'], ['12,3', '123/10']], ['0', '0'], 0],
+  [[['3,0002'], ['12,3', '123/10']], ['3,0002'], 0.5],
+  [[['1', 'one'], ['2', 'two'], ['3', 'three']], ['1', 'two', 'wrong'], 2 / 3],
+  [[['10 cm'], ['20 m']], ['10', '2000 cm'], 0.5], // 20m vs 2000cm: numPart compares unit string directly so 20m vs 2000cm is diff unit
+  [[['5']], [], 0],
+  [[['5']], null, 0]
+];
+
+let fillFail = 0;
+fillCases.forEach(([ans, stu, want]) => {
+  const q = { type: 'fill', answers: ans };
+  const a = QF.fillScore(q, stu), b = GS_fillScore(q, stu);
+  const ok = Math.abs(a - want) < 1e-6 && Math.abs(b - want) < 1e-6;
+  if (!ok) fillFail++;
+  console.log((ok ? 'PASS' : 'FAIL') + `  fill đáp án ${JSON.stringify(ans)}  gõ ${JSON.stringify(stu)}  → web ${a}, máy chủ ${b}, mong đợi ${want}`);
+});
+
+let fillDiff = 0;
+for (let i = 0; i < 5000; i++) {
+  const bCount = 2 + Math.floor(Math.random() * 4);
+  const rPart = () => Array.from({ length: 1 + Math.floor(Math.random() * 3) }, () => parts[Math.floor(Math.random() * parts.length)]).join('');
+  const ans = [];
+  const stu = [];
+  for (let k = 0; k < bCount; k++) {
+    ans.push([rPart(), rPart()]);
+    stu.push(Math.random() < 0.3 ? ans[k][0] : rPart());
+  }
+  const q = { type: 'fill', answers: ans };
+  const a = QF.fillScore(q, stu);
+  const b = GS_fillScore(q, stu);
+  if (Math.abs(a - b) > 1e-9) {
+    fillDiff++;
+    if (fillDiff < 5) console.log('KHÁC FILL', ans, stu, a, b);
+  }
+}
+console.log(`\n${fillCases.length - fillFail}/${fillCases.length} ví dụ fill đạt; ${fillDiff} khác biệt web/máy chủ trên 5000 lần thử ngẫu nhiên`);

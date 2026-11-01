@@ -455,6 +455,9 @@
             var optText = q.options && q.options[k] ? ' – ' + q.options[k] : '';
             return letter + optText;
           }
+          if (q.blanks && q.blanks >= 2) {
+            return String(val).split('\u241F').join(' ; ');
+          }
           return String(val);
         }
 
@@ -498,8 +501,30 @@
                   h('span', { class: 'game-pad-head' },
                     h('span', { class: 'game-pad-sym' }, sym),
                     h('span', { class: 'game-pad-letter' }, letter)),
-                  h('span', { class: 'game-pad-text' }, optText));
+                  h('span', { class: 'game-pad-text' }, T.mathNodes(optText)));
               })));
+          } else if (q.blanks && q.blanks >= 2) {
+            var vals = [];
+            for (var b = 0; b < q.blanks; b++) vals.push('');
+            var fillBox = h('div', { class: 'panel game-fill-box' },
+              h('div', { class: 'game-fill-text prewrap fill-wrap' },
+                T.fillNodes(q.text, vals, {
+                  onChange: function (k, val) { vals[k] = val; }
+                })
+              )
+            );
+            var fBtn = h('button', { type: 'button', class: 'btn btn-lg btn-block' }, 'Gửi đáp án');
+            fBtn.addEventListener('click', function () {
+              var hasAny = false;
+              for (var bi = 0; bi < vals.length; bi++) {
+                if (vals[bi] != null && String(vals[bi]).trim() !== '') { hasAny = true; break; }
+              }
+              if (!hasAny) return T.toast('Em hãy điền ít nhất một ô trống trước khi gửi.', 'error');
+              var joined = vals.join('\u241F').slice(0, 200);
+              submitAnswer(joined);
+            });
+            var sForm = h('div', { class: 'game-short-form' }, fillBox, fBtn);
+            T.fill(bodyBox, sForm);
           } else {
             var sInp = h('input', {
               type: 'text',
@@ -539,7 +564,7 @@
               h('span', { class: 'q-num' }, 'Câu ' + (qIdx + 1) + ' / ' + (st.total || 1)),
               clockEl,
               qScorePill),
-            h('p', { class: 'game-student-qtext prewrap' }, q.text || ''),
+            q.blanks && q.blanks >= 2 ? null : h('p', { class: 'game-student-qtext prewrap' }, T.mathNodes(q.text || '')),
             q.image && room.quizId ? T.qImageEl({ kind: 'quiz', id: room.quizId, key: q.image }) : null),
           bodyBox);
 
@@ -567,11 +592,11 @@
         T.fill(stage,
           h('div', { class: 'panel game-reveal-student ' + (right ? 'is-ok' : 'is-bad') },
             h('div', { class: 'game-verdict-icon' }, right ? '✅' : '❌'),
-            h('h2', null, right ? 'Đúng rồi!' : 'Chưa đúng'),
-            h('div', { class: 'game-gain-badge ' + (right ? 'ok' : 'bad') },
-              right ? '+' + T.fmtScore(gain) + ' điểm' : '+0 điểm'),
+            h('h2', null, right ? 'Đúng rồi!' : gain > 0 ? 'Đúng một phần' : 'Chưa đúng'),
+            h('div', { class: 'game-gain-badge ' + (gain > 0 ? 'ok' : 'bad') },
+              '+' + T.fmtScore(gain) + ' điểm'),
             streak >= 2 ? h('div', { class: 'game-streak-pill' }, '🔥 Chuỗi ' + streak + ' câu đúng liên tiếp!') : null,
-            !right && correctText ? h('p', { class: 'game-correct-note' }, 'Đáp án đúng: ', h('strong', null, correctText)) : null,
+            !right && correctText ? h('p', { class: 'game-correct-note' }, 'Đáp án đúng: ', h('strong', null, T.mathNodes(correctText))) : null,
             h('div', { class: 'stats game-student-stats' },
               h('div', { class: 'stat' }, h('strong', null, T.fmtScore(myScoreObj.score || 0)), h('span', null, 'Tổng điểm')),
               h('div', { class: 'stat' }, h('strong', null, rank ? '#' + rank : '–'), h('span', null, 'Hạng hiện tại')),
@@ -660,12 +685,12 @@
         return;
       }
       var allQs = (d.fullQuestions || []).filter(function (q) {
-        return q && (q.type === 'mc' || q.type === 'short');
+        return q && (q.type === 'mc' || q.type === 'short' || q.type === 'fill');
       });
       if (!allQs.length) {
         T.fill(T.app,
           h('a', { href: backHref, class: 'back' }, '← ' + d.quiz.title),
-          T.errorBox('Đề này không có câu hỏi trắc nghiệm hoặc trả lời ngắn nào để đấu cả lớp.'));
+          T.errorBox('Đề này không có câu hỏi trắc nghiệm, trả lời ngắn hoặc điền khuyết nào để đấu cả lớp.'));
         return;
       }
 
@@ -718,9 +743,11 @@
 
       var mcCount = baseQuestions.filter(function (x) { return x.type === 'mc'; }).length;
       var shortCount = baseQuestions.filter(function (x) { return x.type === 'short'; }).length;
+      var fillCount = baseQuestions.filter(function (x) { return x.type === 'fill'; }).length;
       var parts = [];
       if (mcCount) parts.push(mcCount + ' câu trắc nghiệm');
       if (shortCount) parts.push(shortCount + ' câu trả lời ngắn');
+      if (fillCount) parts.push(fillCount + ' câu điền khuyết');
 
       var openBtn = h('button', { class: 'btn btn-lg' }, '🎮 Mở phòng đấu');
       openBtn.addEventListener('click', function () {
@@ -998,8 +1025,11 @@
             return h('div', { class: 'game-opt', style: '--opt-bg:' + color },
               h('span', { class: 'game-opt-sym' }, sym),
               h('span', { class: 'game-opt-letter' }, letter),
-              h('span', { class: 'game-opt-text' }, optText));
+              h('span', { class: 'game-opt-text' }, T.mathNodes(optText)));
           }));
+        } else if (item.type === 'fill') {
+          optionsEl = h('div', { class: 'panel game-short-banner' },
+            '✍️ Câu điền khuyết — học sinh điền các ô trống trên điện thoại và bấm Gửi.');
         } else {
           optionsEl = h('div', { class: 'panel game-short-banner' },
             '✍️ Câu trả lời ngắn — học sinh nhập đáp án trên điện thoại và bấm Gửi.');
@@ -1014,7 +1044,7 @@
               skipBtn,
               h('button', { class: 'btn btn-sm btn-ghost danger-text', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'))),
           h('div', { class: 'panel game-q-panel' },
-            h('h2', { class: 'game-q-text prewrap' }, item.text || ''),
+            h('h2', { class: 'game-q-text prewrap' }, T.mathNodes(item.text || '')),
             item.image ? T.qImageEl({ kind: 'quiz', id: q.id, key: item.image }) : null),
           optionsEl);
 
@@ -1023,6 +1053,15 @@
           applyPromise = Promise.resolve();
         } else {
           curStartedAt = serverNow();
+          var bCount = item.type === 'fill' ? (window.QuizFormat ? window.QuizFormat.blankCount(item.text) : 2) : 0;
+          var qPayload = {
+            index: idx,
+            type: item.type === 'fill' ? 'short' : item.type,
+            text: item.text,
+            options: item.type === 'mc' ? item.options : null,
+            image: item.image || null
+          };
+          if (bCount >= 2) qPayload.blanks = bCount;
           applyPromise = roomRef.update({
             state: {
               phase: 'question',
@@ -1033,13 +1072,7 @@
               startedAt: window.firebase.database.ServerValue.TIMESTAMP,
               duration: duration
             },
-            question: {
-              index: idx,
-              type: item.type,
-              text: item.text,
-              options: item.type === 'mc' ? item.options : null,
-              image: item.image || null
-            },
+            question: qPayload,
             reveal: null
           }).then(function () {
             return roomRef.child('state/startedAt').once('value').then(function (s) {
@@ -1103,28 +1136,46 @@
             var prev = scoresMap[u] || { score: 0, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, rank: 1 };
             var ans = ansMap[u];
             var hasAns = ans && ans.a !== undefined && ans.a !== null && ans.a !== '';
-            var right = hasAns ? window.QuizFormat.isCorrect(item, ans.a) : false;
+            var right = false;
+            var ratio = 0;
 
             if (item.type === 'mc') {
+              right = hasAns ? window.QuizFormat.isCorrect(item, ans.a) : false;
+              ratio = right ? 1 : 0;
               if (hasAns) {
                 var k = Number(ans.a);
                 if (k >= 0 && k < counts.length) counts[k]++;
               }
+            } else if (item.type === 'fill') {
+              if (hasAns) {
+                var parts = String(ans.a).split('\u241F');
+                ratio = window.QuizFormat.fillScore(item, parts);
+                right = (ratio === 1);
+              }
+              if (right) counts[0]++;
+              else counts[1]++;
             } else {
+              right = hasAns ? window.QuizFormat.isCorrect(item, ans.a) : false;
+              ratio = right ? 1 : 0;
               if (right) counts[0]++;
               else counts[1]++;
             }
 
             var gain = 0;
             var streak = 0;
-            if (right) {
+            if (ratio > 0) {
               var elapsed = (ans && ans.t && startedAt)
                 ? Math.max(0, Math.min(duration, (Number(ans.t) - startedAt) / 1000))
                 : duration;
               var base = Math.round(1000 * (1 - 0.5 * (elapsed / duration)));
-              streak = Number(prev.streak || 0) + 1;
-              var bonus = streak >= 2 ? Math.min(500, 100 * (streak - 1)) : 0;
-              gain = base + bonus;
+              if (ratio === 1) {
+                streak = Number(prev.streak || 0) + 1;
+                var bonus = streak >= 2 ? Math.min(500, 100 * (streak - 1)) : 0;
+                gain = Math.round(base * ratio) + bonus;
+              } else {
+                streak = 0;
+                gain = Math.round(base * ratio);
+              }
             }
 
             newScores[u] = {
@@ -1154,9 +1205,20 @@
             };
           });
 
+          var correctVal;
+          if (item.type === 'mc') {
+            correctVal = Number(item.correct);
+          } else if (item.type === 'fill') {
+            correctVal = (item.answers || []).map(function (a) {
+              return Array.isArray(a) ? a[0] : String(a || '');
+            }).join('  ;  ').slice(0, 300);
+          } else {
+            correctVal = String((item.answers && item.answers[0]) || '');
+          }
+
           var revealObj = {
             index: idx,
-            correct: item.type === 'mc' ? Number(item.correct) : String((item.answers && item.answers[0]) || ''),
+            correct: correctVal,
             counts: counts,
             top: top
           };
@@ -1209,13 +1271,20 @@
             },
               h('span', { class: 'game-opt-sym' }, sym),
               h('span', { class: 'game-opt-letter' }, letter),
-              h('span', { class: 'game-opt-text' }, optText),
+              h('span', { class: 'game-opt-text' }, T.mathNodes(optText)),
               isRight ? h('span', { class: 'game-opt-check' }, '✓ Đúng') : null);
           }));
+        } else if (item.type === 'fill') {
+          var rightAnsStr = (item.answers || []).map(function (a) {
+            return Array.isArray(a) ? a.join(' | ') : String(a || '');
+          }).join('  ;  ');
+          answerHighlight = h('div', { class: 'panel game-short-correct' },
+            '✓ Đáp án đúng: ',
+            h('strong', null, T.mathNodes(rightAnsStr)));
         } else {
           answerHighlight = h('div', { class: 'panel game-short-correct' },
             '✓ Đáp án đúng: ',
-            h('strong', null, (item.answers || [revealObj.correct]).join('  |  ')));
+            h('strong', null, T.mathNodes((item.answers || [revealObj.correct]).join('  |  '))));
         }
 
         // Biểu đồ cột số người chọn từng lựa chọn (mc) hoặc đúng/sai (short)
@@ -1260,9 +1329,9 @@
               h('button', { class: 'btn btn-ghost danger-text', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'),
               nextBtn)),
           h('div', { class: 'panel game-q-panel compact' },
-            h('h2', { class: 'game-q-text sm prewrap' }, item.text || ''),
+            h('h2', { class: 'game-q-text sm prewrap' }, T.mathNodes(item.text || '')),
             item.image ? T.qImageEl({ kind: 'quiz', id: q.id, key: item.image }) : null,
-            item.explain ? h('div', { class: 'explain' }, h('strong', null, '💡 Lời giải: '), h('span', { class: 'prewrap' }, item.explain)) : null),
+            item.explain ? h('div', { class: 'explain' }, h('strong', null, '💡 Lời giải: '), h('span', { class: 'prewrap' }, T.mathNodes(item.explain))) : null),
           answerHighlight,
           h('div', { class: 'game-reveal-grid' },
             h('div', { class: 'panel' },

@@ -25,6 +25,100 @@
   var POINTS = /(\d+(?:[.,]\d+)?)\s*(?:điểm|đ|d)(?![a-zà-ỹđ])/i;
   var IMAGE = /^\s*\[\s*(?:hình|ảnh|hinh|anh)\s*:?\s*([A-Za-z0-9_-]{1,40})\s*\]\s*$/i;
 
+  var BLANK_RE = /…[.…]*|\.{3,}[.…]*/g;
+  var SUB_LABEL_RE = /(?:^|\s)([a-hA-H]|\d+)\s*[.)]/g;
+
+  function blankCount(text) {
+    var m = String(text || '').match(BLANK_RE);
+    return m ? m.length : 0;
+  }
+
+  function splitBlanks(text) {
+    return String(text || '').split(BLANK_RE);
+  }
+
+  function isTokenBorder(c) {
+    if (!c) return true;
+    return !/[0-9A-Za-z\u00C0-\u024F\u1EA0-\u1EF9_/]/.test(c);
+  }
+
+  var NUM_BEFORE_RE = /(?:(\d+(?: \d{3})+(?:,\d+)?)|(\d+(?:,\d+)?))$/;
+  var NUM_AFTER_RE = /^(?:(\d+(?: \d{3})+(?:,\d+)?)|(\d+(?:,\d+)?))/;
+  var WHOLE_RE = /(\d+)\s+$/;
+
+  function mathTokens(str) {
+    var s = String(str || '');
+    if (!s) return [];
+    var tokens = [];
+    var lastIndex = 0;
+    var i = 0;
+    while (i < s.length) {
+      var slash = s.indexOf('/', i);
+      if (slash === -1) break;
+
+      var before = s.slice(lastIndex, slash);
+      var mBefore = NUM_BEFORE_RE.exec(before);
+      var after = s.slice(slash + 1);
+      var mAfter = NUM_AFTER_RE.exec(after);
+
+      if (!mBefore || !mAfter) {
+        i = slash + 1;
+        continue;
+      }
+
+      var numN = mBefore[1] || mBefore[2];
+      var numD = mAfter[1] || mAfter[2];
+      var startN = slash - numN.length;
+      var endD = slash + 1 + numD.length;
+
+      var nextChar = s.charAt(endD);
+      if (nextChar && !isTokenBorder(nextChar)) {
+        i = slash + 1;
+        continue;
+      }
+
+      var prevChar = startN > 0 ? s.charAt(startN - 1) : '';
+
+      var beforeN = s.slice(lastIndex, startN);
+      var mWhole = WHOLE_RE.exec(beforeN);
+      var whole = null;
+      var startWhole = startN;
+
+      if (mWhole) {
+        var wCandidate = mWhole[1];
+        var wStart = startN - mWhole[0].length;
+        var wPrevChar = wStart > 0 ? s.charAt(wStart - 1) : '';
+        if (isTokenBorder(wPrevChar)) {
+          whole = wCandidate;
+          startWhole = wStart;
+        }
+      }
+
+      if (!whole && prevChar && !isTokenBorder(prevChar)) {
+        i = slash + 1;
+        continue;
+      }
+
+      var tokenStart = whole ? startWhole : startN;
+      if (tokenStart > lastIndex) {
+        tokens.push({ t: 'text', v: s.slice(lastIndex, tokenStart) });
+      }
+
+      if (whole) {
+        tokens.push({ t: 'mixed', whole: whole, n: numN, d: numD });
+      } else {
+        tokens.push({ t: 'frac', n: numN, d: numD });
+      }
+
+      lastIndex = endD;
+      i = endD;
+    }
+    if (lastIndex < s.length) {
+      tokens.push({ t: 'text', v: s.slice(lastIndex) });
+    }
+    return tokens;
+  }
+
   // Phông Symbol của Word/MathType cho ra ký tự vùng riêng U+F0xx: đổi về ký tự thường.
   // Ngoặc lớn ghép nhiều mảnh: mảnh giữa thành "(" ")", mảnh trên/dưới bỏ đi.
   var SYMBOL_MAP = {
@@ -80,6 +174,7 @@
       var essayMarked = ESSAY_WORD.test(block.meta);
       var pm = POINTS.exec(block.meta);
       var points = pm ? Number(pm[1].replace(',', '.')) : 1;
+      var hasFillAnswer = block.lines.some(function (l) { return ANSWER.test(l) && l.indexOf(';') >= 0; });
 
       var image = null;
       block.lines.forEach(function (line) {
@@ -91,7 +186,8 @@
           if (essayMarked) { mode = 'explain'; if (m[1].trim()) explain.push(m[1].trim()); return; }
           answerLine = m[1].trim(); mode = 'answer'; return;
         }
-        if (!essayMarked && (m = OPTION.exec(line)) && mode !== 'answer') {
+        // Câu điền khuyết ("Đáp án: x; y") hay có ý a), b)… → không phải lựa chọn A, B.
+        if (!essayMarked && !hasFillAnswer && (m = OPTION.exec(line)) && mode !== 'answer') {
           if (m[1]) correct = options.length;
           options.push(m[3].trim());
           mode = 'options';
@@ -109,6 +205,7 @@
       if (!q.text) errors.push('Câu ' + n + ': thiếu nội dung câu hỏi.');
       if (!(points > 0 && points <= 100)) errors.push('Câu ' + n + ': số điểm không hợp lệ.');
 
+      var bCount = blankCount(q.text);
       if (essayMarked || (opts.allowEssay && !options.length && answerLine === null)) {
         q.type = 'essay';
         if (!opts.allowEssay) errors.push('Câu ' + n + ': bài luyện tập chỉ dùng trắc nghiệm và trả lời ngắn (câu tự luận hãy đưa vào Bài tập về nhà).');
@@ -123,6 +220,26 @@
         if (options.length < 2) errors.push('Câu ' + n + ': cần ít nhất 2 lựa chọn.');
         if (options.length > 8) errors.push('Câu ' + n + ': tối đa 8 lựa chọn (A–H).');
         if (correct < 0 || correct >= options.length) errors.push('Câu ' + n + ': chưa đánh dấu đáp án đúng (thêm * trước chữ cái, ví dụ *B.)');
+      } else if (bCount >= 2) {
+        q.type = 'fill';
+        var parts = (answerLine || '').trim() ? answerLine.split(';') : [];
+        if (parts.length !== bCount) {
+          errors.push('Câu ' + n + ': có ' + bCount + ' chỗ trống nhưng đáp án có ' + parts.length + ' phần (ngăn cách bằng dấu ;).');
+          q.answers = parts.map(function (p) {
+            return p.split(/\s*\|\s*|\s+hoặc\s+/i).map(function (s) { return s.trim(); }).filter(function (s) { return s && s !== '?'; });
+          });
+        } else {
+          var answers = [];
+          for (var bi = 0; bi < bCount; bi++) {
+            var p = parts[bi];
+            var ways = p ? p.split(/\s*\|\s*|\s+hoặc\s+/i).map(function (s) { return s.trim(); }).filter(function (s) { return s && s !== '?'; }) : [];
+            if (!ways.length) {
+              errors.push('Câu ' + n + ': chưa có đáp án cho chỗ trống thứ ' + (bi + 1) + '.');
+            }
+            answers.push(ways);
+          }
+          q.answers = answers;
+        }
       } else {
         q.type = 'short';
         q.answers = (answerLine || '').split('|').map(function (s) { return s.trim(); }).filter(Boolean);
@@ -135,9 +252,9 @@
   }
 
   function summary(questions) {
-    var s = { mc: 0, short: 0, essay: 0, total: 0, autoPoints: 0, essayPoints: 0 };
+    var s = { mc: 0, short: 0, fill: 0, essay: 0, total: 0, autoPoints: 0, essayPoints: 0 };
     questions.forEach(function (q) {
-      s[q.type]++;
+      if (s[q.type] !== undefined) s[q.type]++;
       s.total += q.points || 1;
       if (q.type === 'essay') s.essayPoints += q.points || 1; else s.autoPoints += q.points || 1;
     });
@@ -161,10 +278,24 @@
     return { num: num, unit: m[2] || '' };
   }
 
-  /** So khớp câu trả lời (trắc nghiệm hoặc trả lời ngắn), giống isCorrect_ của Code.gs. */
+  /** Tỉ lệ điểm câu điền khuyết 0..1 (mỗi ô trống đúng tính theo cách chấm trả lời ngắn). */
+  function fillScore(x, a) {
+    if (!x || !Array.isArray(x.answers) || !x.answers.length) return 0;
+    if (!Array.isArray(a)) return 0;
+    var correct = 0;
+    for (var i = 0; i < x.answers.length; i++) {
+      if (isCorrect({ type: 'short', answers: x.answers[i] }, a[i])) {
+        correct++;
+      }
+    }
+    return correct / x.answers.length;
+  }
+
+  /** So khớp câu trả lời (trắc nghiệm, trả lời ngắn hoặc điền khuyết), giống isCorrect_ của Code.gs. */
   function isCorrect(x, a) {
     if (!x || a === null || a === undefined || a === '') return false;
     if (x.type === 'mc') return Number(a) === Number(x.correct);
+    if (x.type === 'fill') return fillScore(x, a) === 1;
     var v = normAnswer(a);
     var vn = numPart(v);
     return (x.answers || []).some(function (ans) {
@@ -188,7 +319,12 @@
     'Đáp án: 26 | 26cm | 26 cm',
     'Giải thích: Chu vi = (8 + 5) × 2 = 26 (cm).',
     '',
-    'Câu 3: Số nào chia hết cho cả 2 và 5?',
+    'Câu 3: Viết số thích hợp vào chỗ trống.',
+    'a) 3 m² 2 cm² = …… m²   b) 123 tạ = …… tấn',
+    'Đáp án: 3,0002; 12,3 | 123/10',
+    'Giải thích: a) 3 m² 2 cm² = 3,0002 m²; b) 123 tạ = 12,3 tấn.',
+    '',
+    'Câu 4: Số nào chia hết cho cả 2 và 5?',
     'A. 25',
     'B. 52',
     'C. 105',
@@ -207,8 +343,13 @@
     'Câu 2 (2 điểm): Tính 3/5 + 1/5 = ? (viết dạng phân số)',
     'Đáp án: 4/5',
     '',
-    'Câu 3 (tự luận, 6 điểm): Một cửa hàng có 120 kg gạo. Buổi sáng bán 1/3 số gạo, buổi chiều bán 1/4 số gạo còn lại. Hỏi cửa hàng còn bao nhiêu ki-lô-gam gạo?',
-    'Hướng dẫn chấm: Buổi sáng bán 40 kg (2đ). Còn 80 kg, buổi chiều bán 20 kg (2đ). Còn lại 60 kg, có đáp số (2đ).'
+    'Câu 3 (2 điểm): Viết số thích hợp vào chỗ trống.',
+    'a) 3 m² 2 cm² = …… m²   b) 123 tạ = …… tấn',
+    'Đáp án: 3,0002; 12,3 | 123/10',
+    'Lời giải: a) 3 m² 2 cm² = 3,0002 m²; b) 123 tạ = 12,3 tấn.',
+    '',
+    'Câu 4 (tự luận, 4 điểm): Một cửa hàng có 120 kg gạo. Buổi sáng bán 1/3 số gạo, buổi chiều bán 1/4 số gạo còn lại. Hỏi cửa hàng còn bao nhiêu ki-lô-gam gạo?',
+    'Hướng dẫn chấm: Buổi sáng bán 40 kg (1,5đ). Còn 80 kg, buổi chiều bán 20 kg (1,5đ). Còn lại 60 kg, có đáp số (1đ).'
   ].join('\n');
 
   /* ───── Ghi ngược câu hỏi ra mẫu chữ (để giáo viên xem lại, sửa) ───── */
@@ -224,6 +365,10 @@
       if (q.image) lines.push('[Hình: ' + q.image + ']');
       if (q.type === 'mc') {
         (q.options || []).forEach(function (o, k) { lines.push((k === q.correct ? '*' : '') + String.fromCharCode(65 + k) + '. ' + o); });
+      } else if (q.type === 'fill') {
+        lines.push('Đáp án: ' + (q.answers || []).map(function (sub) {
+          return (Array.isArray(sub) ? sub : [sub]).join(' | ');
+        }).join('; '));
       } else if (q.type === 'short') {
         lines.push('Đáp án: ' + (q.answers || []).join(' | '));
       }
@@ -327,6 +472,119 @@
     if (!marks.length || marks[0].at > 0 && line.slice(0, marks[0].at).trim()) return null;
     return marks.map(function (mk, i) {
       return line.slice(mk.end, i + 1 < marks.length ? marks[i + 1].at : line.length).trim();
+    });
+  }
+
+  function extractNumberBeforeUnit(text, unit, groupIdx, groupTotal) {
+    var lastEq = text.lastIndexOf('=');
+    var part = lastEq >= 0 ? text.slice(lastEq + 1).trim() : text.trim();
+    if (unit) {
+      var escapedUnit = unit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var re = new RegExp('(\\d[\\d .,]*(?:/\\s*\\d[\\d .,]*)?)\\s*' + escapedUnit + '(?![\\wà-ỹĐđ²³])', 'i');
+      var m = re.exec(part);
+      if (m) {
+        return m[1].trim().replace(/\s+/g, ' ');
+      }
+    }
+    var allNums = [];
+    var numRe = /\d[\d .,]*(?:\/\s*\d[\d .,]*)?/g;
+    var nm;
+    while ((nm = numRe.exec(part))) {
+      var nStr = nm[0].trim().replace(/[,;:.?!]+$/, '').trim();
+      if (nStr) allNums.push(nStr.replace(/\s+/g, ' '));
+    }
+    if (!allNums.length) return '?';
+    if (groupTotal > 1) {
+      return allNums[Math.min(groupIdx, allNums.length - 1)];
+    }
+    return allNums[allNums.length - 1];
+  }
+
+  function guessFillAnswers(qText, kText) {
+    kText = String(kText || '').trim();
+    var blanks = [];
+    var m;
+    BLANK_RE.lastIndex = 0;
+    while ((m = BLANK_RE.exec(qText))) {
+      var bIdx = m.index;
+      var bEnd = BLANK_RE.lastIndex;
+      var beforeText = qText.slice(0, bIdx);
+      var lm;
+      var lastLabel = null;
+      var ord = 0;
+      SUB_LABEL_RE.lastIndex = 0;
+      while ((lm = SUB_LABEL_RE.exec(beforeText))) {
+        lastLabel = lm[1].toLowerCase();
+        ord++;
+      }
+      var afterText = qText.slice(bEnd).replace(/^\s+/, '');
+      var um = /^([^\s….)]+)/.exec(afterText);
+      var unit = um ? um[1] : '';
+      if (/^[a-hA-H\d][.)]$/.test(unit) || /^[=+\-*×÷]/.test(unit)) unit = '';
+      unit = unit.replace(/[,;:.?!)]+$/, '');
+      blanks.push({ label: lastLabel, ord: ord, unit: unit });
+    }
+
+    if (!kText) {
+      return blanks.map(function () { return '?'; });
+    }
+
+    var kSections = [];
+    var km;
+    SUB_LABEL_RE.lastIndex = 0;
+    var labelMatches = [];
+    while ((km = SUB_LABEL_RE.exec(kText))) {
+      var matchStart = km.index + km[0].indexOf(km[1]);
+      labelMatches.push({ label: km[1].toLowerCase(), start: matchStart, end: SUB_LABEL_RE.lastIndex });
+    }
+
+    for (var i = 0; i < labelMatches.length; i++) {
+      var curM = labelMatches[i];
+      var nextStart = (i + 1 < labelMatches.length) ? labelMatches[i + 1].start : kText.length;
+      var secText = kText.slice(curM.end, nextStart).trim();
+      kSections.push({ label: curM.label, text: secText });
+    }
+
+    // Nhóm ô trống theo phần a), b)… theo thứ tự xuất hiện (đề có thể ghi nhầm nhãn, vd hai lần "b)")
+    var groupCounts = {};
+    var ordCount = 0;
+    blanks.forEach(function (b) {
+      var key = b.label ? 'o' + b.ord : '__all__';
+      if (!groupCounts[key] && b.label) ordCount++;
+      groupCounts[key] = (groupCounts[key] || 0) + 1;
+    });
+    var byOrder = ordCount > 1 && ordCount === kSections.length;
+    var ordIndex = {};
+    var groupIndices = {};
+
+    var usedSecIndices = {};
+    return blanks.map(function (b, bIdx) {
+      var grpKey = b.label ? 'o' + b.ord : '__all__';
+      var gIdx = groupIndices[grpKey] || 0;
+      groupIndices[grpKey] = gIdx + 1;
+      var gTotal = groupCounts[grpKey] || 1;
+      if (b.label && ordIndex[grpKey] == null) ordIndex[grpKey] = Object.keys(ordIndex).length;
+
+      var secText = null;
+      if (b.label && byOrder) {
+        secText = kSections[ordIndex[grpKey]].text;
+      } else if (b.label) {
+        for (var si = 0; si < kSections.length; si++) {
+          if (kSections[si].label === b.label && !usedSecIndices[si]) {
+            secText = kSections[si].text;
+            if (gIdx + 1 >= gTotal) usedSecIndices[si] = true;
+            break;
+          }
+        }
+      }
+      if (!secText) {
+        if (kSections[bIdx] && !usedSecIndices[bIdx]) {
+          secText = kSections[bIdx].text;
+        } else {
+          secText = kText;
+        }
+      }
+      return extractNumberBeforeUnit(secText, b.unit, gIdx, gTotal);
     });
   }
 
@@ -489,7 +747,7 @@
     lines.forEach(function (l) {
       if (ANSWER.test(l) || matchExplainHead(l)) inlineCount++;
     });
-    var hasInlineKeys = inlineCount >= 2;
+    var hasInlineKeys = inlineCount >= 2 || (inlineCount >= 1 && questionStarts(lines).length <= 1);
 
     var qs = [];
     var section = null;
@@ -602,6 +860,8 @@
 
     var key = keyLines ? parseKey(keyLines) : {};
     var keyed = 0;
+    var fillCount = 0;
+    var guessed = 0;
     var questions = qs.map(function (c) {
       var k = '';
       if (c.kw && key[c.kw + c.n] !== undefined) {
@@ -619,6 +879,9 @@
         k = parts.join('\n').trim();
       }
 
+      // "Bài giải" + dòng chấm để học sinh viết: không phải đáp án.
+      var writingSpace = /[.…]{16,}/.test(c.text.join(' ') + ' ' + (c.inlineExp || []).join(' ') + ' ' + k);
+      if (/^[\s.…]*$/.test(k)) k = '';
       if (k) keyed++;
       var pm = POINTS.exec(c.meta);
       if (c.pre) c.text = c.pre.concat(c.text);
@@ -632,6 +895,7 @@
       var q = { text: joined.trim(), points: pm ? Number(pm[1].replace(',', '.')) : (perQ[qs.indexOf(c)] || 1), explain: '' };
       var fig = opts.figures && opts.figures[qs.indexOf(c)];
       if (fig) q.image = fig;
+      var bCount = blankCount(joined);
       var essayMarked = ESSAY_WORD.test(c.meta) || c.section === 'essay';
       if (c.options.length >= 2 && !essayMarked) {
         q.type = 'mc';
@@ -640,6 +904,14 @@
         q.correct = lm ? lm[1].toUpperCase().charCodeAt(0) - 65 : -1;
         var rest = lm ? k.slice(lm[0].length).replace(/^[\s.:)\-–]+/, '').trim() : k;
         if (rest && rest.length > 1) q.explain = rest;
+      } else if (bCount >= 2 && !writingSpace) {
+        // Dòng chấm dài ("……………………") là chỗ viết bài giải → giữ tự luận.
+        q.type = 'fill';
+        fillCount++;
+        var guessedAns = guessFillAnswers(joined, k);
+        q.answers = guessedAns.map(function (a) { return [a]; });
+        if (k && guessedAns.some(function (a) { return a !== '?'; })) guessed++;
+        q.explain = k;
       } else {
         var ans = cleanAnswer(k.split('\n')[0] || '');
         var long = k.length > 40 || k.indexOf('\n') >= 0;
@@ -665,11 +937,33 @@
       hasKey: !!keyLines || hasInlineKeys,
       groups: groups,
       exams: exams,
-      examName: chosenExam ? chosenExam.name : ''
+      examName: chosenExam ? chosenExam.name : '',
+      fillCount: fillCount,
+      guessed: guessed
     };
   }
 
-  var api = { parse: parse, summary: summary, isCorrect: isCorrect, toSource: toSource, spreadPoints: spreadPoints, fromText: fromText, questionStarts: questionStarts, plainMath: plainMath, PAGE_MARK: PAGE_MARK, RANGE: RANGE, SAMPLE: SAMPLE, SAMPLE_HW: SAMPLE_HW, examSections: examSections, isKeyHead: isKeyHead, isExamHead: isExamHead };
+  var api = {
+    parse: parse,
+    summary: summary,
+    isCorrect: isCorrect,
+    fillScore: fillScore,
+    blankCount: blankCount,
+    splitBlanks: splitBlanks,
+    mathTokens: mathTokens,
+    toSource: toSource,
+    spreadPoints: spreadPoints,
+    fromText: fromText,
+    questionStarts: questionStarts,
+    plainMath: plainMath,
+    PAGE_MARK: PAGE_MARK,
+    RANGE: RANGE,
+    SAMPLE: SAMPLE,
+    SAMPLE_HW: SAMPLE_HW,
+    examSections: examSections,
+    isKeyHead: isKeyHead,
+    isExamHead: isExamHead
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.QuizFormat = api;
 })(this);

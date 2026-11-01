@@ -737,6 +737,9 @@ function checkAssignmentStructure_(a, questions) {
       if (oldQuestions[i].type !== questions[i].type) {
         throw err_('Đã có học sinh nộp bài nên không thể đổi loại câu hỏi (Câu ' + (i + 1) + '). Bạn chỉ sửa được nội dung, đáp án, điểm; hoặc tạo bài tập mới.');
       }
+      if (oldQuestions[i].type === 'fill' && blankCount_(oldQuestions[i].text) !== blankCount_(questions[i].text)) {
+        throw err_('Đã có học sinh nộp bài nên không thể đổi số chỗ trống (Câu ' + (i + 1) + '). Bạn chỉ sửa được nội dung, đáp án, điểm; hoặc tạo bài tập mới.');
+      }
     }
   }
   return { subs: subs, oldQuestions: oldQuestions };
@@ -750,6 +753,10 @@ function hasGradingChange_(oldQuestions, questions) {
     if (!oq) return true;
     if (Number(oq.points || 1) !== Number(q.points || 1)) return true;
     if (q.type === 'mc') return Number(oq.correct) !== Number(q.correct);
+    if (q.type === 'fill') {
+      if (blankCount_(oq.text) !== blankCount_(q.text)) return true;
+      return JSON.stringify(oq.answers || []) !== JSON.stringify(q.answers || []);
+    }
     return JSON.stringify(oq.answers || []) !== JSON.stringify(q.answers || []);
   });
 }
@@ -858,12 +865,12 @@ function saveAssignment_(me, p, isNew) {
           var newScores = questions.map(function (q, i) {
             if (q.type === 'essay') return oldScores[i] !== undefined ? oldScores[i] : null;
             var oq = check.oldQuestions[i];
-            var oldAuto = isCorrect_(oq, ans[i]) ? Number(oq.points || 1) : 0;
+            var oldAuto = earned_(oq, ans[i]);
             var hasOld = oldScores[i] !== null && oldScores[i] !== undefined;
             // Giữ điểm câu giáo viên đã sửa tay (itemScores[i] cũ khác điểm máy chấm theo đề cũ).
             var pts = (hasOld && Number(oldScores[i]) !== oldAuto)
               ? Number(oldScores[i])
-              : (isCorrect_(q, ans[i]) ? Number(q.points || 1) : 0);
+              : earned_(q, ans[i]);
             autoScore += pts;
             return pts;
           });
@@ -1040,12 +1047,24 @@ function submit_(me, p) {
       if (curQuestions.length) {
         answers = curQuestions.map(function (x, i) {
           var v = raw[i];
+          if (x.type === 'fill') {
+            var bCount = blankCount_(x.text);
+            var arr = Array.isArray(v) ? v : [];
+            var cleaned = [];
+            var hasVal = false;
+            for (var k = 0; k < bCount; k++) {
+              var item = arr[k] !== undefined && arr[k] !== null ? clean_(arr[k], 200) : '';
+              if (item !== '') hasVal = true;
+              cleaned.push(item);
+            }
+            return hasVal ? cleaned : null;
+          }
           if (v === null || v === undefined || v === '') return null;
           return x.type === 'mc' ? Number(v) : clean_(v, x.type === 'essay' ? 5000 : 200);
         });
         itemScores = curQuestions.map(function (x, i) {
           if (x.type === 'essay') return null;
-          var pts = isCorrect_(x, answers[i]) ? Number(x.points || 1) : 0;
+          var pts = earned_(x, answers[i]);
           autoScore += pts;
           return pts;
         });
@@ -1117,10 +1136,19 @@ function reviewHomework_(questions, s, reveal) {
       earned: done && scores[i] !== undefined ? scores[i] : null
     };
     // Theo điểm giáo viên đã chốt (thầy có thể sửa điểm khi máy chấm sai).
-    if (x.type !== 'essay' && done) r.correct = r.earned !== null ? Number(r.earned) >= Number(x.points || 1) : isCorrect_(x, answers[i]);
+    if (x.type !== 'essay' && done) {
+      r.correct = r.earned !== null ? Number(r.earned) >= Number(x.points || 1) : isCorrect_(x, answers[i]);
+      if (x.type === 'fill') {
+        r.blanks = (x.answers || []).map(function (ansList, bIdx) {
+          var stuAns = Array.isArray(answers[i]) ? answers[i][bIdx] : '';
+          return isCorrect_({ type: 'short', answers: ansList }, stuAns);
+        });
+      }
+    }
     if (reveal) {
       if (x.type === 'mc') r.correctAnswer = x.correct;
-      if (x.type === 'short') r.correctAnswer = x.answers[0];
+      else if (x.type === 'short') r.correctAnswer = x.answers[0];
+      else if (x.type === 'fill') r.correctAnswer = (x.answers || []).map(function (a) { return a[0] || ''; });
       r.explain = x.explain || '';
     }
     return r;
@@ -1237,7 +1265,7 @@ function finalizeAll_(me, p) {
 function withAuto_(pub, row, questions) {
   if (!questions || !questions.length || !row.answers) return pub;
   var answers = parseJson_(row.answers, []);
-  pub.auto = questions.map(function (x, i) { return x.type === 'essay' ? null : isCorrect_(x, answers[i]) ? Number(x.points || 1) : 0; });
+  pub.auto = questions.map(function (x, i) { return x.type === 'essay' ? null : earned_(x, answers[i]); });
   return pub;
 }
 
@@ -1505,7 +1533,7 @@ function validateQuestions_(list, allowEssay) {
     var n = 'Câu ' + (i + 1) + ': ';
     var text = clean_(q.text, 3000);
     if (!text) throw err_(n + 'thiếu nội dung câu hỏi.');
-    var type = q.type === 'short' || q.type === 'essay' ? q.type : 'mc';
+    var type = (q.type === 'short' || q.type === 'essay' || q.type === 'fill') ? q.type : 'mc';
     if (type === 'essay' && !allowEssay) throw err_(n + 'bài luyện tập không dùng câu tự luận.');
     var points = q.points === undefined || q.points === '' ? 1 : Number(q.points);
     if (!(points > 0 && points <= 100)) throw err_(n + 'số điểm không hợp lệ.');
@@ -1524,6 +1552,18 @@ function validateQuestions_(list, allowEssay) {
       if (!(c >= 0 && c < opts.length && c === Math.floor(c))) throw err_(n + 'chưa đánh dấu đáp án đúng.');
       out.options = opts;
       out.correct = c;
+    } else if (out.type === 'fill') {
+      var bCount = blankCount_(out.text);
+      if (bCount < 2) throw err_(n + 'câu điền khuyết cần ít nhất 2 chỗ trống.');
+      if (bCount > 30) throw err_(n + 'tối đa 30 chỗ trống mỗi câu.');
+      var rawAns = Array.isArray(q.answers) ? q.answers : [];
+      if (rawAns.length !== bCount) throw err_(n + 'có ' + bCount + ' chỗ trống nhưng đáp án có ' + rawAns.length + ' phần.');
+      var cleanAnswers = rawAns.map(function (sub, idx) {
+        var subList = (Array.isArray(sub) ? sub : []).map(function (a) { return clean_(a, 200); }).filter(String);
+        if (!subList.length) throw err_(n + 'chưa có đáp án cho chỗ trống thứ ' + (idx + 1) + '.');
+        return subList;
+      });
+      out.answers = cleanAnswers;
     } else {
       var ans = (Array.isArray(q.answers) ? q.answers : []).map(function (a) { return clean_(a, 200); }).filter(String);
       if (!ans.length) throw err_(n + 'chưa có đáp án.');
@@ -1586,11 +1626,30 @@ function submitQuiz_(me, p) {
   var answers = Array.isArray(p.answers) ? p.answers : [];
   var clean = questions.map(function (x, i) {
     var a = answers[i];
+    if (x.type === 'fill') {
+      var bCount = blankCount_(x.text);
+      var arr = Array.isArray(a) ? a : [];
+      var cleaned = [];
+      var hasVal = false;
+      for (var k = 0; k < bCount; k++) {
+        var item = arr[k] !== undefined && arr[k] !== null ? clean_(arr[k], 200) : '';
+        if (item !== '') hasVal = true;
+        cleaned.push(item);
+      }
+      return hasVal ? cleaned : null;
+    }
     if (a === null || a === undefined || a === '') return null;
     return x.type === 'mc' ? Number(a) : clean_(a, 200);
   });
   var score = 0;
-  questions.forEach(function (x, i) { if (isCorrect_(x, clean[i])) score++; });
+  questions.forEach(function (x, i) {
+    if (x.type === 'fill') {
+      score += fillScore_(x, clean[i]);
+    } else if (isCorrect_(x, clean[i])) {
+      score++;
+    }
+  });
+  score = Math.round(score * 100) / 100;
   var t = {
     id: Utilities.getUuid(),
     quizId: q.id,
@@ -1626,7 +1685,15 @@ function reviewAttempt_(q, t) {
     review: questions.map(function (x, i) {
       var r = { type: x.type, text: x.text, options: x.options || null, image: x.image || null, answer: answers[i] === undefined ? null : answers[i], correct: isCorrect_(x, answers[i]) };
       if (show) {
-        r.correctAnswer = x.type === 'mc' ? x.correct : x.answers[0];
+        if (x.type === 'mc') r.correctAnswer = x.correct;
+        else if (x.type === 'short') r.correctAnswer = x.answers[0];
+        else if (x.type === 'fill') {
+          r.correctAnswer = (x.answers || []).map(function (a) { return a[0] || ''; });
+          r.blanks = (x.answers || []).map(function (ansList, bIdx) {
+            var stuAns = Array.isArray(answers[i]) ? answers[i][bIdx] : '';
+            return isCorrect_({ type: 'short', answers: ansList }, stuAns);
+          });
+        }
         r.explain = x.explain || '';
       }
       return r;
@@ -1634,9 +1701,35 @@ function reviewAttempt_(q, t) {
   };
 }
 
+var BLANK_RE_ = /…[.…]*|\.{3,}[.…]*/g;
+
+function blankCount_(text) {
+  var m = String(text || '').match(BLANK_RE_);
+  return m ? m.length : 0;
+}
+
+function fillScore_(x, a) {
+  if (!x || !Array.isArray(x.answers) || !x.answers.length) return 0;
+  if (!Array.isArray(a)) return 0;
+  var correct = 0;
+  for (var i = 0; i < x.answers.length; i++) {
+    if (isCorrect_({ type: 'short', answers: x.answers[i] }, a[i])) {
+      correct++;
+    }
+  }
+  return correct / x.answers.length;
+}
+
+function earned_(x, a) {
+  if (!x || x.type === 'essay') return 0;
+  if (x.type === 'fill') return Math.round(Number(x.points || 1) * fillScore_(x, a) * 100) / 100;
+  return isCorrect_(x, a) ? Number(x.points || 1) : 0;
+}
+
 function isCorrect_(x, a) {
-  if (a === null || a === undefined || a === '') return false;
+  if (!x || a === null || a === undefined || a === '') return false;
   if (x.type === 'mc') return Number(a) === Number(x.correct);
+  if (x.type === 'fill') return fillScore_(x, a) === 1;
   var v = normAnswer_(a);
   var vn = numPart_(v);
   return (x.answers || []).some(function (ans) {
