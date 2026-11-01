@@ -1083,3 +1083,10 @@ span.blank.static.is-bad {
   font-size: 18px;
   line-height: 2.2;
 }
+
+/* Xem trước phân số khi học sinh gõ 3/5 */
+.short-row { display: flex; align-items: center; flex-wrap: wrap; }
+.frac-hint { display: inline-block; margin: 0 6px; font-weight: 700; color: var(--brand); font-size: 1.05em; white-space: nowrap; }
+.frac-hint[hidden] { display: none; }
+.game-short-form .frac-hint { display: block; margin: 6px 0 10px; text-align: center; font-size: 22px; }
+.game-short-form .frac-hint[hidden] { display: none; }

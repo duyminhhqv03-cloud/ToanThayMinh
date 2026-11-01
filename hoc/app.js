@@ -141,9 +141,31 @@
     return nodes;
   }
 
+  /** Nội dung câu hỏi: tách các ý a) b) c) xuống dòng, phân số viết chồng. */
+  function qNodes(text) {
+    var QF = window.QuizFormat;
+    return mathNodes(QF && QF.splitParts ? QF.splitParts(text) : text);
+  }
+
+  /** Dòng nhỏ cạnh ô nhập: học sinh gõ 3/5 thì thấy ngay phân số viết chồng. */
+  function fracHint(inp) {
+    var box = h('span', { class: 'frac-hint', hidden: true });
+    function draw() {
+      var QF = window.QuizFormat;
+      var v = inp.value || '';
+      var toks = QF && QF.mathTokens ? QF.mathTokens(v) : [];
+      var has = toks.some(function (t) { return t.t !== 'text'; });
+      box.hidden = !has;
+      if (has) fill(box, '= ', mathNodes(v));
+    }
+    inp.addEventListener('input', draw);
+    draw();
+    return box;
+  }
+
   function fillNodes(text, values, opts) {
     opts = opts || {};
-    var s = String(text || '');
+    var s = window.QuizFormat && window.QuizFormat.splitParts ? window.QuizFormat.splitParts(text || '') : String(text || '');
     var parts = window.QuizFormat && window.QuizFormat.splitBlanks ? window.QuizFormat.splitBlanks(s) : [s];
     var nodes = [];
     for (var k = 0; k < parts.length; k++) {
@@ -193,6 +215,7 @@
             }
           })(k, inp, updateW);
           nodes.push(inp);
+          nodes.push(fracHint(inp));
         }
       }
     }
@@ -3288,7 +3311,7 @@
       var qText;
       var activeInp = null;
       if (x.type === 'mc') {
-        qText = h('p', { class: 'q-text prewrap' }, mathNodes(x.text));
+        qText = h('p', { class: 'q-text prewrap' }, qNodes(x.text));
         body = h('div', { class: 'options' });
         var drawOpts = function () {
           fill(body, x.options.map(function (o, k) {
@@ -3298,10 +3321,10 @@
         };
         drawOpts();
       } else if (x.type === 'short') {
-        qText = h('p', { class: 'q-text prewrap' }, mathNodes(x.text));
+        qText = h('p', { class: 'q-text prewrap' }, qNodes(x.text));
         var inp = h('input', { class: 'short-input', value: answers[i] || '', placeholder: 'Nhập đáp án…', autocomplete: 'off' });
         inp.addEventListener('input', function () { answers[i] = inp.value; drawProgress(); saveDraft(); });
-        body = [inp, symbolKeys(inp)];
+        body = [h('div', { class: 'short-row' }, inp, fracHint(inp)), symbolKeys(inp)];
       } else if (x.type === 'fill') {
         var fNodes = fillNodes(x.text, answers[i], {
           onChange: function (k, val) {
@@ -3316,7 +3339,7 @@
         qText = h('div', { class: 'q-text prewrap fill-wrap' }, fNodes);
         body = [symbolKeys(function () { return activeInp; })];
       } else {
-        qText = h('p', { class: 'q-text prewrap' }, mathNodes(x.text));
+        qText = h('p', { class: 'q-text prewrap' }, qNodes(x.text));
         var ta = h('textarea', { rows: '4', maxlength: '5000', placeholder: 'Gõ lời giải (không bắt buộc nếu em chụp ảnh bài làm bên dưới)' });
         ta.value = answers[i] || '';
         ta.addEventListener('input', function () { answers[i] = ta.value; saveDraft(); });
@@ -3636,7 +3659,7 @@
               var right = q.type === 'mc' ? String.fromCharCode(65 + q.correct) + '. ' + q.options[q.correct] : (q.answers || []).join(' | ');
               head.appendChild(h('span', { class: 'pill ' + (ok ? 'p-done' : 'p-bad') }, 'Máy: ' + (ok ? 'Đúng' : 'Sai')));
               qBody = [
-                h('p', { class: 'q-text sm prewrap' }, mathNodes(q.text)),
+                h('p', { class: 'q-text sm prewrap' }, qNodes(q.text)),
                 h('p', { class: 'small' }, 'Học sinh: ', h('strong', { class: ok ? 'ok' : 'err' }, mathNodes(said)), ok ? null : [' · Đáp án: ', h('strong', { class: 'ok' }, mathNodes(right))])
               ];
             }
@@ -3659,7 +3682,7 @@
           var photos = s.files.filter(function (f) { return f.q === i; });
           aiBoxes[i] = h('div', { class: 'ai-note', hidden: true });
           return h('div', { class: 'panel review-item essay-grade' }, head,
-            h('p', { class: 'q-text sm prewrap' }, mathNodes(q.text)),
+            h('p', { class: 'q-text sm prewrap' }, qNodes(q.text)),
             q.image ? qImageEl({ kind: 'assignment', id: a.id, key: q.image }) : null,
             q.explain ? h('div', { class: 'explain' }, h('strong', null, 'Hướng dẫn chấm: '), h('span', { class: 'prewrap' }, mathNodes(q.explain))) : null,
             ans ? h('div', { class: 'essay-answer prewrap' }, mathNodes(ans)) : null,
@@ -3924,7 +3947,7 @@
             if (firstPick && at < qs.length - 1) setTimeout(function () { if (!submitted && cur === at && stage.isConnected) show(at + 1); }, 500);
           } }, h('span', { class: 'opt-letter' }, String.fromCharCode(65 + k)), h('span', { class: 'opt-text' }, mathNodes(o)));
         }));
-        qTextEl = h('h2', { class: 'q-text prewrap' }, mathNodes(x.text));
+        qTextEl = h('h2', { class: 'q-text prewrap' }, qNodes(x.text));
       } else if (x.type === 'fill') {
         var bCount = window.QuizFormat ? window.QuizFormat.blankCount(x.text) : 2;
         if (!Array.isArray(answers[cur])) {
@@ -3954,9 +3977,9 @@
         var inp = h('input', { class: 'short-input', value: answers[cur] || '', placeholder: 'Nhập đáp số…', autocomplete: 'off', inputmode: 'text' });
         inp.addEventListener('input', function () { answers[cur] = inp.value; drawNav(); saveDraft(); });
         inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') next.click(); });
-        body = h('div', null, inp, symbolKeys(inp));
+        body = h('div', null, h('div', { class: 'short-row' }, inp, fracHint(inp)), symbolKeys(inp));
         setTimeout(function () { inp.focus(); }, 0);
-        qTextEl = h('h2', { class: 'q-text prewrap' }, mathNodes(x.text));
+        qTextEl = h('h2', { class: 'q-text prewrap' }, qNodes(x.text));
       }
       fill(stage,
         h('p', { class: 'q-num' }, 'Câu ' + (cur + 1) + ' / ' + qs.length),
@@ -4068,7 +4091,7 @@
       var body;
       var qText;
       if (x.type === 'mc') {
-        qText = h('p', { class: 'q-text prewrap' }, mathNodes(x.text));
+        qText = h('p', { class: 'q-text prewrap' }, qNodes(x.text));
         body = h('div', { class: 'options review-opts' }, (x.options || []).map(function (o, k) {
           return h('div', { class: 'option static' + (x.correctAnswer === k ? ' correct' : '') },
             h('span', { class: 'opt-letter' }, String.fromCharCode(65 + k)), h('span', { class: 'opt-text' }, mathNodes(o)));
@@ -4083,10 +4106,10 @@
         });
         body = h('div', { class: 'fill-ans-list' }, h('strong', null, 'Đáp án: '), ansItems);
       } else if (x.type === 'essay') {
-        qText = h('p', { class: 'q-text prewrap' }, mathNodes(x.text));
+        qText = h('p', { class: 'q-text prewrap' }, qNodes(x.text));
         body = h('p', { class: 'muted small' }, 'Học sinh gõ hoặc chụp ảnh lời giải · giáo viên chấm');
       } else {
-        qText = h('p', { class: 'q-text prewrap' }, mathNodes(x.text));
+        qText = h('p', { class: 'q-text prewrap' }, qNodes(x.text));
         body = h('p', null, 'Đáp án chấp nhận: ', h('strong', { class: x.correctAnswer ? 'ok' : 'err' }, x.correctAnswer ? mathNodes(x.correctAnswer) : '(chưa có — thêm dòng "Đáp án: …")'));
       }
       return h('div', { class: 'panel review-item is-key' },
@@ -4101,7 +4124,7 @@
     var qTextRev;
     var fillOk = x.type === 'fill' && x.blanks ? x.blanks.filter(Boolean).length : 0;
     if (x.type === 'mc') {
-      qTextRev = h('p', { class: 'q-text prewrap' }, mathNodes(x.text));
+      qTextRev = h('p', { class: 'q-text prewrap' }, qNodes(x.text));
       yours = h('div', { class: 'options review-opts' }, (x.options || []).map(function (o, k) {
         var cls = 'option static';
         if (x.correctAnswer === k) cls += ' correct';
@@ -4120,7 +4143,7 @@
       }));
       yours = null;
     } else {
-      qTextRev = h('p', { class: 'q-text prewrap' }, mathNodes(x.text));
+      qTextRev = h('p', { class: 'q-text prewrap' }, qNodes(x.text));
       yours = h('p', null, 'Em trả lời: ', h('strong', { class: x.correct ? 'ok' : 'err' }, x.answer == null || x.answer === '' ? '(bỏ trống)' : mathNodes(x.answer)));
       if (!x.correct && x.correctAnswer != null) right = h('p', null, 'Đáp án đúng: ', h('strong', { class: 'ok' }, mathNodes(x.correctAnswer)));
     }
@@ -4807,6 +4830,8 @@
     copy: copy,
     fmtScore: fmtScore,
     mathNodes: mathNodes,
+    qNodes: qNodes,
+    fracHint: fracHint,
     fillNodes: fillNodes,
     store: store,
     getMe: function () { return me; },

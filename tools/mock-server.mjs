@@ -23,7 +23,7 @@ const QUIZ = {
   fullQuestions: [
     { type: 'mc', text: 'Chọn hỗn số bằng 234/100:', options: ['2 34/100', '23 4/100', '2 345/1000', '234/10'], correct: 0, explain: '234/100 = 2 34/100', points: 1 },
     { type: 'mc', text: '3/4 + 1/4 = ?', options: ['4/8', '1', '5/4', '3/16'], correct: 1, explain: '3/4 + 1/4 = 4/4 = 1', points: 1 },
-    { type: 'fill', text: 'Viết số thích hợp vào chỗ trống:\na) 3 m² 2 cm² = …… m²\nb) 123 tạ = …… tấn', answers: [['3,0002'], ['12,3', '123/10']], explain: 'a) 3,0002 m²\nb) 12,3 tấn', points: 2 },
+    { type: 'fill', text: 'Viết số thích hợp vào chỗ trống:\na) 3 m² 2 cm² = …… m² b) 123 tạ = …… tấn', answers: [['3,0002'], ['12,3', '123/10']], explain: 'a) 3,0002 m²\nb) 12,3 tấn', points: 2 },
     { type: 'short', text: '1/2 + 1/4 = ? (viết số thập phân)', answers: ['0,75', '3/4'], explain: '', points: 1 },
     { type: 'essay', text: 'Trình bày lời giải…', points: 2 }
   ]

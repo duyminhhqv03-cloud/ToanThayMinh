@@ -49,6 +49,27 @@
   var PAREN_BEFORE_RE = /\(\s*([\d.,]+(?:\s*[×·*+\-−]\s*[\d.,]+)+)\s*\)$/;
   var PAREN_AFTER_RE = /^\(\s*([\d.,]+(?:\s*[×·*+\-−]\s*[\d.,]+)+)\s*\)/;
 
+  /** Dòng bắt đầu bằng "a)" mà có "b)", "c)"… nối tiếp trên cùng dòng → mỗi ý một dòng. */
+  function splitParts(text) {
+    return String(text || '').split('\n').map(function (line) {
+      var m = /^\s*([a-g])\)\s/.exec(line);
+      if (!m) return line;
+      var cur = m[1];
+      var from = m[0].length;
+      while (cur < 'h') {
+        var nx = String.fromCharCode(cur.charCodeAt(0) + 1);
+        var re = new RegExp('\\s+' + nx + '\\)(?=\\s)', 'g');
+        re.lastIndex = from;
+        var mm = re.exec(line);
+        if (!mm) break;
+        line = line.slice(0, mm.index) + '\n' + nx + ')' + line.slice(mm.index + mm[0].length);
+        from = mm.index + 3;
+        cur = nx;
+      }
+      return line;
+    }).join('\n');
+  }
+
   function mathTokens(str) {
     var s = String(str || '');
     if (!s) return [];
@@ -956,6 +977,7 @@
     blankCount: blankCount,
     splitBlanks: splitBlanks,
     mathTokens: mathTokens,
+    splitParts: splitParts,
     toSource: toSource,
     spreadPoints: spreadPoints,
     fromText: fromText,

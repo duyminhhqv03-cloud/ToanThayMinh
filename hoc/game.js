@@ -534,7 +534,7 @@
               maxlength: '200'
             });
             var sBtn = h('button', { type: 'submit', class: 'btn btn-lg btn-block' }, 'Gửi đáp án');
-            var sForm = h('form', { class: 'panel form game-short-form' }, sInp, sBtn);
+            var sForm = h('form', { class: 'panel form game-short-form' }, sInp, T.fracHint(sInp), sBtn);
             sForm.addEventListener('submit', function (e) {
               e.preventDefault();
               var v = sInp.value.trim();
@@ -564,7 +564,7 @@
               h('span', { class: 'q-num' }, 'Câu ' + (qIdx + 1) + ' / ' + (st.total || 1)),
               clockEl,
               qScorePill),
-            q.blanks && q.blanks >= 2 ? null : h('p', { class: 'game-student-qtext prewrap' }, T.mathNodes(q.text || '')),
+            q.blanks && q.blanks >= 2 ? null : h('p', { class: 'game-student-qtext prewrap' }, T.qNodes(q.text || '')),
             q.image && room.quizId ? T.qImageEl({ kind: 'quiz', id: room.quizId, key: q.image }) : null),
           bodyBox);
 
@@ -1044,7 +1044,7 @@
               skipBtn,
               h('button', { class: 'btn btn-sm btn-ghost danger-text', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'))),
           h('div', { class: 'panel game-q-panel' },
-            h('h2', { class: 'game-q-text prewrap' }, T.mathNodes(item.text || '')),
+            h('h2', { class: 'game-q-text prewrap' }, T.qNodes(item.text || '')),
             item.image ? T.qImageEl({ kind: 'quiz', id: q.id, key: item.image }) : null),
           optionsEl);
 
@@ -1329,7 +1329,7 @@
               h('button', { class: 'btn btn-ghost danger-text', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'),
               nextBtn)),
           h('div', { class: 'panel game-q-panel compact' },
-            h('h2', { class: 'game-q-text sm prewrap' }, T.mathNodes(item.text || '')),
+            h('h2', { class: 'game-q-text sm prewrap' }, T.qNodes(item.text || '')),
             item.image ? T.qImageEl({ kind: 'quiz', id: q.id, key: item.image }) : null,
             item.explain ? h('div', { class: 'explain' }, h('strong', null, '💡 Lời giải: '), h('span', { class: 'prewrap' }, T.mathNodes(item.explain))) : null),
           answerHighlight,
