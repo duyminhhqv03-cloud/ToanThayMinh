@@ -45,6 +45,9 @@
   var NUM_BEFORE_RE = /(?:(\d+(?: \d{3})+(?:,\d+)?)|(\d+(?:,\d+)?))$/;
   var NUM_AFTER_RE = /^(?:(\d+(?: \d{3})+(?:,\d+)?)|(\d+(?:,\d+)?))/;
   var WHOLE_RE = /(\d+)\s+$/;
+  // Tử/mẫu là phép tính trong ngoặc: (3 × 5)/(4 × 5)
+  var PAREN_BEFORE_RE = /\(\s*([\d.,]+(?:\s*[×·*+\-−]\s*[\d.,]+)+)\s*\)$/;
+  var PAREN_AFTER_RE = /^\(\s*([\d.,]+(?:\s*[×·*+\-−]\s*[\d.,]+)+)\s*\)/;
 
   function mathTokens(str) {
     var s = String(str || '');
@@ -60,16 +63,18 @@
       var mBefore = NUM_BEFORE_RE.exec(before);
       var after = s.slice(slash + 1);
       var mAfter = NUM_AFTER_RE.exec(after);
+      var pBefore = mBefore ? null : PAREN_BEFORE_RE.exec(before);
+      var pAfter = mAfter ? null : PAREN_AFTER_RE.exec(after);
 
-      if (!mBefore || !mAfter) {
+      if (!(mBefore || pBefore) || !(mAfter || pAfter)) {
         i = slash + 1;
         continue;
       }
 
-      var numN = mBefore[1] || mBefore[2];
-      var numD = mAfter[1] || mAfter[2];
-      var startN = slash - numN.length;
-      var endD = slash + 1 + numD.length;
+      var numN = mBefore ? mBefore[1] || mBefore[2] : pBefore[1];
+      var numD = mAfter ? mAfter[1] || mAfter[2] : pAfter[1];
+      var startN = slash - (mBefore ? numN.length : pBefore[0].length);
+      var endD = slash + 1 + (mAfter ? numD.length : pAfter[0].length);
 
       var nextChar = s.charAt(endD);
       if (nextChar && !isTokenBorder(nextChar)) {
@@ -80,7 +85,7 @@
       var prevChar = startN > 0 ? s.charAt(startN - 1) : '';
 
       var beforeN = s.slice(lastIndex, startN);
-      var mWhole = WHOLE_RE.exec(beforeN);
+      var mWhole = pBefore ? null : WHOLE_RE.exec(beforeN);
       var whole = null;
       var startWhole = startN;
 

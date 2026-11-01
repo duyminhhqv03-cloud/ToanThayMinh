@@ -48,6 +48,15 @@ function testFrac() {
     { t: 'text', v: ' = ? Đã đi 40 km/h lúc 15/10/2024.' }
   ], 'Ca văn bản xen kẽ');
 
+  // 11. Tử/mẫu là phép tính trong ngoặc (lời giải từ PDF)
+  var t11 = QuizFormat.mathTokens('(3 × 5)/(4 × 5) + (44 − 5)/6 và (ha)/ngày');
+  assert.deepStrictEqual(t11, [
+    { t: 'frac', n: '3 × 5', d: '4 × 5' },
+    { t: 'text', v: ' + ' },
+    { t: 'frac', n: '44 − 5', d: '6' },
+    { t: 'text', v: ' và (ha)/ngày' }
+  ], 'Ca phép tính trong ngoặc');
+
   console.log('OK (frac-test)');
 }
 

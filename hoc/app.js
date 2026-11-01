@@ -2052,6 +2052,12 @@
     return /^[-+]?[\d.,\s]*[a-zA-Z]?[\d.,\s]*$/.test(t);
   }
 
+  /** Phép tính ngắn làm tử/mẫu: số và + − × · ( ). */
+  function isFracExpr(s) {
+    var t = String(s || '').trim();
+    return t.length <= 24 && /\d/.test(t) && /^[\d.,\s×x·*+\-−()]+$/.test(t);
+  }
+
   /** Ghép tử trên gạch và mẫu dưới gạch thành "tử/mẫu". */
   function mergeFractions(items, bars) {
     var usedBars = [];
@@ -2085,14 +2091,26 @@
       var topStr = topItems.map(function (it) { return it.str; }).join('').trim();
       var botStr = botItems.map(function (it) { return it.str; }).join('').trim();
 
-      if (!isNumFracPart(topStr) || !isNumFracPart(botStr)) return;
+      if (window.QuizFormat && window.QuizFormat.plainMath) {
+        topStr = window.QuizFormat.plainMath(topStr); // dấu × − + của phông Symbol
+        botStr = window.QuizFormat.plainMath(botStr);
+      }
+      if (!isNumFracPart(topStr) || !isNumFracPart(botStr)) {
+        // Tử/mẫu là phép tính ngắn (vd 3 × 5 trên 4 × 5) → "(3 × 5)/(4 × 5)"
+        if (!isFracExpr(topStr) || !isFracExpr(botStr)) return;
+        if (!isNumFracPart(topStr)) topStr = '(' + topStr.replace(/\s+/g, ' ') + ')';
+        if (!isNumFracPart(botStr)) botStr = '(' + botStr.replace(/\s+/g, ' ') + ')';
+      }
 
+      var refH = botItems[0].height || 0;
+      var isSmallPiece = function (it) { return refH > 0 && (it.height || 0) > 0 && it.height < refH * 0.75; };
       var yDong = bar.y - 3;
       var bestDist = Infinity;
       items.forEach(function (it) {
         if (!it || !it.str || !it.transform) return;
         if (topItems.indexOf(it) >= 0 || botItems.indexOf(it) >= 0) return;
         if (isSymbolPiece(it.str)) return; // mảnh ngoặc lớn nằm lệch dòng, không dùng làm mốc
+        if (isSmallPiece(it)) return; // số mũ (m²) nằm cao hơn dòng
         var y = it.transform[5];
         if (Math.abs(y - (bar.y - 3)) <= 6) {
           var x = it.transform[4];
@@ -2103,6 +2121,18 @@
           }
         }
       });
+      if (bestDist === Infinity) {
+        // Không có chữ sát bên → lấy dòng chữ gần nhất theo chiều dọc (cách tối đa 12)
+        var bestDy = Infinity;
+        items.forEach(function (it) {
+          if (!it || !it.str || !it.transform || !it.str.trim()) return;
+          if (topItems.indexOf(it) >= 0 || botItems.indexOf(it) >= 0 || isSymbolPiece(it.str) || isSmallPiece(it)) return;
+          var x = it.transform[4];
+          var dx = Math.max(0, Math.max(x - bar.x1, bar.x0 - (x + (it.width || 0))));
+          var dy = Math.abs(it.transform[5] - (bar.y - 3));
+          if (dx < 200 && dy <= 12 && dy < bestDy) { bestDy = dy; yDong = it.transform[5]; }
+        });
+      }
 
       var fracStr = topStr + '/' + botStr;
       var baseTr = topItems[0].transform ? topItems[0].transform.slice() : [1, 0, 0, 1, 0, 0];

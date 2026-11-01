@@ -974,11 +974,12 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
 .frac {
   display: inline-flex;
   flex-direction: column;
-  vertical-align: -0.35em;
+  vertical-align: middle;
   text-align: center;
   font-size: 0.88em;
   line-height: 1.05;
   padding: 0 0.15em;
+  margin: 0.2em 0;
 }
 .frac-n {
   border-bottom: 1.5px solid currentColor;
@@ -990,9 +991,9 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
 .mixed {
   display: inline-flex;
   align-items: center;
-  vertical-align: -0.35em;
+  vertical-align: middle;
 }
-.mixed .frac { margin-left: 0.12em; vertical-align: 0; }
+.mixed .frac { margin-left: 0.12em; margin-top: 0; margin-bottom: 0; vertical-align: 0; }
 
 /* ───────── Câu điền khuyết ───────── */
 .fill-wrap {
