@@ -105,6 +105,235 @@
     return out;
   }
 
+  var RECOMMEND_ORDER = ['race', 'tug', 'relay', 'wager', 'classic', 'review'];
+
+  function recommendOrderIndex(id) {
+    for (var i = 0; i < RECOMMEND_ORDER.length; i++) {
+      if (RECOMMEND_ORDER[i] === id) return i;
+    }
+    return 99;
+  }
+
+  function recommend(questions, info) {
+    var rawQs = Array.isArray(questions) ? questions : [];
+    var qs = [];
+    var i;
+    for (i = 0; i < rawQs.length; i++) {
+      if (rawQs[i] && rawQs[i].type !== 'essay') qs.push(rawQs[i]);
+    }
+    var N = qs.length;
+    var M = 0;
+    for (i = 0; i < N; i++) {
+      if (qs[i].type === 'mc') M++;
+    }
+    var nonMc = N > 0 ? (N - M) / N : 0;
+
+    var inf = info || {};
+    var rawSize = Number(inf.size);
+    var size = (isFinite(rawSize) && rawSize >= 1) ? Math.round(rawSize) : 12;
+    var rawMin = Number(inf.minutes);
+    var minutes = (isFinite(rawMin) && rawMin > 0) ? rawMin : 10;
+    var totalSec = minutes * 60;
+
+    var allIds = ['classic', 'race', 'tug', 'relay', 'wager', 'review'];
+    var list = [];
+
+    for (i = 0; i < allIds.length; i++) {
+      var id = allIds[i];
+      var duration = 0;
+      var useCount = 0;
+      var limitMin = 0;
+      var estMinutes = 0;
+
+      if (id === 'review') {
+        duration = 0;
+        useCount = M;
+        var reviewLimits = [3, 5, 10];
+        limitMin = 3;
+        for (var li = 0; li < reviewLimits.length; li++) {
+          if (reviewLimits[li] <= minutes) limitMin = reviewLimits[li];
+        }
+        estMinutes = limitMin;
+      } else {
+        var extra = id === 'wager' ? 27 : 15;
+        var dList;
+        if (nonMc > 0.5) dList = [20, 30, 60];
+        else if (M < N) dList = [20, 30];
+        else dList = [10, 20, 30];
+
+        if (id === 'relay') {
+          var relayList = [];
+          for (var di = 0; di < dList.length; di++) {
+            if (dList[di] >= 30) relayList.push(dList[di]);
+          }
+          if (relayList.indexOf(60) === -1) relayList.push(60);
+          dList = relayList;
+        }
+
+        if (N > 0) {
+          var chosenD = 0;
+          for (var dj = dList.length - 1; dj >= 0; dj--) {
+            if (N * (dList[dj] + extra) <= totalSec) {
+              chosenD = dList[dj];
+              break;
+            }
+          }
+          if (chosenD > 0) {
+            duration = chosenD;
+            useCount = N;
+          } else {
+            duration = dList[0];
+            var fit = Math.floor(totalSec / (duration + extra));
+            useCount = Math.min(N, Math.max(3, fit));
+          }
+          estMinutes = Math.ceil(useCount * (duration + extra) / 60);
+        } else {
+          duration = dList[0];
+          useCount = 0;
+          estMinutes = 0;
+        }
+      }
+
+      var ok = true;
+      var blockWhy = '';
+      if (N < 3) {
+        ok = false;
+        blockWhy = 'Cần ít nhất 3 câu';
+      } else if (id === 'tug' && size < 4) {
+        ok = false;
+        blockWhy = 'Cần ít nhất 4 em để chia 2 nhóm';
+      } else if ((id === 'race' || id === 'relay') && size < 6) {
+        ok = false;
+        blockWhy = 'Cần ít nhất 6 em để chia 3 nhóm';
+      } else if (id === 'wager' && size < 2) {
+        ok = false;
+        blockWhy = 'Cần ít nhất 2 em để thi đấu';
+      } else if (id === 'review' && M < 3) {
+        ok = false;
+        blockWhy = 'Cần ít nhất 3 câu trắc nghiệm';
+      }
+
+      var score = 0;
+      var why = [];
+      var warns = [];
+
+      if (id === 'race') {
+        score = 60;
+        if (useCount >= 8) {
+          score += 15;
+          why.push('Đủ câu để cuộc đua gay cấn');
+        }
+        if (size >= 9) {
+          score += 10;
+          why.push('Lớp đông, mỗi nhóm có nhiều bạn cùng góp sức');
+        }
+        why.push('Nhóm đông không có lợi hơn vì tính theo tỉ lệ đúng');
+      } else if (id === 'tug') {
+        score = 55;
+        if (useCount < 8 || minutes <= 10) {
+          score += 20;
+          why.push('Trận nhanh, hợp thời lượng ngắn');
+        }
+        if (size % 2 === 1) {
+          score -= 5;
+          why.push('Sĩ số lẻ nên hai nhóm lệch nhau 1 bạn');
+        }
+        if (!why.length) {
+          why.push('Chia 2 nhóm kéo dây theo tỉ lệ trả lời đúng');
+        }
+      } else if (id === 'relay') {
+        score = 45;
+        if (nonMc > 0.3) {
+          score += 25;
+          why.push('Nhiều câu tự gõ đáp án, cả nhóm cùng được thử');
+        }
+        if (useCount >= Math.ceil(size / 3)) {
+          score += 10;
+          why.push('Đủ câu để bạn nào cũng tới lượt');
+        } else {
+          score -= 20;
+          warns.push('Không đủ câu để mọi bạn tới lượt');
+        }
+        if (minutes <= 5) {
+          score -= 10;
+          why.push('Thời lượng ngắn cho kiểu thay phiên');
+        }
+        if (size > 18) {
+          score -= 10;
+          why.push('Lớp đông nên chờ tới lượt lâu hơn');
+        }
+      } else if (id === 'wager') {
+        score = 50;
+        if (size <= 12) {
+          score += 10;
+          why.push('Lớp vừa, các em theo dõi điểm của nhau dễ');
+        }
+        if (useCount >= 5 && useCount <= 12) {
+          score += 10;
+          why.push('Số câu vừa đủ để lật ngược tình thế');
+        }
+        if (useCount > 15) {
+          score -= 10;
+          why.push('Nhiều câu nên đặt cược dễ kéo dài');
+        }
+        why.push('Tính cá nhân, không chia nhóm');
+      } else if (id === 'classic') {
+        score = 50;
+        if (size < 4) {
+          score += 15;
+          why.push('Hợp lớp ít học sinh, không cần chia nhóm');
+        }
+        why.push('Quen thuộc, nhanh và đúng thì nhiều điểm');
+      } else if (id === 'review') {
+        if (M === N) {
+          score = 40;
+        } else {
+          score = 15;
+          if (N > 0) warns.push('Chỉ dùng được ' + M + '/' + N + ' câu trắc nghiệm');
+        }
+        if (M === N && N >= 10) {
+          score += 25;
+          why.push('Toàn trắc nghiệm, mỗi em tự làm theo tốc độ riêng');
+        }
+        if (minutes <= 5) {
+          score += 5;
+          why.push('Hợp ôn nhanh trong thời gian ngắn');
+        }
+        if (!why.length) {
+          why.push('Mỗi em tự làm theo tốc độ riêng, lặp lại câu sai');
+        }
+      }
+
+      if (id !== 'review' && N >= 3 && useCount < N) {
+        warns.push('Thời lượng ngắn nên chỉ dùng ' + useCount + '/' + N + ' câu');
+      }
+
+      if (!ok) {
+        why = [blockWhy];
+      }
+
+      list.push({
+        id: id,
+        ok: ok,
+        score: score,
+        why: why,
+        warn: warns.join('. '),
+        duration: duration,
+        useCount: useCount,
+        limitMin: limitMin,
+        estMinutes: estMinutes
+      });
+    }
+
+    list.sort(function (a, b) {
+      if (a.ok !== b.ok) return a.ok ? -1 : 1;
+      if (b.score !== a.score) return b.score - a.score;
+      return recommendOrderIndex(a.id) - recommendOrderIndex(b.id);
+    });
+
+    return list;
+  }
+
   function defaultShuffle(arr) {
     var out = (arr || []).slice();
     for (var i = out.length - 1; i > 0; i--) {
@@ -544,6 +773,7 @@
     getGame: getGame,
     teamCount: teamCount,
     suggest: suggest,
+    recommend: recommend,
     splitTeams: splitTeams,
     smallestTeam: smallestTeam,
     teamMembers: teamMembers,

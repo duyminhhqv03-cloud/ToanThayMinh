@@ -246,4 +246,130 @@ check('Đặt cược (betAmount & applyWager)', function () {
   assert.deepStrictEqual(M.applyWager(0, 100, 0, false), { score: 0, gain: 0, loss: 0 });
 });
 
+function findById(list, id) {
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].id === id) return list[i];
+  }
+  return null;
+}
+
+check('recommend(questions, info): N < 3 chặn mọi game; size 2 chặn tug/race/relay', function () {
+  var q2 = [{ type: 'mc' }, { type: 'mc' }];
+  var r2 = M.recommend(q2, { size: 12, minutes: 10 });
+  assert.strictEqual(r2.length, 6);
+  for (var i = 0; i < r2.length; i++) {
+    assert.strictEqual(r2[i].ok, false);
+    assert.strictEqual(r2[i].why[0], 'Cần ít nhất 3 câu');
+  }
+
+  var q6 = [];
+  for (var j = 0; j < 6; j++) q6.push({ type: 'mc' });
+  var rSize2 = M.recommend(q6, { size: 2, minutes: 10 });
+  assert.strictEqual(findById(rSize2, 'tug').ok, false);
+  assert.strictEqual(findById(rSize2, 'tug').why[0], 'Cần ít nhất 4 em để chia 2 nhóm');
+  assert.strictEqual(findById(rSize2, 'race').ok, false);
+  assert.strictEqual(findById(rSize2, 'race').why[0], 'Cần ít nhất 6 em để chia 3 nhóm');
+  assert.strictEqual(findById(rSize2, 'relay').ok, false);
+  assert.strictEqual(findById(rSize2, 'relay').why[0], 'Cần ít nhất 6 em để chia 3 nhóm');
+  assert.strictEqual(findById(rSize2, 'wager').ok, true);
+  assert.strictEqual(findById(rSize2, 'classic').ok, true);
+  assert.strictEqual(findById(rSize2, 'review').ok, true);
+  // Các game ok=true luôn đứng trước ok=false
+  assert.strictEqual(rSize2[0].ok, true);
+  assert.strictEqual(rSize2[1].ok, true);
+  assert.strictEqual(rSize2[2].ok, true);
+  assert.strictEqual(rSize2[3].ok, false);
+});
+
+check('recommend: 15 mc, size 12, 15 phút xếp race đầu', function () {
+  var q15 = [];
+  for (var i = 0; i < 15; i++) q15.push({ type: 'mc' });
+  var r = M.recommend(q15, { size: 12, minutes: 15 });
+  assert.strictEqual(r[0].id, 'race');
+  assert.strictEqual(r[0].ok, true);
+  assert.strictEqual(r[0].useCount, 15);
+  assert.strictEqual(r[0].duration, 30);
+  assert.strictEqual(r[0].estMinutes, 12);
+});
+
+check('recommend: 6 câu có 1 câu short, size 8, 5 phút xếp tug đầu', function () {
+  var q6 = [
+    { type: 'mc' }, { type: 'mc' }, { type: 'mc' },
+    { type: 'mc' }, { type: 'mc' }, { type: 'short' }
+  ];
+  var r = M.recommend(q6, { size: 8, minutes: 5 });
+  assert.strictEqual(r[0].id, 'tug');
+  assert.strictEqual(r[0].ok, true);
+  assert.strictEqual(r[0].useCount, 6);
+});
+
+check('recommend: toàn short 10 câu, size 12, 20 phút -> relay có duration >= 30, review bị chặn', function () {
+  var q10 = [];
+  for (var i = 0; i < 10; i++) q10.push({ type: 'short' });
+  var r = M.recommend(q10, { size: 12, minutes: 20 });
+  var relay = findById(r, 'relay');
+  assert.strictEqual(relay.ok, true);
+  assert.strictEqual(relay.duration >= 30, true);
+  assert.strictEqual(relay.useCount, 10);
+  var rev = findById(r, 'review');
+  assert.strictEqual(rev.ok, false);
+  assert.strictEqual(rev.why[0], 'Cần ít nhất 3 câu trắc nghiệm');
+});
+
+check('recommend: review trên đề có short có warn', function () {
+  var qMixed = [
+    { type: 'mc' }, { type: 'mc' }, { type: 'mc' },
+    { type: 'mc' }, { type: 'short' }, { type: 'fill' }
+  ];
+  var r = M.recommend(qMixed, { size: 10, minutes: 10 });
+  var rev = findById(r, 'review');
+  assert.strictEqual(rev.ok, true);
+  assert.strictEqual(rev.useCount, 4);
+  assert.strictEqual(rev.limitMin, 10);
+  assert.strictEqual(rev.warn.indexOf('Chỉ dùng được 4/6 câu trắc nghiệm') !== -1, true);
+});
+
+check('recommend: useCount giảm đúng khi 30 câu, 5 phút và có warn thời lượng ngắn', function () {
+  var q30 = [];
+  for (var i = 0; i < 30; i++) q30.push({ type: 'mc' });
+  var r = M.recommend(q30, { size: 12, minutes: 5 });
+  var race = findById(r, 'race');
+  // 5 phút = 300s, d nhỏ nhất = 10, phụ = 15 -> 25s/câu -> floor(300/25) = 12 câu
+  assert.strictEqual(race.duration, 10);
+  assert.strictEqual(race.useCount, 12);
+  assert.strictEqual(race.warn.indexOf('Thời lượng ngắn nên chỉ dùng 12/30 câu') !== -1, true);
+
+  var relay = findById(r, 'relay');
+  // relay d nhỏ nhất = 30, phụ = 15 -> 45s/câu -> floor(300/45) = 6 câu
+  assert.strictEqual(relay.duration, 30);
+  assert.strictEqual(relay.useCount, 6);
+  assert.strictEqual(relay.warn.indexOf('Thời lượng ngắn nên chỉ dùng 6/30 câu') !== -1, true);
+
+  var rev = findById(r, 'review');
+  // review không bị giảm useCount theo giây mà dùng hết M câu mc trong limitMin = 5
+  assert.strictEqual(rev.useCount, 30);
+  assert.strictEqual(rev.limitMin, 5);
+  assert.strictEqual(rev.warn, '');
+});
+
+check('Kiểm tra mã nguồn thuần ES5 (không let/const/arrow/class/template literal/block function)', function () {
+  var fs = require('fs');
+  var files = ['game-modes.js', 'game.js', 'app.js', 'quiz-format.js', 'review.js'];
+  for (var i = 0; i < files.length; i++) {
+    var p = path.join(__dirname, '..', 'hoc', files[i]);
+    var code = fs.readFileSync(p, 'utf8');
+    // Bỏ comment và chuỗi đơn giản trước khi kiểm tra cú pháp ES6
+    var stripped = code
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '')
+      .replace(/'(?:\\.|[^'\\])*'/g, "''")
+      .replace(/"(?:\\.|[^"\\])*"/g, '""');
+    assert.strictEqual(/(^|[^\w$.])(let|const)\s+[A-Za-z_$]/.test(stripped), false, files[i] + ' chứa let/const');
+    assert.strictEqual(/(^|[^\w$.])class\s+[A-Za-z_${]/.test(stripped), false, files[i] + ' chứa class');
+    assert.strictEqual(/=>/.test(stripped), false, files[i] + ' chứa arrow function');
+    assert.strictEqual(/`/.test(stripped), false, files[i] + ' chứa template string');
+    assert.strictEqual(/\b(replaceChildren)\b/.test(stripped), false, files[i] + ' chứa replaceChildren');
+  }
+});
+
 console.log('\nĐã vượt qua ' + passCount + ' nhóm kiểm thử modes-test.js!');

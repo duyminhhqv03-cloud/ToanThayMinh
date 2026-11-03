@@ -500,11 +500,21 @@
       T.fill(box,
         h('div', { class: 'list-head game-hub-head' },
           h('h2', null, 'Bài đấu của lớp (' + quizzes.length + ')'),
-          h('button', { class: 'btn', onclick: function () { drawAddForm(cd, formBox); } }, '+ Thêm bài đấu')),
+          h('div', { class: 'add-bar' },
+            h('button', { type: 'button', class: 'btn', onclick: function () {
+              if (formDirty && !confirm('Bài đấu đang soạn chưa được lưu. Bỏ nội dung này?')) return;
+              formDirty = false;
+              drawGameWizard(cd, formBox);
+            } }, '✨ Tạo game từ đề + đáp án'),
+            h('button', { type: 'button', class: 'btn btn-ghost', onclick: function () {
+              if (formDirty && !confirm('Bài đấu đang soạn chưa được lưu. Bỏ nội dung này?')) return;
+              formDirty = false;
+              drawAddForm(cd, formBox);
+            } }, '+ Thêm bài đấu'))),
         formBox,
         quizzes.length
           ? h('div', { class: 'game-hub-list' }, quizzes.map(function (x) { return quizRow(x, cd); }))
-          : h('div', { class: 'panel empty' }, h('p', { class: 'muted' }, 'Lớp này chưa có bài nào. Bấm "+ Thêm bài đấu" để tạo bài đầu tiên.')));
+          : h('div', { class: 'panel empty' }, h('p', { class: 'muted' }, 'Lớp này chưa có bài nào. Bấm "✨ Tạo game từ đề + đáp án" hoặc "+ Thêm bài đấu" để tạo bài đầu tiên.')));
     }
 
     function quizRow(x, cd) {
@@ -642,6 +652,791 @@
       update();
       formDirty = false;
       title.focus();
+    }
+
+    function defaultWizardTitle(course) {
+      var now = new Date();
+      var dd = now.getDate();
+      var mm = now.getMonth() + 1;
+      var dateStr = (dd < 10 ? '0' : '') + dd + '/' + (mm < 10 ? '0' : '') + mm;
+      var cName = (course && course.name) ? course.name : 'Lớp';
+      return 'Game ' + cName + ' ' + dateStr;
+    }
+
+    function loadSavedClassSize(courseId) {
+      var raw = T.store.get('ttm_game_size_' + courseId);
+      if (!raw) return '';
+      var n = parseInt(raw, 10);
+      if (isFinite(n) && n >= 1 && n <= 100) return String(n);
+      return '';
+    }
+
+    function drawGameWizard(initialCd, formBox) {
+      var QF = window.QuizFormat;
+      var imgStore = T.imageStore ? T.imageStore('quiz', null, []) : null;
+      var wiz = {
+        step: 1,
+        deText: '',
+        dapAnText: '',
+        fixSource: '',
+        hasRead: false,
+        showFixBox: false,
+        previewOpen: false,
+        essayDropped: 0,
+        guessedCount: 0,
+        noQuestionErr: '',
+        questions: [],
+        errors: [],
+        courseId: initialCd.course.id,
+        courseData: initialCd,
+        branch: '',
+        sizeStr: loadSavedClassSize(initialCd.course.id),
+        minutes: 10,
+        customMinStr: '',
+        title: defaultWizardTitle(initialCd.course),
+        titleTouched: false,
+        selectedGame: ''
+      };
+
+      var stepBar = h('div', { class: 'game-wiz-steps' });
+      var bodyBox = h('div', { class: 'game-wiz-body' });
+
+      function syncDirty() {
+        formDirty = !!(wiz.deText.trim() || wiz.dapAnText.trim() || wiz.fixSource.trim() || wiz.questions.length);
+      }
+
+      function cancelWizard() {
+        if (formDirty && !confirm('Bỏ bài đấu đang tạo?')) return;
+        formDirty = false;
+        T.fill(formBox);
+      }
+
+      function drawStepBar() {
+        var labels = ['1 Đề và đáp án', '2 Thông tin lớp', '3 Chọn game'];
+        var nodes = [];
+        for (var i = 0; i < labels.length; i++) {
+          var sNum = i + 1;
+          var cls = 'game-wiz-step';
+          if (wiz.step === sNum) cls += ' is-active';
+          else if (wiz.step > sNum) cls += ' is-done';
+          if (i > 0) {
+            nodes.push(h('span', { class: 'game-wiz-sep' }, '·'));
+          }
+          nodes.push(h('span', { class: cls }, labels[i]));
+        }
+        T.fill(stepBar, nodes);
+      }
+
+      function filterEssaysFromParsed(p) {
+        var allQs = (p && p.questions) || [];
+        var nonEssay = [];
+        var dropped = 0;
+        for (var i = 0; i < allQs.length; i++) {
+          if (allQs[i].type === 'essay') dropped++;
+          else nonEssay.push(allQs[i]);
+        }
+        return { questions: nonEssay, dropped: dropped };
+      }
+
+      function parseCleanSource(srcText) {
+        var trimSrc = String(srcText || '').trim();
+        if (!trimSrc) {
+          return { questions: [], errors: ['Chưa có câu hỏi nào.'], dropped: 0 };
+        }
+        var pWithEssay = QF.parse(trimSrc, { allowEssay: true });
+        var hasExplicitEssay = false;
+        for (var i = 0; i < pWithEssay.questions.length; i++) {
+          if (pWithEssay.questions[i].type === 'essay') {
+            hasExplicitEssay = true;
+          }
+        }
+        // Kiểm tra theo chế độ game (không nhận tự luận)
+        var pGame = QF.parse(trimSrc, { allowEssay: false });
+        var validQs = [];
+        for (var j = 0; j < pGame.questions.length; j++) {
+          if (pGame.questions[j].type !== 'essay') validQs.push(pGame.questions[j]);
+        }
+        void hasExplicitEssay;
+        return { questions: validQs, errors: pGame.errors, dropped: 0 };
+      }
+
+      // Chỉ câu ghi rõ "tự luận" mới bị bỏ; câu thiếu đáp án phải báo lỗi để thầy cô bổ sung.
+      function readGameSource(srcText) {
+        var p = QF.parse(srcText, { allowEssay: false });
+        return {
+          questions: p.questions,
+          errors: p.errors.filter(function (e) { return e.indexOf('bài luyện tập chỉ dùng') < 0; })
+        };
+      }
+
+      function runReadExam(fromPdfResult) {
+        var de = wiz.deText.trim();
+        var dapAn = wiz.dapAnText.trim();
+        wiz.noQuestionErr = '';
+        wiz.essayDropped = 0;
+        wiz.guessedCount = 0;
+
+        if (!de) {
+          wiz.hasRead = true;
+          wiz.questions = [];
+          wiz.errors = [];
+          wiz.noQuestionErr = 'Không tìm thấy câu hỏi. Đề cần đánh số Câu 1, Câu 2… hoặc 1., 2.';
+          T.toast(wiz.noQuestionErr, 'error');
+          drawStep1Result();
+          return;
+        }
+
+        var initialParsed = null;
+        if (fromPdfResult) {
+          wiz.guessedCount = Number(fromPdfResult.guessed || 0);
+          initialParsed = readGameSource(de);
+        } else {
+          if (!dapAn) {
+            var pTry = readGameSource(de);
+            var hasNonEssay = false;
+            var hasQMarker = /^\s*câu\s*\d+/im.test(de);
+            for (var k = 0; k < pTry.questions.length; k++) {
+              if (pTry.questions[k].type !== 'essay') hasNonEssay = true;
+            }
+            if (pTry.questions.length > 0 && pTry.errors.length === 0 && (hasNonEssay || hasQMarker)) {
+              initialParsed = pTry;
+            }
+          }
+          if (!initialParsed) {
+            var ft = QF.fromText(de, dapAn || null, {});
+            wiz.guessedCount = Number(ft.guessed || 0);
+            if (!ft.count) {
+              wiz.hasRead = true;
+              wiz.questions = [];
+              wiz.errors = [];
+              wiz.fixSource = '';
+              wiz.noQuestionErr = 'Không tìm thấy câu hỏi. Đề cần đánh số Câu 1, Câu 2… hoặc 1., 2.';
+              T.toast(wiz.noQuestionErr, 'error');
+              drawStep1Result();
+              return;
+            }
+            initialParsed = readGameSource(ft.source);
+          }
+        }
+
+        if (!initialParsed || !initialParsed.questions || !initialParsed.questions.length) {
+          wiz.hasRead = true;
+          wiz.questions = [];
+          wiz.errors = [];
+          wiz.fixSource = '';
+          wiz.noQuestionErr = 'Không tìm thấy câu hỏi. Đề cần đánh số Câu 1, Câu 2… hoặc 1., 2.';
+          T.toast(wiz.noQuestionErr, 'error');
+          drawStep1Result();
+          return;
+        }
+
+        var filtered = filterEssaysFromParsed(initialParsed);
+        wiz.essayDropped = filtered.dropped;
+        if (wiz.essayDropped > 0) {
+          T.toast('Đã bỏ ' + wiz.essayDropped + ' câu tự luận vì không chơi trong game.');
+        }
+        if (wiz.guessedCount > 0) {
+          setTimeout(function () {
+            T.toast(wiz.guessedCount + ' câu điền khuyết: máy đoán đáp án, thầy cô hãy kiểm tra lại.');
+          }, 400);
+        }
+
+        wiz.fixSource = filtered.questions.length ? QF.toSource(filtered.questions) : '';
+        var recheck = filtered.questions.length
+          ? QF.parse(wiz.fixSource, { allowEssay: false })
+          : { questions: [], errors: [] };
+        wiz.questions = recheck.questions;
+        wiz.errors = recheck.errors;
+        wiz.hasRead = true;
+        wiz.showFixBox = wiz.errors.length > 0 || (wiz.questions.length > 0 && wiz.questions.length < 3);
+        syncDirty();
+        drawStep1Result();
+      }
+
+      var step1ResultBox = null;
+      var step1NextBtn = null;
+
+      function updateNextBtnState() {
+        if (!step1NextBtn) return;
+        var canNext = wiz.hasRead && wiz.errors.length === 0 && wiz.questions.length >= 3;
+        step1NextBtn.disabled = !canNext;
+      }
+
+      function renderQuestionPreviewItem(q, idx) {
+        var typeLabel = TYPE_LABELS[q.type] || 'Câu hỏi';
+        var ansNode = null;
+        if (q.type === 'mc') {
+          var opts = (q.options || []).map(function (opt, oi) {
+            var isRight = oi === q.correct;
+            return h('div', { class: 'game-wiz-prev-opt' + (isRight ? ' is-correct' : '') },
+              h('strong', null, (isRight ? '✓ ' : '') + String.fromCharCode(65 + oi) + '. '),
+              T.mathNodes(opt));
+          });
+          ansNode = h('div', { class: 'game-wiz-prev-opts' },
+            opts,
+            (q.correct < 0 || q.correct >= (q.options || []).length)
+              ? h('p', { class: 'err small' }, 'Chưa đánh dấu đáp án đúng')
+              : null);
+        } else if (q.type === 'fill') {
+          var fillParts = (q.answers || []).map(function (arr, bi) {
+            var s = Array.isArray(arr) ? arr.join(' | ') : String(arr || '');
+            return 'Ô ' + (bi + 1) + ': ' + (s || '(thiếu)');
+          });
+          ansNode = h('p', { class: 'small' },
+            h('strong', null, 'Đáp án: '),
+            h('span', { class: fillParts.length ? 'ok' : 'err' }, T.mathNodes(fillParts.join(' ; ') || '(chưa có đáp án)')));
+        } else {
+          var shortStr = (q.answers || []).join(' | ');
+          ansNode = h('p', { class: 'small' },
+            h('strong', null, 'Đáp án: '),
+            h('span', { class: shortStr ? 'ok' : 'err' }, T.mathNodes(shortStr || '(chưa có đáp án)')));
+        }
+        return h('div', { class: 'game-wiz-prev-item' },
+          h('div', { class: 'game-wiz-prev-head' },
+            h('strong', null, 'Câu ' + (idx + 1)),
+            h('span', { class: 'pill p-blue small' }, typeLabel)),
+          h('p', { class: 'prewrap game-wiz-prev-text' }, T.qNodes(q.text || '(thiếu nội dung)')),
+          (q.image && imgStore) ? imgStore.el(q.image) : null,
+          ansNode);
+      }
+
+      function drawStep1Result() {
+        if (!step1ResultBox) return;
+        updateNextBtnState();
+        if (!wiz.hasRead) {
+          T.fill(step1ResultBox);
+          return;
+        }
+        if (wiz.noQuestionErr) {
+          T.fill(step1ResultBox,
+            h('div', { class: 'errors' }, h('strong', null, wiz.noQuestionErr)));
+          return;
+        }
+
+        var summaryBox = h('div', { class: 'game-wiz-summary-box' });
+        var errBox = h('div');
+        var previewWrap = h('div', { class: 'game-wiz-preview-wrap' });
+
+        var refreshLiveStatus = function () {
+          var qs = wiz.questions;
+          var sm = QF.summary(qs);
+          var parts = [];
+          if (sm.mc) parts.push(sm.mc + ' trắc nghiệm');
+          if (sm.short) parts.push(sm.short + ' trả lời ngắn');
+          if (sm.fill) parts.push(sm.fill + ' điền khuyết');
+          var sumLine = 'Đọc được ' + qs.length + ' câu' + (parts.length ? ': ' + parts.join(' · ') : '');
+
+          T.fill(summaryBox,
+            wiz.essayDropped > 0
+              ? h('div', { class: 'mode-note game-wiz-note' }, 'ℹ️ Đã bỏ ' + wiz.essayDropped + ' câu tự luận vì không chơi trong game.')
+              : null,
+            wiz.guessedCount > 0
+              ? h('div', { class: 'mode-note game-wiz-note' }, '💡 Có ' + wiz.guessedCount + ' câu điền khuyết máy đoán đáp án, thầy cô hãy kiểm tra lại.')
+              : null,
+            h('div', { class: 'parse-status' },
+              wiz.errors.length === 0 && qs.length >= 3
+                ? h('span', { class: 'ok' }, '✓ ' + sumLine)
+                : h('strong', null, sumLine)),
+            qs.length < 3
+              ? h('div', { class: 'errors' }, h('strong', null, 'Cần ít nhất 3 câu hỏi (không tính tự luận) để tạo game. Hiện có ' + qs.length + ' câu.'))
+              : null);
+
+          T.fill(errBox, wiz.errors.length
+            ? h('div', { class: 'errors' },
+                h('strong', null, 'Cần sửa ' + wiz.errors.length + ' lỗi:'),
+                h('ul', null, wiz.errors.map(function (e) { return h('li', null, e); })))
+            : null);
+
+          if (!qs.length) {
+            T.fill(previewWrap);
+          } else {
+            var toggleBtn = h('button', {
+              type: 'button',
+              class: 'btn btn-sm btn-ghost',
+              onclick: function () {
+                wiz.previewOpen = !wiz.previewOpen;
+                refreshLiveStatus();
+              }
+            }, wiz.previewOpen ? ('▴ Thu gọn xem trước (' + qs.length + ' câu)') : ('▾ Xem trước câu hỏi & đáp án (' + qs.length + ' câu)'));
+
+            var editToggleBtn = !wiz.showFixBox ? h('button', {
+              type: 'button',
+              class: 'btn btn-sm btn-ghost',
+              onclick: function () {
+                wiz.showFixBox = true;
+                drawStep1Result();
+              }
+            }, '✏️ Sửa lại nội dung') : null;
+
+            T.fill(previewWrap,
+              h('div', { class: 'add-bar' }, toggleBtn, editToggleBtn),
+              wiz.previewOpen
+                ? h('div', { class: 'game-wiz-prev-list' }, qs.map(function (q, i) { return renderQuestionPreviewItem(q, i); }))
+                : null);
+          }
+          updateNextBtnState();
+        };
+
+        var fixFieldNode = null;
+        if (wiz.showFixBox) {
+          var fixTa = h('textarea', {
+            class: 'game-hub-src',
+            rows: '10',
+            spellcheck: 'false',
+            placeholder: QF.SAMPLE
+          });
+          fixTa.value = wiz.fixSource;
+          fixTa.addEventListener('input', function () {
+            wiz.fixSource = fixTa.value;
+            var rep = parseCleanSource(wiz.fixSource);
+            wiz.questions = rep.questions;
+            wiz.errors = rep.errors;
+            syncDirty();
+            refreshLiveStatus();
+          });
+          fixFieldNode = T.field('Sửa lại nội dung (kiểm tra tự động ngay khi gõ)', fixTa);
+        }
+
+        refreshLiveStatus();
+        T.fill(step1ResultBox, summaryBox, errBox, fixFieldNode, previewWrap);
+      }
+
+      function drawStep1() {
+        drawStepBar();
+        var deTa = h('textarea', {
+          class: 'game-hub-src',
+          rows: '10',
+          spellcheck: 'false',
+          placeholder: 'Dán nội dung đề vào đây (Câu 1, Câu 2… hoặc 1., 2. kèm các lựa chọn A. B. C. D.)…'
+        });
+        deTa.value = wiz.deText;
+
+        var dapAnTa = h('textarea', {
+          rows: '3',
+          spellcheck: 'false',
+          placeholder: 'Ví dụ: 1.B 2.C 3.A, Câu 4: 4/5 (để trống nếu đáp án đã nằm sẵn trong đề)'
+        });
+        dapAnTa.value = wiz.dapAnText;
+
+        deTa.addEventListener('input', function () {
+          wiz.deText = deTa.value;
+          syncDirty();
+        });
+        dapAnTa.addEventListener('input', function () {
+          wiz.dapAnText = dapAnTa.value;
+          syncDirty();
+        });
+
+        var pdfBtn = h('button', {
+          type: 'button',
+          class: 'btn btn-sm btn-ghost',
+          onclick: function () {
+            if (!T.importPdfDialog) return T.toast('Không tìm thấy bộ đọc PDF.', 'error');
+            T.importPdfDialog(true, function (r) {
+              if (wiz.deText.trim() && !confirm('Thay nội dung đề hiện tại bằng đề vừa đọc từ PDF?')) return;
+              wiz.deText = r.source || '';
+              wiz.dapAnText = '';
+              deTa.value = wiz.deText;
+              dapAnTa.value = '';
+              if (imgStore && r.images) {
+                Object.keys(r.images).forEach(function (k) {
+                  imgStore.put(k, r.images[k]);
+                });
+              }
+              syncDirty();
+              runReadExam(r);
+            });
+          }
+        }, '📄 Lấy từ file PDF');
+
+        var readBtn = h('button', {
+          type: 'button',
+          class: 'btn',
+          onclick: function () {
+            wiz.deText = deTa.value;
+            wiz.dapAnText = dapAnTa.value;
+            runReadExam(null);
+          }
+        }, 'Đọc đề →');
+
+        step1NextBtn = h('button', {
+          type: 'button',
+          class: 'btn',
+          disabled: !(wiz.hasRead && wiz.errors.length === 0 && wiz.questions.length >= 3),
+          onclick: function () {
+            if (!wiz.hasRead || wiz.errors.length > 0 || wiz.questions.length < 3) {
+              return T.toast('Cần đọc đề hết lỗi và có ít nhất 3 câu hỏi trước khi tiếp tục.', 'error');
+            }
+            wiz.step = 2;
+            drawStep2();
+          }
+        }, 'Tiếp tục: Thông tin lớp →');
+
+        step1ResultBox = h('div', { class: 'game-wiz-step1-res' });
+
+        T.fill(bodyBox,
+          h('div', { class: 'game-wiz-head-row' },
+            h('p', { class: 'muted small' }, 'Thầy cô dán đề và đáp án (hoặc lấy từ file PDF), hệ thống sẽ tự tách câu hỏi.'),
+            pdfBtn),
+          T.field('Đề bài', deTa),
+          T.field('Đáp án (nếu để riêng)', dapAnTa),
+          h('div', { class: 'actions-start' }, readBtn),
+          step1ResultBox,
+          h('div', { class: 'actions-start game-wiz-foot' },
+            step1NextBtn,
+            h('button', { type: 'button', class: 'btn btn-ghost', onclick: cancelWizard }, 'Hủy')));
+
+        drawStep1Result();
+      }
+
+      function drawStep2() {
+        drawStepBar();
+        var courseChips = h('div', { class: 'chips filter' });
+        var branchWrap = h('div');
+        var sizeInp = h('input', {
+          type: 'number',
+          min: '1',
+          max: '100',
+          step: '1',
+          value: wiz.sizeStr,
+          placeholder: 'VD: 12'
+        });
+        var minChips = h('div', { class: 'chips filter' });
+        var PRESET_MINS = [5, 10, 15, 20, 30];
+        var customMinInp = h('input', {
+          type: 'number',
+          min: '3',
+          max: '60',
+          step: '1',
+          class: 'game-wiz-min-input',
+          value: wiz.customMinStr,
+          placeholder: 'Số phút khác (3–60)'
+        });
+        var titleInp = h('input', {
+          maxlength: '200',
+          value: wiz.title,
+          placeholder: 'Tên bài đấu'
+        });
+
+        sizeInp.addEventListener('input', function () {
+          wiz.sizeStr = sizeInp.value;
+          var v = parseInt(sizeInp.value, 10);
+          if (isFinite(v) && v >= 1 && v <= 100) {
+            T.store.set('ttm_game_size_' + wiz.courseId, String(v));
+          }
+        });
+
+        titleInp.addEventListener('input', function () {
+          wiz.title = titleInp.value;
+          wiz.titleTouched = true;
+        });
+
+        var renderBranchField = function () {
+          var cObj = wiz.courseData && wiz.courseData.course;
+          var brSel = cObj ? T.branchSelect(cObj, wiz.branch) : null;
+          if (!brSel) {
+            wiz.branch = '';
+            T.fill(branchWrap);
+            return;
+          }
+          wiz.branch = brSel.value;
+          brSel.addEventListener('change', function () {
+            wiz.branch = brSel.value;
+          });
+          T.fill(branchWrap, T.field('Môn / nhánh', brSel));
+        };
+
+        var renderCourseChips = function () {
+          T.fill(courseChips, courses.map(function (c) {
+            return h('button', {
+              type: 'button',
+              class: 'chip-btn' + (c.id === wiz.courseId ? ' active' : ''),
+              onclick: function () {
+                if (c.id === wiz.courseId) return;
+                wiz.courseId = c.id;
+                var savedSz = loadSavedClassSize(c.id);
+                if (savedSz) {
+                  wiz.sizeStr = savedSz;
+                  sizeInp.value = savedSz;
+                }
+                if (!wiz.titleTouched) {
+                  wiz.title = defaultWizardTitle(c);
+                  titleInp.value = wiz.title;
+                }
+                renderCourseChips();
+                T.fill(branchWrap, h('p', { class: 'muted small' }, 'Đang tải nhánh của lớp…'));
+                var targetCourseId = c.id;
+                T.api('course', { courseId: targetCourseId }).then(function (cdNew) {
+                  if (!T.isCurrent(seq) || wiz.courseId !== targetCourseId) return;
+                  wiz.courseData = cdNew;
+                  wiz.branch = '';
+                  renderBranchField();
+                }).catch(function (err) {
+                  if (!T.isCurrent(seq) || wiz.courseId !== targetCourseId) return;
+                  T.toast(err.message || 'Không tải được thông tin lớp.', 'error');
+                  T.fill(branchWrap);
+                });
+              }
+            }, c.name + (c.grade ? ' · ' + c.grade : ''));
+          }));
+        };
+
+        var renderMinChips = function () {
+          T.fill(minChips, PRESET_MINS.map(function (m) {
+            var isAct = (!wiz.customMinStr && wiz.minutes === m) || Number(wiz.customMinStr) === m;
+            return h('button', {
+              type: 'button',
+              class: 'chip-btn' + (isAct ? ' active' : ''),
+              onclick: function () {
+                wiz.minutes = m;
+                wiz.customMinStr = '';
+                customMinInp.value = '';
+                renderMinChips();
+              }
+            }, m + ' phút');
+          }));
+        };
+
+        customMinInp.addEventListener('input', function () {
+          wiz.customMinStr = customMinInp.value.trim();
+          if (wiz.customMinStr) {
+            var n = parseInt(wiz.customMinStr, 10);
+            if (isFinite(n)) wiz.minutes = n;
+          } else {
+            wiz.minutes = 10;
+          }
+          renderMinChips();
+        });
+
+        renderCourseChips();
+        renderBranchField();
+        renderMinChips();
+
+        var nextStep3Btn = h('button', {
+          type: 'button',
+          class: 'btn',
+          onclick: function () {
+            var sz = parseInt(wiz.sizeStr, 10);
+            if (!isFinite(sz) || sz < 1 || sz > 100) {
+              sizeInp.focus();
+              return T.toast('Thầy cô vui lòng nhập sĩ số dự kiến (từ 1 đến 100).', 'error');
+            }
+            var mins = wiz.customMinStr ? parseInt(wiz.customMinStr, 10) : wiz.minutes;
+            if (!isFinite(mins) || mins < 3 || mins > 60) {
+              customMinInp.focus();
+              return T.toast('Thời lượng trận cần từ 3 đến 60 phút.', 'error');
+            }
+            if (!wiz.title.trim()) {
+              titleInp.focus();
+              return T.toast('Thầy cô vui lòng nhập tên bài.', 'error');
+            }
+            wiz.sizeStr = String(sz);
+            wiz.minutes = mins;
+            T.store.set('ttm_game_size_' + wiz.courseId, String(sz));
+            wiz.step = 3;
+            drawStep3();
+          }
+        }, 'Xem gợi ý game →');
+
+        T.fill(bodyBox,
+          h('div', { class: 'field' }, h('span', null, 'Lớp (môn học)'), courseChips),
+          branchWrap,
+          h('div', { class: 'row two' },
+            T.field('Sĩ số dự kiến (1–100)', sizeInp),
+            T.field('Tên bài', titleInp)),
+          h('div', { class: 'field' },
+            h('span', null, 'Thời lượng trận'),
+            h('div', { class: 'game-wiz-min-row' }, minChips, customMinInp)),
+          h('div', { class: 'actions-start game-wiz-foot' },
+            h('button', {
+              type: 'button',
+              class: 'btn btn-ghost',
+              onclick: function () {
+                wiz.step = 1;
+                drawStep1();
+              }
+            }, '← Quay lại'),
+            nextStep3Btn,
+            h('button', { type: 'button', class: 'btn btn-ghost', onclick: cancelWizard }, 'Hủy')));
+      }
+
+      function getModeMeta(id) {
+        if (id === 'review') {
+          return {
+            id: 'review',
+            icon: '⚡',
+            name: 'Ôn từ vựng',
+            desc: 'Học sinh tự làm theo tốc độ riêng, mỗi em một thứ tự câu.'
+          };
+        }
+        return window.TTMModes ? window.TTMModes.getGame(id) : { id: id, icon: '🎮', name: id, desc: '' };
+      }
+
+      function formatPlanLine(rec, totalQ) {
+        if (rec.id === 'review') {
+          return 'Mỗi em tự làm trong ' + rec.limitMin + ' phút';
+        }
+        var qPart = rec.useCount < totalQ
+          ? ('Dùng ' + rec.useCount + '/' + totalQ + ' câu')
+          : (totalQ + ' câu');
+        return qPart + ' · ' + rec.duration + ' giây/câu · khoảng ' + rec.estMinutes + ' phút';
+      }
+
+      function drawStep3() {
+        drawStepBar();
+        var sz = parseInt(wiz.sizeStr, 10) || 12;
+        var mins = Number(wiz.minutes) || 10;
+        var recs = window.TTMModes
+          ? window.TTMModes.recommend(wiz.questions, { size: sz, minutes: mins })
+          : [];
+
+        var firstOkId = '';
+        var selectedStillOk = false;
+        for (var i = 0; i < recs.length; i++) {
+          if (recs[i].ok && !firstOkId) firstOkId = recs[i].id;
+          if (recs[i].ok && recs[i].id === wiz.selectedGame) selectedStillOk = true;
+        }
+        if (!selectedStillOk) {
+          wiz.selectedGame = firstOkId;
+        }
+
+        var cardsGrid = h('div', { class: 'game-mode-grid game-wiz-rec-grid' });
+        var createBtn = h('button', {
+          type: 'button',
+          class: 'btn btn-lg',
+          disabled: !wiz.selectedGame
+        }, '🎮 Tạo phòng với game này');
+        var savingQuiz = false;
+
+        var renderRecCards = function () {
+          T.fill(cardsGrid, recs.map(function (rec) {
+            var meta = getModeMeta(rec.id);
+            var isTopRec = rec.ok && rec.id === firstOkId;
+            var isPicked = rec.ok && rec.id === wiz.selectedGame;
+            var isDisabled = !rec.ok;
+            return h('button', {
+              type: 'button',
+              class: 'game-mode-card game-wiz-rec-card'
+                + (isPicked ? ' active' : '')
+                + (isDisabled ? ' is-disabled' : '')
+                + (isTopRec ? ' is-recommended' : ''),
+              disabled: isDisabled,
+              onclick: function () {
+                if (isDisabled || savingQuiz) return;
+                wiz.selectedGame = rec.id;
+                createBtn.disabled = false;
+                renderRecCards();
+              }
+            },
+              h('div', { class: 'game-mode-card-head' },
+                h('span', { class: 'game-mode-icon' }, meta.icon),
+                h('strong', { class: 'game-mode-name' }, meta.name),
+                isTopRec ? h('span', { class: 'pill p-done small game-mode-badge' }, 'Gợi ý') : null),
+              rec.ok
+                ? h('div', { class: 'game-wiz-plan-line' }, '⏱ ' + formatPlanLine(rec, wiz.questions.length))
+                : null,
+              h('ul', { class: 'game-wiz-why-list' + (isDisabled ? ' is-err' : '') },
+                (rec.why || []).map(function (w) { return h('li', null, w); })),
+              rec.warn
+                ? h('div', { class: 'game-wiz-warn-line' }, '⚠️ ' + rec.warn)
+                : null);
+          }));
+        };
+
+        renderRecCards();
+
+        createBtn.addEventListener('click', function () {
+          if (savingQuiz) return;
+          var picked = null;
+          for (var k = 0; k < recs.length; k++) {
+            if (recs[k].id === wiz.selectedGame && recs[k].ok) {
+              picked = recs[k];
+              break;
+            }
+          }
+          if (!picked) return T.toast('Thầy cô vui lòng chọn một kiểu chơi phù hợp.', 'error');
+
+          var finalQuestions = [];
+          for (var qi = 0; qi < wiz.questions.length; qi++) {
+            if (wiz.questions[qi] && wiz.questions[qi].type !== 'essay') {
+              finalQuestions.push(wiz.questions[qi]);
+            }
+          }
+          var finalSource = QF.toSource(finalQuestions);
+          var payload = {
+            courseId: wiz.courseId,
+            title: wiz.title.trim() || defaultWizardTitle(wiz.courseData.course),
+            topic: '',
+            branch: wiz.branch || '',
+            description: '',
+            timeLimit: 0,
+            showAnswers: true,
+            gameOnly: true,
+            source: finalSource,
+            questions: finalQuestions
+          };
+          if (imgStore) {
+            var newImgs = imgStore.newImages(finalQuestions);
+            if (newImgs && newImgs.length) payload.newImages = newImgs;
+          }
+
+          savingQuiz = true;
+          T.busy(createBtn, true, 'Đang tạo phòng…');
+          T.api('saveQuiz', payload).then(function (res) {
+            savingQuiz = false;
+            T.forgetCourse(wiz.courseId);
+            formDirty = false;
+            var planObj = {
+              quizId: res.id,
+              gameType: picked.id,
+              duration: picked.duration,
+              useCount: picked.useCount,
+              limitMin: picked.limitMin
+            };
+            T.store.set('ttm_game_plan', JSON.stringify(planObj));
+            T.go('#/dau-host/' + encodeURIComponent(res.id));
+          }, function (err) {
+            savingQuiz = false;
+            T.busy(createBtn, false);
+            T.toast((err && err.message) || 'Không tạo được bài đấu.', 'error');
+          });
+        });
+
+        var cInfo = wiz.courseData && wiz.courseData.course;
+        var summaryMeta = (cInfo ? cInfo.name : '')
+          + (wiz.branch ? ' · ' + wiz.branch : '')
+          + ' · ' + sz + ' học sinh · ' + mins + ' phút · ' + wiz.questions.length + ' câu';
+
+        T.fill(bodyBox,
+          h('p', { class: 'muted small' }, summaryMeta),
+          cardsGrid,
+          h('div', { class: 'actions-start game-wiz-foot' },
+            h('button', {
+              type: 'button',
+              class: 'btn btn-ghost',
+              onclick: function () {
+                if (savingQuiz) return;
+                wiz.step = 2;
+                drawStep2();
+              }
+            }, '← Quay lại'),
+            createBtn,
+            h('button', {
+              type: 'button',
+              class: 'btn btn-ghost',
+              onclick: function () {
+                if (savingQuiz) return;
+                cancelWizard();
+              }
+            }, 'Hủy')));
+      }
+
+      T.fill(formBox,
+        h('div', { class: 'panel form game-hub-form game-wiz-panel' },
+          h('h3', { class: 'game-subhead' }, '✨ Tạo game từ đề + đáp án'),
+          stepBar,
+          bodyBox));
+      drawStep1();
     }
   }
 
@@ -1569,6 +2364,7 @@
       var durField = h('div', { class: 'field' }, h('span', null, 'Thời gian suy nghĩ mỗi câu'), durBar);
       var limitField = h('div', { class: 'field' }, h('span', null, 'Thời gian cho cả lượt ôn'), limitBar);
       var shuffleField = h('label', { class: 'check' }, shuffleBox, 'Trộn thứ tự câu hỏi');
+      var planBanner = h('div');
 
       var allModeCards = (window.TTMModes ? window.TTMModes.GAMES : []).concat([
         {
@@ -1580,6 +2376,61 @@
         }
       ]);
 
+      var plan = null;
+      var rawPlan = T.store.get('ttm_game_plan');
+      if (rawPlan) {
+        try {
+          var parsedPlan = JSON.parse(rawPlan);
+          if (parsedPlan && parsedPlan.quizId === q.id && parsedPlan.gameType) {
+            plan = parsedPlan;
+            T.store.set('ttm_game_plan', null);
+          }
+        } catch (e) {
+          plan = null;
+        }
+      }
+
+      if (plan) {
+        var validMode = false;
+        for (var mi = 0; mi < allModeCards.length; mi++) {
+          if (allModeCards[mi].id === plan.gameType) validMode = true;
+        }
+        if (validMode) gameMode = plan.gameType;
+        var pDur = Number(plan.duration);
+        if (pDur && DURATIONS.indexOf(pDur) !== -1) duration = pDur;
+        var pLim = Number(plan.limitMin);
+        if (pLim && window.TTMReview && window.TTMReview.LIMITS.indexOf(pLim) !== -1) limitMin = pLim;
+      }
+
+      function getModeTitle(id) {
+        for (var i = 0; i < allModeCards.length; i++) {
+          if (allModeCards[i].id === id) return allModeCards[i].name;
+        }
+        return id;
+      }
+
+      function drawPlanBanner() {
+        if (!plan) {
+          T.fill(planBanner);
+          return;
+        }
+        var pName = getModeTitle(plan.gameType);
+        var detail = plan.gameType === 'review'
+          ? (limitMin + ' phút')
+          : (duration + ' giây/câu');
+        var planUseCount = Number(plan.useCount || 0);
+        var hasSubset = plan.gameType !== 'review' && planUseCount > 0 && planUseCount < baseQuestions.length;
+        var subsetActive = hasSubset && gameMode === plan.gameType;
+        T.fill(planBanner,
+          h('div', { class: 'mode-note game-plan-banner' },
+            h('div', null, '✨ Đã chọn theo gợi ý: ', h('strong', null, pName + ' (' + detail + ')'), ', thầy cô vẫn đổi được.'),
+            hasSubset
+              ? h('div', { class: 'small' + (subsetActive ? '' : ' muted') },
+                  '🎲 Dùng ngẫu nhiên ' + planUseCount + '/' + baseQuestions.length + ' câu'
+                  + (subsetActive ? ' khi mở phòng với kiểu chơi này.' : ' (chỉ áp dụng khi mở đúng kiểu chơi đã gợi ý).'))
+              : null));
+      }
+
       function drawMode() {
         var isReview = gameMode === 'review';
         T.fill(modeBar, allModeCards.map(function (m) {
@@ -1588,12 +2439,14 @@
             : (suggestions[m.id] || { ok: true, recommended: false, note: '' });
           var isDisabled = !sug.ok;
           var isActive = gameMode === m.id;
+          var isRec = plan ? (m.id === plan.gameType && !isDisabled) : !!sug.recommended;
+          var noteText = plan ? (isDisabled ? sug.note : '') : sug.note;
           return h('button', {
             type: 'button',
             class: 'game-mode-card'
               + (isActive ? ' active' : '')
               + (isDisabled ? ' is-disabled' : '')
-              + (sug.recommended ? ' is-recommended' : ''),
+              + (isRec ? ' is-recommended' : ''),
             disabled: isDisabled,
             onclick: function () {
               if (isDisabled) return;
@@ -1604,11 +2457,11 @@
             h('div', { class: 'game-mode-card-head' },
               h('span', { class: 'game-mode-icon' }, m.icon),
               h('strong', { class: 'game-mode-name' }, m.name),
-              sug.recommended ? h('span', { class: 'pill p-done small game-mode-badge' }, 'Gợi ý') : null
+              isRec ? h('span', { class: 'pill p-done small game-mode-badge' }, 'Gợi ý') : null
             ),
             h('span', { class: 'game-mode-desc' }, m.desc),
-            sug.note ? h('span', { class: 'game-mode-note' + (isDisabled ? ' is-err' : '') },
-              (sug.recommended ? '💡 ' : '') + sug.note
+            noteText ? h('span', { class: 'game-mode-note' + (isDisabled ? ' is-err' : '') },
+              (isRec ? '💡 ' : '') + noteText
             ) : null
           );
         }));
@@ -1623,9 +2476,11 @@
         modeHint.textContent = isReview
           ? 'Học sinh tự làm theo tốc độ riêng, mỗi em một thứ tự câu. Thầy cô theo dõi từng em và xếp hạng cuối lượt. Chỉ dùng câu trắc nghiệm.'
           : (curGameInfo ? curGameInfo.desc : 'Thầy cô điều khiển, cả lớp trả lời cùng một câu rồi xem đáp án. Có thể chia 3 nhóm ở sảnh chờ.');
+        var useSubsetNow = plan && gameMode === plan.gameType && gameMode !== 'review' && Number(plan.useCount) > 0 && Number(plan.useCount) < baseQuestions.length;
         durField.style.display = isReview ? 'none' : '';
-        shuffleField.style.display = isReview ? 'none' : '';
+        shuffleField.style.display = (isReview || useSubsetNow) ? 'none' : '';
         limitField.style.display = isReview ? '' : 'none';
+        drawPlanBanner();
       }
 
       function openReviewRoom() {
@@ -1669,7 +2524,7 @@
           return h('button', {
             type: 'button',
             class: 'chip-btn' + (duration === sec ? ' active' : ''),
-            onclick: function () { duration = sec; drawDur(); }
+            onclick: function () { duration = sec; drawDur(); drawPlanBanner(); }
           }, sec + ' giây');
         }));
       }
@@ -1698,7 +2553,13 @@
         else if (selectedType === 'tug') initGameData = { rope: 0 };
         else if (selectedType === 'relay') initGameData = { points: [0, 0, 0], pointers: [0, 0, 0] };
 
-        var qs = shuffleBox.checked ? shuffleArray(baseQuestions) : baseQuestions.slice();
+        var usePlanSubset = plan && selectedType === plan.gameType && Number(plan.useCount) > 0 && Number(plan.useCount) < baseQuestions.length;
+        var qs;
+        if (usePlanSubset) {
+          qs = shuffleArray(baseQuestions).slice(0, Number(plan.useCount));
+        } else {
+          qs = shuffleBox.checked ? shuffleArray(baseQuestions) : baseQuestions.slice();
+        }
         T.busy(openBtn, true, 'Đang tạo mã phòng…');
         createUniquePin(fb.db, 0).then(function (pin) {
           if (!tracker.alive()) return;
@@ -1821,6 +2682,7 @@
           h('p', { class: 'muted' }, baseQuestions.length + ' câu (' + parts.join(', ') + ')')),
         resumeBanner,
         h('div', { class: 'panel form game-setup-panel' },
+          planBanner,
           h('div', { class: 'field' },
             h('span', null, 'Kiểu chơi'),
             modeBar,

@@ -4836,6 +4836,8 @@
     field: field,
     branchSelect: branchSelect,
     topicInput: topicInput,
+    importPdfDialog: importPdfDialog,
+    imageStore: imageStore,
     forgetCourse: function (id) { coursesCache = null; delete viewCache['course:' + id]; },
     store: store,
     getMe: function () { return me; },
