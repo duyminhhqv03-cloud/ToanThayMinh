@@ -94,35 +94,43 @@
     { name: 'Nhóm Vàng', icon: '🟡', color: '#d89e00' }
   ];
 
-  function splitTeams(uids) {
+  function splitTeams(uids, n) {
+    if (window.TTMModes && window.TTMModes.splitTeams) {
+      return window.TTMModes.splitTeams(uids, n, shuffleArray);
+    }
+    var count = (typeof n === 'number' && n > 0) ? Math.floor(n) : 3;
     var shuffled = shuffleArray(uids || []);
     var res = {};
     for (var i = 0; i < shuffled.length; i++) {
-      res[shuffled[i]] = i % 3;
+      res[shuffled[i]] = i % count;
     }
     return res;
   }
 
-  function teamStandings(teamOf, playersMap, scoresMap) {
+  function teamStandings(teamOf, playersMap, scoresMap, n) {
+    if (window.TTMModes && window.TTMModes.teamStandings) {
+      return window.TTMModes.teamStandings(teamOf, playersMap, scoresMap, n);
+    }
     teamOf = teamOf || {};
     playersMap = playersMap || {};
     scoresMap = scoresMap || {};
+    var count = (typeof n === 'number' && n > 0) ? Math.floor(n) : 3;
     var list = [];
-    for (var t = 0; t < 3; t++) {
+    for (var t = 0; t < count; t++) {
       var total = 0;
-      var n = 0;
+      var cnt = 0;
       for (var uid in playersMap) {
         if (Object.prototype.hasOwnProperty.call(playersMap, uid)) {
           if (teamOf[uid] === t) {
-            n++;
+            cnt++;
             var sObj = scoresMap[uid];
             total += (sObj && typeof sObj.score === 'number') ? sObj.score : 0;
           }
         }
       }
-      if (n > 0) {
-        var avg = Math.round(total / n * 10) / 10;
-        list.push({ t: t, avg: avg, total: total, n: n, rank: 1 });
+      if (cnt > 0) {
+        var avg = Math.round(total / cnt * 10) / 10;
+        list.push({ t: t, avg: avg, total: total, n: cnt, rank: 1 });
       }
     }
     list.sort(function (a, b) {
@@ -140,21 +148,26 @@
     return list;
   }
 
-  function smallestTeam(teamOf, playersMap) {
+  function smallestTeam(teamOf, playersMap, n) {
+    if (window.TTMModes && window.TTMModes.smallestTeam) {
+      return window.TTMModes.smallestTeam(teamOf, playersMap, n);
+    }
     teamOf = teamOf || {};
     playersMap = playersMap || {};
-    var counts = [0, 0, 0];
+    var count = (typeof n === 'number' && n > 0) ? Math.floor(n) : 3;
+    var counts = [];
+    for (var k = 0; k < count; k++) counts.push(0);
     for (var uid in playersMap) {
       if (Object.prototype.hasOwnProperty.call(playersMap, uid)) {
         var t = teamOf[uid];
-        if (t === 0 || t === 1 || t === 2) {
+        if (typeof t === 'number' && t >= 0 && t < count) {
           counts[t]++;
         }
       }
     }
     var minIdx = 0;
     var minCount = counts[0];
-    for (var i = 1; i < 3; i++) {
+    for (var i = 1; i < count; i++) {
       if (counts[i] < minCount) {
         minCount = counts[i];
         minIdx = i;
@@ -163,7 +176,12 @@
     return minIdx;
   }
 
-  function teamBoardEl(teams, myTeam) {
+  function playerNameOf(playersMap, uid) {
+    if (!playersMap || !uid || !playersMap[uid]) return 'bạn cùng nhóm';
+    return playersMap[uid].name || playersMap[uid].username || 'Học sinh';
+  }
+
+  function teamBoardEl(teams, myTeam, gameType) {
     var T = window.TTM;
     var h = T.h;
     if (!teams || !teams.length) {
@@ -173,6 +191,24 @@
       var info = TEAMS[tm.t] || { name: 'Nhóm ' + (tm.t + 1), icon: '👥', color: '#1368ce' };
       var isMine = (myTeam !== null && myTeam !== undefined && Number(myTeam) === Number(tm.t));
       var medal = tm.rank === 1 ? '🥇 ' : tm.rank === 2 ? '🥈 ' : tm.rank === 3 ? '🥉 ' : '';
+      var subText;
+      var badgeText;
+      if (gameType === 'race') {
+        var stepVal = tm.value !== undefined ? tm.value : (tm.avg || 0);
+        subText = (tm.pct !== undefined ? Math.round(tm.pct) + '% đường đua · ' : '') + tm.n + ' bạn';
+        badgeText = T.fmtScore(Math.round(stepVal * 10) / 10) + ' bước';
+      } else if (gameType === 'relay') {
+        var rVal = tm.value !== undefined ? tm.value : (tm.total || 0);
+        subText = 'Tiếp sức · ' + tm.n + ' bạn';
+        badgeText = T.fmtScore(rVal) + ' điểm';
+      } else if (gameType === 'tug') {
+        var adv = tm.value !== undefined ? tm.value : 0;
+        subText = 'TB cá nhân ' + T.fmtScore(tm.avg || 0) + ' đ · ' + tm.n + ' bạn';
+        badgeText = adv > 0 ? ('+' + T.fmtScore(adv) + '% dây') : (adv < 0 ? (T.fmtScore(adv) + '% dây') : (T.fmtScore(tm.avg || 0) + ' đ'));
+      } else {
+        subText = 'Tổng ' + T.fmtScore(tm.total || 0) + ' đ · ' + tm.n + ' bạn';
+        badgeText = T.fmtScore(tm.avg || 0) + ' đ';
+      }
       return h('div', {
         class: 'game-team-row' + (isMine ? ' is-mine' : ''),
         style: '--team-color:' + info.color
@@ -184,13 +220,105 @@
             h('strong', null, info.name),
             isMine ? h('span', { class: 'pill p-blue small game-team-mine-badge' }, 'Nhóm của em') : null
           ),
-          h('div', { class: 'muted small' }, 'Tổng ' + T.fmtScore(tm.total) + ' đ · ' + tm.n + ' bạn')
+          h('div', { class: 'muted small' }, subText)
         ),
         h('div', { class: 'game-team-score' },
-          h('span', { class: 'pill p-done game-team-avg' }, T.fmtScore(tm.avg) + ' đ')
+          h('span', { class: 'pill p-done game-team-avg' }, badgeText)
         )
       );
     }));
+  }
+
+  function raceTrackEl(positions, total, teamOf, playersMap, compact) {
+    var T = window.TTM;
+    var h = T.h;
+    var M = window.TTMModes;
+    var posArr = M ? M.toNumArray(positions, 3, 0) : [0, 0, 0];
+    var tot = Math.max(1, Number(total) || 1);
+    var lanes = [0, 1, 2].map(function (t) {
+      var info = TEAMS[t];
+      var pos = Math.max(0, Math.min(tot, Number(posArr[t] || 0)));
+      var pct = Math.min(100, Math.max(0, Math.round((pos / tot) * 1000) / 10));
+      return h('div', {
+        class: 'game-race-lane',
+        style: '--team-color:' + info.color
+      },
+        h('div', { class: 'game-race-head' },
+          h('span', { class: 'game-race-team' }, info.icon + ' ' + info.name),
+          h('span', { class: 'game-race-step' }, T.fmtScore(Math.round(pos * 10) / 10) + '/' + tot + ' bước')
+        ),
+        h('div', { class: 'game-race-rail' },
+          h('div', { class: 'game-race-fill', style: 'width:' + pct + '%' }),
+          h('div', { class: 'game-race-finish', title: 'Vạch đích' }, '🏁'),
+          h('div', { class: 'game-race-runner', style: 'left:' + pct + '%' }, info.icon)
+        )
+      );
+    });
+    return h('div', { class: 'panel game-race-track' + (compact ? ' is-compact' : '') }, lanes);
+  }
+
+  function tugRopeEl(rope, compact) {
+    var T = window.TTM;
+    var h = T.h;
+    var r = Math.max(-100, Math.min(100, Number(rope || 0)));
+    if (!isFinite(r)) r = 0;
+    var knotLeft = Math.round((50 - r / 2) * 10) / 10;
+    var statusText;
+    if (r >= 100) statusText = '🏆 Nhóm Đỏ kéo thắng tuyệt đối!';
+    else if (r <= -100) statusText = '🏆 Nhóm Xanh kéo thắng tuyệt đối!';
+    else if (r > 0) statusText = 'Nhóm Đỏ đang kéo lệch +' + T.fmtScore(Math.abs(r)) + '%';
+    else if (r < 0) statusText = 'Nhóm Xanh đang kéo lệch +' + T.fmtScore(Math.abs(r)) + '%';
+    else statusText = 'Hai nhóm đang cân bằng (0%)';
+
+    return h('div', { class: 'panel game-tug-wrap' + (compact ? ' is-compact' : '') },
+      h('div', { class: 'game-tug-ends' },
+        h('span', { class: 'game-tug-side is-red' }, '🔴 Nhóm Đỏ'),
+        h('span', { class: 'game-tug-status muted small' }, statusText),
+        h('span', { class: 'game-tug-side is-blue' }, '🔵 Nhóm Xanh')
+      ),
+      h('div', { class: 'game-tug-track' },
+        h('div', { class: 'game-tug-zone is-red' }),
+        h('div', { class: 'game-tug-zone is-blue' }),
+        h('div', { class: 'game-tug-rope-line' }),
+        h('div', { class: 'game-tug-center', title: 'Vạch giữa' }),
+        h('div', { class: 'game-tug-knot', style: 'left:' + knotLeft + '%' }, '🪢')
+      )
+    );
+  }
+
+  function relayStatusEl(relayMap, teamOf, playersMap, points, compact) {
+    var T = window.TTM;
+    var h = T.h;
+    var M = window.TTMModes;
+    var pts = M ? M.toNumArray(points, 3, 0) : [0, 0, 0];
+    var cols = [0, 1, 2].map(function (t) {
+      var info = TEAMS[t];
+      var slot = relayMap && (relayMap[t] || relayMap[String(t)]);
+      var turnNote;
+      if (!slot) {
+        turnNote = 'Chưa có thành viên';
+      } else if (slot.done && slot.ok) {
+        var winName = playerNameOf(playersMap, slot.uid);
+        var gained = slot.gain || (M ? M.relayPoints(slot.tried) : 100);
+        turnNote = '✅ ' + winName + ' trả lời đúng (+' + T.fmtScore(gained) + ' đ)';
+      } else if (slot.done && !slot.ok) {
+        turnNote = '❌ Cả nhóm đã hết lượt';
+      } else {
+        var curName = playerNameOf(playersMap, slot.uid);
+        turnNote = '⚡ Đang tới lượt: ' + curName + (slot.tried ? ' (lượt ' + (Number(slot.tried) + 1) + ')' : '');
+      }
+      return h('div', {
+        class: 'game-relay-col',
+        style: '--team-color:' + info.color
+      },
+        h('div', { class: 'game-relay-col-head' },
+          h('strong', { style: 'color:' + info.color }, info.icon + ' ' + info.name),
+          h('span', { class: 'pill p-done small' }, T.fmtScore(pts[t]) + ' điểm')
+        ),
+        h('div', { class: 'game-relay-col-turn small' }, turnNote)
+      );
+    });
+    return h('div', { class: 'game-relay-strip' + (compact ? ' is-compact' : '') }, cols);
   }
 
   /** Quản lý các listener Firebase và đồng hồ đếm ngược, tự dọn sạch khi rời trang. */
@@ -615,15 +743,19 @@
       var st = null;
       var q = null;
       var rev = null;
-      var myScoreObj = { score: 0, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, rank: null };
+      var hasServerScore = false;
+      var myScoreObj = { score: 0, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, lastLoss: 0, rank: null };
       var playersRoster = {};
       var playerCount = 1;
       var currentPhase = '';
       var currentQIndex = -1;
-      var drawnQIndex = -1;
-      var checkedAnsIndex = -1;
+      var currentQKey = '';
+      var currentSub = '';
+      var lastRelaySig = '';
+      var drawnQKey = '';
+      var checkedAnsKey = '';
       var stopTimer = null;
-      var answeredMap = {}; // index -> { a, sent }
+      var answeredMap = {}; // qkey -> { a, sent }
       var stage = h('div', { class: 'game-student-stage' });
       var headMeta = h('span', { class: 'muted small' }, room.quizTitle || '');
       var lobbyCountPill = null;
@@ -640,8 +772,16 @@
         if (stopTimer) { stopTimer(); stopTimer = null; }
       }
 
+      function currentEffectiveScore() {
+        if (!hasServerScore && st && st.gameType === 'wager') {
+          return window.TTMModes ? window.TTMModes.WAGER_START : 1000;
+        }
+        return Number(myScoreObj.score || 0);
+      }
+
       function updateHeadMeta() {
-        headMeta.textContent = (room.quizTitle || '') + (myScoreObj.score ? ' · ' + T.fmtScore(myScoreObj.score) + ' đ' : '');
+        var sc = currentEffectiveScore();
+        headMeta.textContent = (room.quizTitle || '') + (sc ? ' · ' + T.fmtScore(sc) + ' đ' : '');
       }
 
       // Lắng nghe danh sách người chơi để đếm số bạn trong phòng và tự ghi danh lại nếu mất mạng
@@ -663,6 +803,9 @@
           if (st && st.teamMode && st.teamOf) {
             drawStudentLobby();
           }
+        } else if (currentPhase === 'question' && st && st.gameType === 'relay') {
+          var curQ = (q && Number(q.index) === Number(st.index)) ? q : { index: Number(st.index), type: 'mc', text: '', options: [] };
+          drawStudentQuestion(room, st, curQ, myScoreObj);
         } else if (currentPhase === 'end' && st) {
           drawStudentEnd(room, st, myScoreObj, playerCount);
         }
@@ -670,10 +813,17 @@
 
       // Lắng nghe điểm của riêng mình
       tr.on(roomRef.child('scores/' + uid), 'value', function (snap) {
-        myScoreObj = snap.val() || { score: 0, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, rank: null };
+        hasServerScore = snap.exists();
+        var val = snap.val();
+        if (val) {
+          myScoreObj = val;
+        } else {
+          var defSc = (st && st.gameType === 'wager' && window.TTMModes) ? window.TTMModes.WAGER_START : 0;
+          myScoreObj = { score: defSc, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, lastLoss: 0, rank: null };
+        }
         updateHeadMeta();
         if (currentPhase === 'question' && qScorePill) {
-          qScorePill.textContent = T.fmtScore(myScoreObj.score || 0) + ' điểm';
+          qScorePill.textContent = T.fmtScore(currentEffectiveScore()) + ' điểm';
         } else if (currentPhase === 'reveal' && st) {
           drawStudentReveal(room, st, rev || {}, myScoreObj, q);
         } else if (currentPhase === 'end' && st) {
@@ -686,7 +836,7 @@
         q = snap.val() || null;
         if (!st) return;
         if (st.phase === 'question' && q && Number(q.index) === Number(st.index)) {
-          drawnQIndex = Number(st.index);
+          drawnQKey = String(st.qkey !== undefined && st.qkey !== null ? st.qkey : st.index);
           drawStudentQuestion(room, st, q, myScoreObj);
         } else if (st.phase === 'reveal') {
           drawStudentReveal(room, st, rev || {}, myScoreObj, q);
@@ -721,6 +871,7 @@
 
         var teamMap = (st && st.teamOf) || {};
         var myT = teamMap[uid];
+        var tCount = Number((st && st.teamCount) || (window.TTMModes && st ? window.TTMModes.teamCount(st.gameType) : 3) || 3);
         var teamContent;
         if (myT !== undefined && myT !== null && TEAMS[myT]) {
           var tmInfo = TEAMS[myT];
@@ -757,7 +908,7 @@
           teamContent = h('div', { class: 'panel game-team-waiting' },
             h('div', { class: 'game-status-icon' }, '🎲'),
             h('h3', null, 'Thầy cô sắp chia nhóm…'),
-            h('p', { class: 'muted small', style: 'margin:6px 0 0' }, 'Em sẽ được xếp ngẫu nhiên vào một trong 3 nhóm khi bắt đầu.'));
+            h('p', { class: 'muted small', style: 'margin:6px 0 0' }, 'Em sẽ được xếp ngẫu nhiên vào một trong ' + tCount + ' nhóm khi bắt đầu.'));
         }
 
         T.fill(stage,
@@ -796,26 +947,39 @@
           clearQTimer();
           currentPhase = 'lobby';
           currentQIndex = -1;
-          drawnQIndex = -1;
+          currentQKey = '';
+          currentSub = '';
+          lastRelaySig = '';
+          drawnQKey = '';
           drawStudentLobby();
           return;
         }
 
         if (st.phase === 'question') {
           var qIdx = Number(st.index);
-          var phaseChanged = currentPhase !== 'question' || currentQIndex !== qIdx;
+          var qKey = String(st.qkey !== undefined && st.qkey !== null ? st.qkey : qIdx);
+          var sub = String(st.sub || '');
+          var myT = st.teamOf && st.teamOf[uid];
+          var relaySig = st.gameType === 'relay'
+            ? ((st.relay && myT !== undefined && myT !== null) ? JSON.stringify(st.relay[myT] || null) : JSON.stringify(st.relay || null))
+            : '';
+          var phaseChanged = (currentPhase !== 'question' || currentQIndex !== qIdx || currentQKey !== qKey || currentSub !== sub || relaySig !== lastRelaySig);
           currentPhase = 'question';
           currentQIndex = qIdx;
+          currentQKey = qKey;
+          currentSub = sub;
+          lastRelaySig = relaySig;
 
-          // Kiểm tra xem mình đã trả lời câu đang hỏi chưa (khi vào lại giữa chừng)
-          if (!answeredMap[qIdx] && checkedAnsIndex !== qIdx) {
-            checkedAnsIndex = qIdx;
-            roomRef.child('answers/' + qIdx + '/' + uid).once('value').then(function (ansSnap) {
+          // Kiểm tra xem mình đã trả lời (hoặc cược) bước đang mở chưa (khi vào lại giữa chừng)
+          if (!answeredMap[qKey] && checkedAnsKey !== qKey) {
+            checkedAnsKey = qKey;
+            roomRef.child('answers/' + qKey + '/' + uid).once('value').then(function (ansSnap) {
               if (!tr.alive()) return;
               var existingAns = ansSnap.val();
-              if (existingAns && existingAns.a !== undefined && !answeredMap[qIdx]) {
-                answeredMap[qIdx] = { a: existingAns.a, sent: true };
-                if (st && st.phase === 'question' && Number(st.index) === qIdx) {
+              if (existingAns && existingAns.a !== undefined && !answeredMap[qKey]) {
+                answeredMap[qKey] = { a: existingAns.a, sent: true };
+                var curKeyNow = st ? String(st.qkey !== undefined && st.qkey !== null ? st.qkey : st.index) : '';
+                if (st && st.phase === 'question' && curKeyNow === qKey) {
                   var curQ = (q && Number(q.index) === qIdx) ? q : { index: qIdx, type: 'mc', text: '', options: [] };
                   drawStudentQuestion(room, st, curQ, myScoreObj);
                 }
@@ -823,8 +987,8 @@
             }).catch(function () {});
           }
 
-          if (q && Number(q.index) === qIdx && (phaseChanged || drawnQIndex !== qIdx)) {
-            drawnQIndex = qIdx;
+          if (q && Number(q.index) === qIdx && (phaseChanged || drawnQKey !== qKey)) {
+            drawnQKey = qKey;
             drawStudentQuestion(room, st, q, myScoreObj);
           } else if (phaseChanged && (!q || Number(q.index) !== qIdx)) {
             drawStudentQuestion(room, st, { index: qIdx, type: 'mc', text: '', options: [] }, myScoreObj);
@@ -852,14 +1016,113 @@
       function drawStudentQuestion(room, st, q, myScoreObj) {
         clearQTimer();
         var qIdx = Number(st.index);
-        var clockEl = h('span', { class: 'clock game-clock' }, '⏱ ' + (st.duration || 20) + 's');
+        var qKey = String(st.qkey !== undefined && st.qkey !== null ? st.qkey : qIdx);
+        var gType = (st && st.gameType) || 'classic';
+        var isBetStep = (gType === 'wager' && (st.sub === 'bet' || qKey.charAt(0) === 'b'));
+        var curScoreVal = currentEffectiveScore();
+        var clockEl = h('span', { class: 'clock game-clock' }, '⏱ ' + (st.duration || (isBetStep ? 10 : 20)) + 's');
         var bodyBox = h('div', { class: 'game-student-answer-area' });
-        qScorePill = h('span', { class: 'pill p-blue' }, T.fmtScore(myScoreObj.score || 0) + ' điểm');
+        qScorePill = h('span', { class: 'pill p-blue' }, T.fmtScore(curScoreVal) + ' điểm');
 
-        function renderLocked(msg, pickedLabel) {
+        var teamMap = (st && st.teamOf) || {};
+        var myT = teamMap[uid];
+        var myTeamPill = null;
+        if (st && st.teamMode && myT !== undefined && myT !== null && TEAMS[myT]) {
+          var tmInfo = TEAMS[myT];
+          myTeamPill = h('span', {
+            class: 'pill game-team-pill',
+            style: '--team-color:' + tmInfo.color
+          }, tmInfo.icon + ' ' + tmInfo.name);
+        }
+
+        if (isBetStep) {
+          var M = window.TTMModes;
+          var levels = (M && M.BET_LEVELS) ? M.BET_LEVELS : [100, 200, 300, 500, 'all'];
+
+          var renderBetLocked = function (msg) {
+            T.fill(bodyBox,
+              h('div', { class: 'panel game-sent-box' },
+                h('div', { class: 'game-status-icon' }, '🎲'),
+                h('h3', null, msg)));
+          };
+
+          var betLabelText = function (lvlIdx) {
+            var amt = M ? M.betAmount(lvlIdx, curScoreVal) : 100;
+            return T.fmtScore(amt);
+          };
+
+          var submitBet = function (lvlIdx) {
+            if (answeredMap[qKey]) return;
+            answeredMap[qKey] = { a: lvlIdx, sent: true };
+            renderBetLocked('Đã cược ' + betLabelText(lvlIdx) + ', chờ câu hỏi…');
+            roomRef.child('answers/' + qKey + '/' + uid).set({
+              a: lvlIdx,
+              t: window.firebase.database.ServerValue.TIMESTAMP
+            }).catch(function (err) {
+              delete answeredMap[qKey];
+              T.toast('Không gửi được mức cược: ' + (err.message || 'Hết giờ hoặc lỗi mạng.'), 'error');
+              drawBetControls();
+            });
+          };
+
+          var drawBetControls = function () {
+            if (answeredMap[qKey]) {
+              renderBetLocked('Đã cược ' + betLabelText(answeredMap[qKey].a) + ', chờ câu hỏi…');
+              return;
+            }
+            var leftMs = (Number(st.startedAt || 0) + Number(st.duration || 10) * 1000) - serverNow();
+            if (st.startedAt && leftMs <= 0) {
+              renderBetLocked('Em chưa chọn, mức cược là 100');
+              return;
+            }
+            T.fill(bodyBox,
+              h('div', { class: 'game-bet-grid' }, levels.map(function (lv, idx) {
+                var isAll = lv === 'all';
+                var amt = M ? M.betAmount(idx, curScoreVal) : (isAll ? Math.max(curScoreVal, 100) : lv);
+                return h('button', {
+                  type: 'button',
+                  class: 'game-bet-btn' + (isAll ? ' is-all' : ''),
+                  onclick: function () { submitBet(idx); }
+                },
+                  h('span', { class: 'game-bet-title' }, isAll ? '🔥 Tất tay' : (T.fmtScore(lv) + ' điểm')),
+                  h('span', { class: 'game-bet-sub muted small' }, isAll ? ('Cược ' + T.fmtScore(amt) + ' điểm') : 'Đúng cộng · Sai trừ')
+                );
+              }))
+            );
+          };
+
+          var tickBet = function () {
+            if (!st.startedAt) return;
+            var leftMs = (Number(st.startedAt) + Number(st.duration || 10) * 1000) - serverNow();
+            var sec = Math.max(0, Math.ceil(leftMs / 1000));
+            clockEl.textContent = '⏱ ' + sec + 's';
+            clockEl.classList.toggle('low', sec <= 3);
+            if (leftMs <= 0 && !answeredMap[qKey]) {
+              clearQTimer();
+              renderBetLocked('Em chưa chọn, mức cược là 100');
+            }
+          };
+
+          T.fill(stage,
+            h('div', { class: 'panel game-student-q' },
+              h('div', { class: 'game-q-top' },
+                h('span', { class: 'q-num' }, 'Câu ' + (qIdx + 1) + ' / ' + (st.total || 1) + ' · Đặt cược'),
+                clockEl,
+                qScorePill),
+              h('p', { class: 'game-student-qtext' }, '🎲 Chọn mức điểm em muốn cược cho câu ' + (qIdx + 1) + ':'),
+              h('p', { class: 'muted small', style: 'margin:4px 0 0' }, 'Điểm hiện có của em: ' + T.fmtScore(curScoreVal) + ' điểm')),
+            bodyBox);
+
+          drawBetControls();
+          tickBet();
+          stopTimer = tr.interval(tickBet, 250);
+          return;
+        }
+
+        function renderLocked(msg, pickedLabel, iconStr) {
           T.fill(bodyBox,
             h('div', { class: 'panel game-sent-box' },
-              h('div', { class: 'game-status-icon' }, '📨'),
+              h('div', { class: 'game-status-icon' }, iconStr || '📨'),
               h('h3', null, msg || 'Đã gửi, chờ các bạn…'),
               pickedLabel ? h('p', { class: 'muted' }, 'Câu trả lời của em: ', h('strong', null, pickedLabel)) : null));
         }
@@ -878,22 +1141,46 @@
         }
 
         function submitAnswer(val) {
-          if (answeredMap[qIdx]) return;
-          answeredMap[qIdx] = { a: val, sent: true };
+          if (answeredMap[qKey]) return;
+          answeredMap[qKey] = { a: val, sent: true };
           renderLocked('Đã gửi, chờ các bạn…', formatPicked(val));
-          roomRef.child('answers/' + qIdx + '/' + uid).set({
+          roomRef.child('answers/' + qKey + '/' + uid).set({
             a: val,
             t: window.firebase.database.ServerValue.TIMESTAMP
           }).catch(function (err) {
-            delete answeredMap[qIdx];
+            delete answeredMap[qKey];
             T.toast('Không gửi được câu trả lời: ' + (err.message || 'Hết giờ hoặc lỗi mạng.'), 'error');
             drawControls();
           });
         }
 
+        var relaySlot = (gType === 'relay' && st.relay && myT !== undefined && myT !== null)
+          ? (st.relay[myT] || st.relay[String(myT)])
+          : null;
+        var relayTriedUids = (gType === 'relay' && window.TTMModes)
+          ? window.TTMModes.toStrArray(relaySlot && relaySlot.triedUids)
+          : [];
+        var isRelayMyTurn = (gType === 'relay' && relaySlot && !relaySlot.done && relaySlot.uid === uid);
+
         function drawControls() {
-          if (answeredMap[qIdx]) {
-            renderLocked('Đã gửi, chờ các bạn…', formatPicked(answeredMap[qIdx].a));
+          if (gType === 'relay') {
+            if (relaySlot && relaySlot.done) {
+              renderLocked('Nhóm em đã xong câu này', null, relaySlot.ok ? '✅' : '🏁');
+              return;
+            }
+            if (!isRelayMyTurn && (relayTriedUids.indexOf(uid) >= 0 || answeredMap[qKey])) {
+              renderLocked('Em đã trả lời, chờ các bạn nhé', null, '⏳');
+              return;
+            }
+            if (!isRelayMyTurn) {
+              var holderName = playerNameOf(playersRoster, relaySlot && relaySlot.uid);
+              renderLocked('Lượt của ' + holderName, null, '🏃');
+              return;
+            }
+          }
+
+          if (answeredMap[qKey]) {
+            renderLocked('Đã gửi, chờ các bạn…', formatPicked(answeredMap[qKey].a));
             return;
           }
           var leftMs = (Number(st.startedAt || 0) + Number(st.duration || 20) * 1000) - serverNow();
@@ -968,22 +1255,15 @@
           var sec = Math.max(0, Math.ceil(leftMs / 1000));
           clockEl.textContent = '⏱ ' + sec + 's';
           clockEl.classList.toggle('low', sec <= 5);
-          if (leftMs <= 0 && !answeredMap[qIdx]) {
+          if (leftMs <= 0 && !answeredMap[qKey]) {
             clearQTimer();
             renderLocked('Đã hết giờ! Chờ thầy cô công bố đáp án…', null);
           }
         }
 
-        var teamMap = (st && st.teamOf) || {};
-        var myT = teamMap[uid];
-        var myTeamPill = null;
-        if (st && st.teamMode && myT !== undefined && myT !== null && TEAMS[myT]) {
-          var tmInfo = TEAMS[myT];
-          myTeamPill = h('span', {
-            class: 'pill game-team-pill',
-            style: '--team-color:' + tmInfo.color
-          }, tmInfo.icon + ' ' + tmInfo.name);
-        }
+        var relayTurnBanner = isRelayMyTurn
+          ? h('div', { class: 'game-relay-turn-banner' }, '⚡ Tới lượt em!')
+          : null;
 
         T.fill(stage,
           h('div', { class: 'panel game-student-q' },
@@ -992,7 +1272,8 @@
               myTeamPill,
               clockEl,
               qScorePill),
-            q.blanks && q.blanks >= 2 ? null : h('p', { class: 'game-student-qtext prewrap' }, T.qNodes(q.text || '')),
+            relayTurnBanner,
+            (q.blanks && q.blanks >= 2 && (gType !== 'relay' || isRelayMyTurn)) ? null : h('p', { class: 'game-student-qtext prewrap' }, T.qNodes(q.text || '')),
             q.image && room.quizId ? T.qImageEl({ kind: 'quiz', id: room.quizId, key: q.image }) : null),
           bodyBox);
 
@@ -1002,8 +1283,10 @@
       }
 
       function drawStudentReveal(room, st, rev, myScoreObj, q) {
+        var gType = (st && st.gameType) || 'classic';
         var right = !!myScoreObj.lastCorrect;
         var gain = Number(myScoreObj.lastGain || 0);
+        var loss = Number(myScoreObj.lastLoss || 0);
         var streak = Number(myScoreObj.streak || 0);
         var rank = myScoreObj.rank;
         var correctText = '';
@@ -1019,24 +1302,61 @@
 
         var teamMap = (st && st.teamOf) || {};
         var myT = teamMap[uid];
+        var modeVisualEl = null;
+        if (gType === 'race' && st && st.gameData) {
+          modeVisualEl = raceTrackEl(st.gameData.pos, st.total || 1, teamMap, playersRoster, true);
+        } else if (gType === 'tug' && st && st.gameData) {
+          modeVisualEl = tugRopeEl(st.gameData.rope, true);
+        } else if (gType === 'relay') {
+          modeVisualEl = relayStatusEl((rev && rev.relay) || (st && st.relay), teamMap, playersRoster, st && st.gameData && st.gameData.points, true);
+        }
+
         var teamBoardSection = null;
-        if (rev && rev.teams && rev.teams.length) {
+        if (gType !== 'wager' && ((rev && rev.teams && rev.teams.length) || modeVisualEl)) {
           teamBoardSection = h('div', { class: 'game-student-team-wrap' },
-            h('h3', { class: 'game-subhead', style: 'margin-bottom:8px' }, '👥 Bảng điểm nhóm'),
-            teamBoardEl(rev.teams, myT)
+            modeVisualEl,
+            (rev && rev.teams && rev.teams.length) ? h('h3', { class: 'game-subhead', style: 'margin:10px 0 8px' }, '👥 Bảng xếp hạng nhóm') : null,
+            (rev && rev.teams && rev.teams.length) ? teamBoardEl(rev.teams, myT, gType) : null
           );
+        }
+
+        var verdictHeading;
+        var badgeText;
+        var badgePositive = gain > 0;
+        if (gType === 'wager') {
+          if (right) {
+            verdictHeading = 'Đúng! +' + T.fmtScore(gain) + ' điểm';
+            badgeText = '+' + T.fmtScore(gain) + ' điểm';
+            badgePositive = true;
+          } else if (myScoreObj.lastPartial) {
+            verdictHeading = 'Đúng một phần (giữ nguyên điểm)';
+            badgeText = '0 điểm';
+            badgePositive = false;
+          } else {
+            verdictHeading = 'Chưa đúng −' + T.fmtScore(loss) + ' điểm';
+            badgeText = '−' + T.fmtScore(loss) + ' điểm';
+            badgePositive = false;
+          }
+        } else if (gType === 'relay' && myScoreObj.lastTurn === false) {
+          var mySlot = ((rev && rev.relay) || (st && st.relay) || {})[myT];
+          var teamRight = !!(mySlot && mySlot.ok);
+          right = teamRight;
+          verdictHeading = teamRight ? 'Nhóm em trả lời đúng!' : 'Câu này chưa tới lượt em';
+          badgeText = '+' + T.fmtScore(gain) + ' điểm cá nhân';
+        } else {
+          verdictHeading = right ? 'Đúng rồi!' : gain > 0 ? 'Đúng một phần' : 'Chưa đúng';
+          badgeText = '+' + T.fmtScore(gain) + ' điểm';
         }
 
         T.fill(stage,
           h('div', { class: 'panel game-reveal-student ' + (right ? 'is-ok' : 'is-bad') },
             h('div', { class: 'game-verdict-icon' }, right ? '✅' : '❌'),
-            h('h2', null, right ? 'Đúng rồi!' : gain > 0 ? 'Đúng một phần' : 'Chưa đúng'),
-            h('div', { class: 'game-gain-badge ' + (gain > 0 ? 'ok' : 'bad') },
-              '+' + T.fmtScore(gain) + ' điểm'),
-            streak >= 2 ? h('div', { class: 'game-streak-pill' }, '🔥 Chuỗi ' + streak + ' câu đúng liên tiếp!') : null,
+            h('h2', null, verdictHeading),
+            h('div', { class: 'game-gain-badge ' + (badgePositive ? 'ok' : 'bad') }, badgeText),
+            (gType !== 'wager' && streak >= 2) ? h('div', { class: 'game-streak-pill' }, '🔥 Chuỗi ' + streak + ' câu đúng liên tiếp!') : null,
             !right && correctText ? h('p', { class: 'game-correct-note' }, 'Đáp án đúng: ', h('strong', null, T.mathNodes(correctText))) : null,
             h('div', { class: 'stats game-student-stats' },
-              h('div', { class: 'stat' }, h('strong', null, T.fmtScore(myScoreObj.score || 0)), h('span', null, 'Tổng điểm')),
+              h('div', { class: 'stat' }, h('strong', null, T.fmtScore(currentEffectiveScore())), h('span', null, 'Tổng điểm')),
               h('div', { class: 'stat' }, h('strong', null, rank ? '#' + rank : '–'), h('span', null, 'Hạng hiện tại')),
               h('div', { class: 'stat' }, h('strong', null, streak ? '🔥 ' + streak : '0'), h('span', null, 'Chuỗi đúng'))),
             teamBoardSection,
@@ -1044,8 +1364,10 @@
       }
 
       function drawStudentEnd(room, st, myScoreObj, playerCount) {
+        var gType = (st && st.gameType) || 'classic';
+        var curScoreVal = currentEffectiveScore();
         // Không trao huy chương cho bạn 0 điểm (lớp ít người vẫn có thể "hạng Nhì" khi sai hết).
-        var rank = myScoreObj.score > 0 ? Number(myScoreObj.rank || 0) : 0;
+        var rank = curScoreVal > 0 ? Number(myScoreObj.rank || 0) : 0;
         var medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🏁';
         var rankTitle = rank === 1 ? 'Hạng Nhất xuất sắc!' : rank === 2 ? 'Hạng Nhì tuyệt vời!' : rank === 3 ? 'Hạng Ba giỏi lắm!' : (rank ? 'Hạng #' + rank + ' / ' + playerCount : 'Hoàn thành trận đấu');
 
@@ -1053,11 +1375,13 @@
         var myT = teamMap[uid];
         var teamSection = null;
 
-        if (st && st.teamMode && rev && rev.teams && rev.teams.length) {
+        if (st && st.teamMode && gType !== 'wager' && rev && rev.teams && rev.teams.length) {
+          var topTeams = rev.teams.filter(function (tm) { return tm.rank === 1; });
+          var isTie = topTeams.length > 1;
           var myTeamStanding = null;
           if (myT !== undefined && myT !== null) {
             for (var ti = 0; ti < rev.teams.length; ti++) {
-              if (rev.teams[ti].t === myT) {
+              if (Number(rev.teams[ti].t) === Number(myT)) {
                 myTeamStanding = rev.teams[ti];
                 break;
               }
@@ -1066,7 +1390,10 @@
           if (myTeamStanding) {
             var tRank = myTeamStanding.rank;
             var tInfo = TEAMS[myT] || { name: 'Nhóm ' + (myT + 1) };
-            if (tRank === 1) {
+            if (tRank === 1 && isTie) {
+              medal = '🤝';
+              rankTitle = 'Hòa chung cuộc!';
+            } else if (tRank === 1) {
               medal = '🥇';
               rankTitle = tInfo.name + ' về Nhất!';
             } else if (tRank === 2) {
@@ -1080,9 +1407,36 @@
               rankTitle = '#' + tRank + ' ' + tInfo.name;
             }
           }
+
+          var winnerNote = null;
+          if (topTeams.length === 1) {
+            var winT = topTeams[0].t;
+            var winInfo = TEAMS[winT] || { name: 'Nhóm ' + (winT + 1), icon: '🏆' };
+            var winNames = (window.TTMModes ? window.TTMModes.teamMembers(teamMap, playersRoster, winT) : []).map(function (u) {
+              return playerNameOf(playersRoster, u);
+            });
+            winnerNote = h('div', { class: 'panel game-winner-banner' },
+              h('strong', null, '🏆 Nhóm thắng: ' + winInfo.icon + ' ' + winInfo.name),
+              winNames.length ? h('p', { class: 'muted small', style: 'margin:4px 0 0' }, 'Thành viên: ' + winNames.join(', ')) : null
+            );
+          } else if (isTie) {
+            winnerNote = h('div', { class: 'panel game-winner-banner' },
+              h('strong', null, '🤝 Kết quả: Hòa chung cuộc!')
+            );
+          }
+
+          var endVisual = null;
+          if (gType === 'race' && st.gameData) {
+            endVisual = raceTrackEl(st.gameData.pos, st.total || 1, teamMap, playersRoster, true);
+          } else if (gType === 'tug' && st.gameData) {
+            endVisual = tugRopeEl(st.gameData.rope, true);
+          }
+
           teamSection = h('div', { class: 'game-student-team-wrap' },
-            h('h3', { class: 'game-subhead', style: 'margin-bottom:8px' }, '👥 Bảng điểm nhóm'),
-            teamBoardEl(rev.teams, myT)
+            winnerNote,
+            endVisual,
+            h('h3', { class: 'game-subhead', style: 'margin:10px 0 8px' }, '👥 Bảng xếp hạng nhóm'),
+            teamBoardEl(rev.teams, myT, gType)
           );
         }
 
@@ -1093,7 +1447,7 @@
             h('p', { class: 'muted' }, room.quizTitle || ''),
             teamSection,
             h('div', { class: 'stats game-student-stats' },
-              h('div', { class: 'stat' }, h('strong', null, T.fmtScore(myScoreObj.score || 0)), h('span', null, 'Tổng điểm')),
+              h('div', { class: 'stat' }, h('strong', null, T.fmtScore(curScoreVal)), h('span', null, 'Tổng điểm')),
               h('div', { class: 'stat' }, h('strong', null, (myScoreObj.correctCount || 0) + '/' + (st.total || 0)), h('span', null, 'Câu trả lời đúng')),
               h('div', { class: 'stat' }, h('strong', null, rank ? '#' + rank : '–'), h('span', null, 'Xếp hạng cuối'))),
             h('div', { class: 'actions-start', style: 'justify-content:center' },
@@ -1206,26 +1560,57 @@
       var duration = 20;
       var shuffleBox = h('input', { type: 'checkbox' });
       var durBar = h('div', { class: 'chips filter' });
-      var gameMode = presetMode === 'on-tap' ? 'review' : 'match';
+      var gameMode = presetMode === 'on-tap' ? 'review' : 'classic';
       var limitMin = 5;
-      var modeBar = h('div', { class: 'chips filter' });
+      var suggestions = window.TTMModes ? window.TTMModes.suggest(baseQuestions) : {};
+      var modeBar = h('div', { class: 'game-mode-grid' });
       var limitBar = h('div', { class: 'chips filter' });
       var modeHint = h('small', { class: 'muted small' });
       var durField = h('div', { class: 'field' }, h('span', null, 'Thời gian suy nghĩ mỗi câu'), durBar);
       var limitField = h('div', { class: 'field' }, h('span', null, 'Thời gian cho cả lượt ôn'), limitBar);
       var shuffleField = h('label', { class: 'check' }, shuffleBox, 'Trộn thứ tự câu hỏi');
 
+      var allModeCards = (window.TTMModes ? window.TTMModes.GAMES : []).concat([
+        {
+          id: 'review',
+          icon: '⚡',
+          name: 'Ôn từ vựng',
+          teams: 0,
+          desc: 'Học sinh tự làm theo tốc độ riêng, mỗi em một thứ tự câu. Chỉ dùng câu trắc nghiệm.'
+        }
+      ]);
+
       function drawMode() {
         var isReview = gameMode === 'review';
-        T.fill(modeBar, [
-          { id: 'match', label: '🎮 Đấu từng câu' },
-          { id: 'review', label: '⚡ Ôn từ vựng' }
-        ].map(function (m) {
+        T.fill(modeBar, allModeCards.map(function (m) {
+          var sug = m.id === 'review'
+            ? { ok: true, recommended: false, note: '' }
+            : (suggestions[m.id] || { ok: true, recommended: false, note: '' });
+          var isDisabled = !sug.ok;
+          var isActive = gameMode === m.id;
           return h('button', {
             type: 'button',
-            class: 'chip-btn' + (gameMode === m.id ? ' active' : ''),
-            onclick: function () { gameMode = m.id; drawMode(); }
-          }, m.label);
+            class: 'game-mode-card'
+              + (isActive ? ' active' : '')
+              + (isDisabled ? ' is-disabled' : '')
+              + (sug.recommended ? ' is-recommended' : ''),
+            disabled: isDisabled,
+            onclick: function () {
+              if (isDisabled) return;
+              gameMode = m.id;
+              drawMode();
+            }
+          },
+            h('div', { class: 'game-mode-card-head' },
+              h('span', { class: 'game-mode-icon' }, m.icon),
+              h('strong', { class: 'game-mode-name' }, m.name),
+              sug.recommended ? h('span', { class: 'pill p-done small game-mode-badge' }, 'Gợi ý') : null
+            ),
+            h('span', { class: 'game-mode-desc' }, m.desc),
+            sug.note ? h('span', { class: 'game-mode-note' + (isDisabled ? ' is-err' : '') },
+              (sug.recommended ? '💡 ' : '') + sug.note
+            ) : null
+          );
         }));
         T.fill(limitBar, window.TTMReview.LIMITS.map(function (min) {
           return h('button', {
@@ -1234,9 +1619,10 @@
             onclick: function () { limitMin = min; drawMode(); }
           }, min + ' phút');
         }));
+        var curGameInfo = isReview ? null : (window.TTMModes ? window.TTMModes.getGame(gameMode) : null);
         modeHint.textContent = isReview
           ? 'Học sinh tự làm theo tốc độ riêng, mỗi em một thứ tự câu. Thầy cô theo dõi từng em và xếp hạng cuối lượt. Chỉ dùng câu trắc nghiệm.'
-          : 'Thầy cô điều khiển, cả lớp trả lời cùng một câu rồi xem đáp án. Có thể chia 3 nhóm ở sảnh chờ.';
+          : (curGameInfo ? curGameInfo.desc : 'Thầy cô điều khiển, cả lớp trả lời cùng một câu rồi xem đáp án. Có thể chia 3 nhóm ở sảnh chờ.');
         durField.style.display = isReview ? 'none' : '';
         shuffleField.style.display = isReview ? 'none' : '';
         limitField.style.display = isReview ? '' : 'none';
@@ -1300,11 +1686,38 @@
       var openBtn = h('button', { class: 'btn btn-lg' }, '🎮 Mở phòng đấu');
       openBtn.addEventListener('click', function () {
         if (gameMode === 'review') return openReviewRoom();
+        var sugNow = suggestions[gameMode];
+        if (sugNow && !sugNow.ok) {
+          return T.toast(sugNow.note || 'Cần ít nhất 3 câu để mở kiểu chơi này.', 'error');
+        }
+        var selectedType = (gameMode === 'match' || !gameMode) ? 'classic' : gameMode;
+        var tCount = window.TTMModes ? window.TTMModes.teamCount(selectedType) : 3;
+        var isAutoTeam = (selectedType === 'race' || selectedType === 'tug' || selectedType === 'relay');
+        var initGameData = null;
+        if (selectedType === 'race') initGameData = { pos: [0, 0, 0] };
+        else if (selectedType === 'tug') initGameData = { rope: 0 };
+        else if (selectedType === 'relay') initGameData = { points: [0, 0, 0], pointers: [0, 0, 0] };
+
         var qs = shuffleBox.checked ? shuffleArray(baseQuestions) : baseQuestions.slice();
         T.busy(openBtn, true, 'Đang tạo mã phòng…');
         createUniquePin(fb.db, 0).then(function (pin) {
           if (!tracker.alive()) return;
           var me = T.getMe() || { username: 'gv', fullName: 'Giáo viên' };
+          var initState = {
+            phase: 'lobby',
+            index: -1,
+            total: qs.length,
+            startedAt: 0,
+            duration: duration,
+            gameType: selectedType
+          };
+          if (isAutoTeam) {
+            initState.teamMode = true;
+            initState.teamCount = tCount;
+          }
+          if (initGameData) {
+            initState.gameData = initGameData;
+          }
           var roomData = {
             host: fb.uid,
             hostName: String(me.fullName || me.username || 'Giáo viên').slice(0, 100),
@@ -1313,13 +1726,7 @@
             courseId: c.id,
             courseName: String(c.name + (c.grade ? ' · ' + c.grade : '')).slice(0, 200),
             createdAt: window.firebase.database.ServerValue.TIMESTAMP,
-            state: {
-              phase: 'lobby',
-              index: -1,
-              total: qs.length,
-              startedAt: 0,
-              duration: duration
-            }
+            state: initState
           };
           return fb.db.ref('rooms/' + pin).set(roomData).then(function () {
             if (!tracker.alive()) return;
@@ -1329,7 +1736,13 @@
               duration: duration,
               questions: qs,
               scores: {},
-              savedMatch: false
+              savedMatch: false,
+              gameType: selectedType,
+              teamMode: isAutoTeam,
+              teamCount: tCount,
+              teamOf: {},
+              gameData: initGameData,
+              bets: {}
             };
             saveHostState(quizId, hostState);
             runHostRoom(d, fb, hostState);
@@ -1342,33 +1755,45 @@
 
       var resumeBanner = null;
       if (existing) {
+        var exSt = (existing.room && existing.room.state) || {};
+        var exSaved = existing.saved || {};
         var phaseLabel = {
           lobby: 'Đang ở sảnh chờ',
-          question: 'Đang hỏi câu ' + ((existing.room.state && existing.room.state.index || 0) + 1) + '/' + (existing.room.state && existing.room.state.total || baseQuestions.length),
-          reveal: 'Đang công bố câu ' + ((existing.room.state && existing.room.state.index || 0) + 1) + '/' + (existing.room.state && existing.room.state.total || baseQuestions.length),
+          question: (exSt.sub === 'bet' ? 'Đang đặt cược câu ' : 'Đang hỏi câu ') + ((exSt.index || 0) + 1) + '/' + (exSt.total || baseQuestions.length),
+          reveal: 'Đang công bố câu ' + ((exSt.index || 0) + 1) + '/' + (exSt.total || baseQuestions.length),
           end: 'Đã kết thúc'
-        }[(existing.room.state && existing.room.state.phase) || 'lobby'] || 'Đang mở';
-        var resumeReview = existing.room.state && existing.room.state.mode === 'review';
-        if (resumeReview && existing.room.state.phase === 'question') phaseLabel = 'Học sinh đang ôn từ vựng';
+        }[exSt.phase || 'lobby'] || 'Đang mở';
+        var resumeReview = exSt.mode === 'review';
+        if (resumeReview && exSt.phase === 'question') phaseLabel = 'Học sinh đang ôn từ vựng';
 
         var resumeBtn = h('button', { class: 'btn', onclick: function () {
           if (resumeReview) {
-            return startReviewHost(d, fb, { pin: existing.pin, quizId: q.id, mode: 'review', savedMatch: !!existing.saved.savedMatch });
+            return startReviewHost(d, fb, { pin: existing.pin, quizId: q.id, mode: 'review', savedMatch: !!exSaved.savedMatch });
           }
-          var qs = existing.saved.questions && existing.saved.questions.length === (existing.room.state && existing.room.state.total)
-            ? existing.saved.questions
+          var qs = exSaved.questions && exSaved.questions.length === exSt.total
+            ? exSaved.questions
             : baseQuestions.slice();
-          var isTeam = !!((existing.room.state && existing.room.state.teamMode) || (existing.saved && existing.saved.teamMode));
+          var rGameType = exSt.gameType || exSaved.gameType || 'classic';
+          var rTeamCount = Number(exSt.teamCount || exSaved.teamCount || (window.TTMModes ? window.TTMModes.teamCount(rGameType) : 3) || 3);
+          var isTeam = !!(exSt.teamMode || exSaved.teamMode || rGameType === 'race' || rGameType === 'tug' || rGameType === 'relay');
+          var qDur = (exSt.sub === 'bet' && exSaved.duration)
+            ? Number(exSaved.duration)
+            : Number(exSt.duration || exSaved.duration || 20);
           var hsObj = {
             pin: existing.pin,
             quizId: q.id,
-            duration: Number((existing.room.state && existing.room.state.duration) || existing.saved.duration || 20),
+            duration: qDur,
             questions: qs,
-            scores: existing.room.scores || existing.saved.scores || {},
-            savedMatch: !!existing.saved.savedMatch,
+            scores: existing.room.scores || exSaved.scores || {},
+            savedMatch: !!exSaved.savedMatch,
+            gameType: rGameType,
+            teamMode: isTeam,
+            teamCount: rTeamCount,
+            teamOf: exSt.teamOf || exSaved.teamOf || {},
+            gameData: exSt.gameData || exSaved.gameData || null,
+            bets: exSaved.bets || {},
             resumedRoom: existing.room
           };
-          if (isTeam) hsObj.teamMode = true;
           runHostRoom(d, fb, hsObj);
         } }, 'Tiếp tục phòng ' + fmtPin(existing.pin));
 
@@ -1428,14 +1853,38 @@
       var duration = hostState.duration;
       var roomRef = fb.db.ref('rooms/' + pin);
 
-      var teamMode = !!(hostState.teamMode || (hostState.resumedRoom && hostState.resumedRoom.state && hostState.resumedRoom.state.teamMode));
-      var teamOf = (hostState.resumedRoom && hostState.resumedRoom.state && hostState.resumedRoom.state.teamOf) || hostState.teamOf || {};
+      var rState = (hostState.resumedRoom && hostState.resumedRoom.state) || {};
+      var gameType = hostState.gameType || rState.gameType || 'classic';
+      var isFixedTeamGame = (gameType === 'race' || gameType === 'tug' || gameType === 'relay');
+      var teamMode = !!(isFixedTeamGame || hostState.teamMode || rState.teamMode);
+      var teamCount = Number(hostState.teamCount || rState.teamCount || (window.TTMModes ? window.TTMModes.teamCount(gameType) : 3) || 3);
+      if (teamCount <= 0) teamCount = 3;
+      var teamOf = rState.teamOf || hostState.teamOf || {};
+
+      var rawGameData = rState.gameData || hostState.gameData || null;
+      var gameData = null;
+      if (gameType === 'race') {
+        gameData = {
+          pos: window.TTMModes ? window.TTMModes.toNumArray(rawGameData && rawGameData.pos, 3, 0) : [0, 0, 0]
+        };
+      } else if (gameType === 'tug') {
+        var initRope = (rawGameData && typeof rawGameData.rope === 'number' && isFinite(rawGameData.rope)) ? rawGameData.rope : 0;
+        gameData = { rope: initRope };
+      } else if (gameType === 'relay') {
+        gameData = {
+          points: window.TTMModes ? window.TTMModes.toNumArray(rawGameData && rawGameData.points, 3, 0) : [0, 0, 0],
+          pointers: window.TTMModes ? window.TTMModes.toNumArray(rawGameData && rawGameData.pointers, 3, 0) : [0, 0, 0]
+        };
+      }
+
+      var curRelay = rState.relay || null;
+      var curSub = rState.sub || null;
+      var betsByQ = hostState.bets || {};
 
       var playersMap = (hostState.resumedRoom && hostState.resumedRoom.players) || {};
       var scoresMap = hostState.scores || (hostState.resumedRoom && hostState.resumedRoom.scores) || {};
-      var phase = (hostState.resumedRoom && hostState.resumedRoom.state && hostState.resumedRoom.state.phase) || 'lobby';
-      var curIndex = (hostState.resumedRoom && hostState.resumedRoom.state && typeof hostState.resumedRoom.state.index === 'number')
-        ? hostState.resumedRoom.state.index : -1;
+      var phase = rState.phase || 'lobby';
+      var curIndex = typeof rState.index === 'number' ? rState.index : -1;
 
       roomActive = phase !== 'end';
 
@@ -1447,15 +1896,42 @@
       var lobbyStartBtn = null;
       var splitBtn = null;
       var qAnsweredEl = null;
+      var relayProgressWrap = null;
       var currentQAnswers = {};
-      var curStartedAt = (hostState.resumedRoom && hostState.resumedRoom.state && hostState.resumedRoom.state.startedAt) || 0;
+      var curStartedAt = rState.startedAt || 0;
       var revealing = false;
+      var closingBet = false;
 
       T.fill(T.app, stage);
 
       function clearQuestionWatchers() {
         if (offAnswerListener) { offAnswerListener(); offAnswerListener = null; }
         if (stopQTimer) { stopQTimer(); stopQTimer = null; }
+      }
+
+      function buildStatePayload(base) {
+        var st = {};
+        var k;
+        for (k in base) {
+          if (Object.prototype.hasOwnProperty.call(base, k) && base[k] !== undefined) {
+            st[k] = base[k];
+          }
+        }
+        st.gameType = gameType;
+        if (teamMode && gameType !== 'wager') {
+          st.teamMode = true;
+          st.teamCount = teamCount;
+          if (teamOf && Object.keys(teamOf).length > 0) {
+            st.teamOf = teamOf;
+          }
+        }
+        if (gameData) {
+          st.gameData = gameData;
+        }
+        if (gameType === 'relay' && curRelay) {
+          st.relay = curRelay;
+        }
+        return st;
       }
 
       function persistLocal() {
@@ -1465,9 +1941,14 @@
           duration: duration,
           questions: questions,
           scores: scoresMap,
-          savedMatch: !!hostState.savedMatch
+          savedMatch: !!hostState.savedMatch,
+          gameType: gameType,
+          teamMode: teamMode,
+          teamCount: teamCount,
+          teamOf: teamOf,
+          gameData: gameData,
+          bets: betsByQ
         };
-        if (teamMode) hsObj.teamMode = true;
         saveHostState(quizId, hsObj);
       }
 
@@ -1490,16 +1971,88 @@
         );
       }
 
+      function allRelayTeamsDone(relayObj) {
+        if (!relayObj) return false;
+        var keys = Object.keys(relayObj);
+        if (!keys.length) return false;
+        for (var i = 0; i < keys.length; i++) {
+          var s = relayObj[keys[i]];
+          if (s && !s.done) return false;
+        }
+        return true;
+      }
+
+      function evaluateRelayAnswers(item, ansMap) {
+        if (!curRelay || !window.TTMModes) return false;
+        var changed = false;
+        var nowMs = serverNow();
+        for (var t = 0; t < 3; t++) {
+          var slot = curRelay[String(t)];
+          if (!slot || slot.done) continue;
+          var members = window.TTMModes.teamMembers(teamOf, playersMap, t);
+          if (!members.length) {
+            slot.done = true;
+            slot.ok = false;
+            changed = true;
+            continue;
+          }
+          // Nếu người cầm lượt đã rời phòng, chuyển sang bạn tiếp theo
+          if (members.indexOf(slot.uid) < 0) {
+            window.TTMModes.relayAdvance(curRelay, t, members, nowMs);
+            slot = curRelay[String(t)];
+            changed = true;
+          }
+          var guard = 0;
+          while (slot && !slot.done && slot.uid && guard < members.length + 2) {
+            guard++;
+            var ans = ansMap && ansMap[slot.uid];
+            var hasAns = ans && ans.a !== undefined && ans.a !== null && ans.a !== '';
+            if (!hasAns) break;
+            var right = false;
+            if (item.type === 'fill') {
+              var parts = String(ans.a).split('\u241F');
+              right = (window.QuizFormat.fillScore(item, parts) === 1);
+            } else {
+              right = window.QuizFormat.isCorrect(item, ans.a);
+            }
+            if (right) {
+              slot.done = true;
+              slot.ok = true;
+              var pts = window.TTMModes.relayPoints(slot.tried);
+              slot.gain = pts;
+              gameData.points[t] = Number(gameData.points[t] || 0) + pts;
+              changed = true;
+            } else {
+              window.TTMModes.relayAdvance(curRelay, t, members, nowMs);
+              slot = curRelay[String(t)];
+              changed = true;
+            }
+          }
+        }
+        return changed;
+      }
+
       // Lắng nghe danh sách học sinh vào phòng trực tiếp
       tracker.on(roomRef.child('players'), 'value', function (snap) {
         playersMap = snap.val() || {};
         var uids = Object.keys(playersMap);
-        if (teamMode && Object.keys(teamOf).length > 0 && phase !== 'end') {
+        if (teamMode && gameType !== 'wager' && (isFixedTeamGame || Object.keys(teamOf).length > 0) && phase !== 'end') {
           uids.forEach(function (u) {
             if (teamOf[u] === undefined) {
-              var stIdx = smallestTeam(teamOf, playersMap);
+              var stIdx = smallestTeam(teamOf, playersMap, teamCount);
               teamOf[u] = stIdx;
               roomRef.child('state/teamOf/' + u).set(stIdx).catch(function () {});
+              if (phase === 'question' && gameType === 'relay' && curRelay && !curRelay[String(stIdx)]) {
+                curRelay[String(stIdx)] = {
+                  uid: u,
+                  tried: 0,
+                  triedUids: [],
+                  done: false,
+                  ok: false,
+                  at: serverNow()
+                };
+                roomRef.child('state/relay/' + stIdx).set(curRelay[String(stIdx)]).catch(function () {});
+              }
             }
           });
         }
@@ -1507,9 +2060,20 @@
           updateLobbyPlayers();
         } else if (phase === 'question') {
           updateAnsweredCount();
-          var ansCount = countValidAnswers(currentQAnswers, playersMap);
-          if (uids.length > 0 && ansCount >= uids.length && !revealing) {
-            revealQuestion(curIndex);
+          if (gameType === 'wager' && curSub === 'bet') {
+            var betCount = countValidAnswers(currentQAnswers, playersMap);
+            if (uids.length > 0 && betCount >= uids.length && !closingBet) {
+              finishBetStep(curIndex);
+            }
+          } else if (gameType === 'relay') {
+            if (relayProgressWrap && curRelay) {
+              T.fill(relayProgressWrap, relayStatusEl(curRelay, teamOf, playersMap, gameData && gameData.points, true));
+            }
+          } else {
+            var ansCount = countValidAnswers(currentQAnswers, playersMap);
+            if (uids.length > 0 && ansCount >= uids.length && !revealing) {
+              revealQuestion(curIndex);
+            }
           }
         }
       });
@@ -1538,13 +2102,21 @@
 
         lobbyStartBtn.disabled = list.length < 1;
         if (splitBtn) {
-          splitBtn.disabled = list.length < 3;
-          splitBtn.textContent = teamMode ? '🎲 Chia lại' : '🎲 Chia 3 nhóm';
+          if (gameType === 'wager') {
+            splitBtn.style.display = 'none';
+          } else {
+            splitBtn.style.display = '';
+            splitBtn.disabled = list.length < teamCount;
+            var hasSplit = teamMode && Object.keys(teamOf).length > 0;
+            splitBtn.textContent = hasSplit ? '🎲 Chia lại' : ('🎲 Chia ' + teamCount + ' nhóm');
+          }
         }
 
-        if (teamMode) {
-          var cols = [0, 1, 2].map(function (t) {
-            var tmInfo = TEAMS[t];
+        if (teamMode && gameType !== 'wager') {
+          var teamIdxs = [];
+          for (var ti = 0; ti < teamCount; ti++) teamIdxs.push(ti);
+          var cols = teamIdxs.map(function (t) {
+            var tmInfo = TEAMS[t] || { name: 'Nhóm ' + (t + 1), icon: '👥', color: '#1368ce' };
             var members = list.filter(function (p) {
               return teamOf[p.uid] === t;
             });
@@ -1563,7 +2135,7 @@
               )
             );
           });
-          T.fill(lobbyListEl, h('div', { class: 'game-team-cols' }, cols));
+          T.fill(lobbyListEl, h('div', { class: 'game-team-cols' + (teamCount === 2 ? ' cols-2' : '') }, cols));
         } else {
           if (!list.length) {
             T.fill(lobbyListEl, h('p', { class: 'muted' }, 'Đang chờ học sinh nhập mã vào phòng…'));
@@ -1579,7 +2151,11 @@
         if (!qAnsweredEl) return;
         var totalP = Object.keys(playersMap).length;
         var ansP = countValidAnswers(currentQAnswers, playersMap);
-        qAnsweredEl.textContent = 'Đã trả lời: ' + ansP + '/' + totalP;
+        if (gameType === 'wager' && curSub === 'bet') {
+          qAnsweredEl.textContent = 'Đã cược: ' + ansP + '/' + totalP;
+        } else {
+          qAnsweredEl.textContent = 'Đã trả lời: ' + ansP + '/' + totalP;
+        }
       }
 
       function drawLobby() {
@@ -1589,18 +2165,23 @@
         lobbyCountEl = h('span', { class: 'pill p-blue game-count-pill' }, '0 học sinh đã vào phòng');
         lobbyListEl = h('div', { class: 'game-players' });
 
-        // Giáo viên chủ động chia khi học sinh đã vào đủ; không bấm thì trận đấu tính điểm cá nhân như cũ.
+        // Giáo viên chủ động chia khi học sinh đã vào đủ; với game nhóm tự chia sẵn nhưng vẫn bấm Chia lại được.
         splitBtn = h('button', {
           class: 'btn btn-ghost',
           disabled: true,
           onclick: function () {
             var uids = Object.keys(playersMap);
-            if (uids.length < 3) return;
-            var nextTeams = splitTeams(uids);
+            if (uids.length < teamCount) return;
+            var nextTeams = splitTeams(uids, teamCount);
             T.busy(splitBtn, true, 'Đang chia…');
-            roomRef.child('state').update({ teamMode: true, teamOf: nextTeams }).then(function () {
+            roomRef.child('state').update({
+              teamMode: true,
+              teamCount: teamCount,
+              teamOf: nextTeams
+            }).then(function () {
               teamMode = true;
               teamOf = nextTeams;
+              persistLocal();
               T.busy(splitBtn, false);
               updateLobbyPlayers();
             }).catch(function (err) {
@@ -1609,18 +2190,38 @@
               T.toast('Lỗi khi chia nhóm: ' + err.message, 'error');
             });
           }
-        }, '🎲 Chia 3 nhóm');
+        }, '🎲 Chia ' + teamCount + ' nhóm');
 
         lobbyStartBtn = h('button', {
           class: 'btn btn-lg',
           disabled: true,
-          onclick: function () { startQuestion(0, false); }
+          onclick: function () {
+            var uids = Object.keys(playersMap);
+            if (teamMode && gameType !== 'wager') {
+              if (uids.length < teamCount) {
+                if (!confirm('Hiện mới có ' + uids.length + ' học sinh, ít hơn ' + teamCount + ' nhóm. Thầy cô vẫn muốn bắt đầu?')) {
+                  return;
+                }
+              }
+              var needSplit = Object.keys(teamOf).length === 0;
+              uids.forEach(function (u) {
+                if (teamOf[u] === undefined) needSplit = true;
+              });
+              if (needSplit) {
+                teamOf = splitTeams(uids, teamCount);
+              }
+            }
+            startQuestion(0, false, false);
+          }
         }, '▶ Bắt đầu');
+
+        var gameMeta = window.TTMModes ? window.TTMModes.getGame(gameType) : null;
+        var modeBadgeText = gameMeta ? (gameMeta.icon + ' ' + gameMeta.name) : '🎮 Đấu từng câu';
 
         T.fill(stage,
           h('div', { class: 'game-host-top' },
             h('div', null,
-              h('span', { class: 'tag' }, d.course.name + ' · ' + d.course.grade),
+              h('span', { class: 'tag' }, d.course.name + ' · ' + d.course.grade + ' · ' + modeBadgeText),
               h('h2', null, q.title)),
             h('div', { class: 'add-bar' },
               h('button', { class: 'btn btn-ghost', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'),
@@ -1633,7 +2234,7 @@
               title: 'Bấm để sao chép mã phòng',
               onclick: function () { T.copy(pin); }
             }, fmtPin(pin)),
-            h('p', { class: 'muted small' }, 'Bấm vào mã phòng để sao chép · ' + questions.length + ' câu · ' + duration + ' giây/câu')),
+            h('p', { class: 'muted small' }, 'Bấm vào mã phòng để sao chép · ' + modeBadgeText + ' · ' + questions.length + ' câu · ' + duration + ' giây/câu')),
           h('div', { class: 'panel' },
             h('div', { class: 'list-head', style: 'margin-bottom:14px' },
               h('h3', null, 'Danh sách học sinh'),
@@ -1643,11 +2244,149 @@
         updateLobbyPlayers();
       }
 
-      function startQuestion(idx, isResume) {
+      function startBetStep(idx, isResume) {
         clearQuestionWatchers();
         revealing = false;
+        closingBet = false;
         phase = 'question';
         curIndex = idx;
+        curSub = 'bet';
+        roomActive = true;
+        currentQAnswers = {};
+        var betDur = 10;
+
+        if (idx === 0 && !isResume) {
+          var startPts = (window.TTMModes && window.TTMModes.WAGER_START) || 1000;
+          Object.keys(playersMap).forEach(function (u) {
+            if (!scoresMap[u]) {
+              scoresMap[u] = {
+                score: startPts,
+                correctCount: 0,
+                streak: 0,
+                lastCorrect: false,
+                lastGain: 0,
+                lastLoss: 0,
+                lastBet: 0,
+                rank: 1
+              };
+            }
+          });
+          persistLocal();
+        }
+
+        var clockEl = h('span', { class: 'clock game-timer' }, '⏱ ' + betDur + 's');
+        qAnsweredEl = h('span', { class: 'pill p-blue game-count-pill' }, 'Đã cược: 0/' + Object.keys(playersMap).length);
+        var startQBtn = h('button', {
+          class: 'btn btn-sm',
+          onclick: function () { finishBetStep(idx); }
+        }, 'Bắt đầu câu hỏi');
+
+        T.fill(stage,
+          h('div', { class: 'game-host-top' },
+            h('span', { class: 'pill p-blue game-count-pill' }, 'Mã phòng: ' + fmtPin(pin) + ' · Câu ' + (idx + 1) + ' / ' + questions.length + ' (Đặt cược)'),
+            clockEl,
+            qAnsweredEl,
+            h('div', { class: 'add-bar' },
+              startQBtn,
+              h('button', { class: 'btn btn-sm btn-ghost danger-text', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'))),
+          h('div', { class: 'panel game-q-panel game-bet-host-panel' },
+            h('div', { class: 'game-badge' }, '🎲 Đặt cược điểm · Câu ' + (idx + 1)),
+            h('h2', { class: 'game-q-text' }, 'Mọi người đang đặt cược'),
+            h('p', { class: 'muted' }, 'Học sinh chọn mức cược (100, 200, 300, 500 hoặc Tất tay) trên điện thoại trước khi mở câu hỏi.')));
+
+        var applyPromise;
+        if (isResume && curStartedAt) {
+          applyPromise = Promise.resolve();
+        } else {
+          curStartedAt = serverNow();
+          var statePayload = buildStatePayload({
+            phase: 'question',
+            index: idx,
+            sub: 'bet',
+            qkey: 'b' + idx,
+            total: questions.length,
+            startedAt: window.firebase.database.ServerValue.TIMESTAMP,
+            duration: betDur
+          });
+          var qPlaceholder = {
+            index: idx,
+            type: 'mc',
+            text: 'Đặt cược'
+          };
+          var upd = {
+            state: statePayload,
+            question: qPlaceholder,
+            reveal: null
+          };
+          if (idx === 0 && Object.keys(scoresMap).length > 0) {
+            upd.scores = scoresMap;
+          }
+          applyPromise = roomRef.update(upd).then(function () {
+            return roomRef.child('state/startedAt').once('value').then(function (s) {
+              if (s.val()) curStartedAt = Number(s.val());
+            });
+          });
+        }
+
+        applyPromise.then(function () {
+          if (!tracker.alive() || phase !== 'question' || curIndex !== idx || curSub !== 'bet') return;
+
+          offAnswerListener = tracker.on(roomRef.child('answers/b' + idx), 'value', function (snap) {
+            currentQAnswers = snap.val() || {};
+            updateAnsweredCount();
+            var totalP = Object.keys(playersMap).length;
+            var ansP = countValidAnswers(currentQAnswers, playersMap);
+            if (totalP > 0 && ansP >= totalP && !closingBet) {
+              finishBetStep(idx);
+            }
+          });
+
+          function tickBet() {
+            var leftMs = (Number(curStartedAt) + betDur * 1000) - serverNow();
+            var sec = Math.max(0, Math.ceil(leftMs / 1000));
+            clockEl.textContent = '⏱ ' + sec + 's';
+            clockEl.classList.toggle('low', sec <= 3);
+            if (leftMs <= 0 && !closingBet) {
+              finishBetStep(idx);
+            }
+          }
+          tickBet();
+          stopQTimer = tracker.interval(tickBet, 200);
+        });
+      }
+
+      function finishBetStep(idx) {
+        if (closingBet) return;
+        closingBet = true;
+        clearQuestionWatchers();
+        roomRef.child('answers/b' + idx).once('value').then(function (snap) {
+          if (!tracker.alive()) return;
+          var rawBets = snap.val() || {};
+          var map = {};
+          Object.keys(rawBets).forEach(function (u) {
+            if (rawBets[u] && rawBets[u].a !== undefined) {
+              map[u] = rawBets[u].a;
+            }
+          });
+          betsByQ[idx] = map;
+          persistLocal();
+          startQuestion(idx, false, true);
+        }).catch(function () {
+          if (!tracker.alive()) return;
+          startQuestion(idx, false, true);
+        });
+      }
+
+      function startQuestion(idx, isResume, skipBet) {
+        if (gameType === 'wager' && !skipBet && (!isResume || curSub === 'bet')) {
+          return startBetStep(idx, isResume);
+        }
+        clearQuestionWatchers();
+        revealing = false;
+        closingBet = false;
+        phase = 'question';
+        curIndex = idx;
+        curSub = gameType === 'wager' ? 'answer' : null;
         roomActive = true;
         currentQAnswers = {};
         var item = questions[idx];
@@ -1658,6 +2397,20 @@
           class: 'btn btn-sm btn-ghost',
           onclick: function () { revealQuestion(idx); }
         }, 'Bỏ qua thời gian ⏭');
+
+        var progressBanner = null;
+        relayProgressWrap = null;
+        if (gameType === 'race') {
+          progressBanner = raceTrackEl(gameData && gameData.pos, questions.length, teamOf, playersMap, true);
+        } else if (gameType === 'tug') {
+          progressBanner = tugRopeEl(gameData && gameData.rope, true);
+        } else if (gameType === 'relay') {
+          relayProgressWrap = h('div', { class: 'game-relay-host-wrap' });
+          if (curRelay) {
+            T.fill(relayProgressWrap, relayStatusEl(curRelay, teamOf, playersMap, gameData && gameData.points, true));
+          }
+          progressBanner = relayProgressWrap;
+        }
 
         var optionsEl = null;
         if (item.type === 'mc') {
@@ -1686,6 +2439,7 @@
             h('div', { class: 'add-bar' },
               skipBtn,
               h('button', { class: 'btn btn-sm btn-ghost danger-text', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'))),
+          progressBanner,
           h('div', { class: 'panel game-q-panel' },
             h('h2', { class: 'game-q-text prewrap' }, T.qNodes(item.text || '')),
             item.image ? T.qImageEl({ kind: 'quiz', id: q.id, key: item.image }) : null),
@@ -1693,9 +2447,21 @@
 
         var applyPromise;
         if (isResume && curStartedAt) {
+          if (gameType === 'relay' && !curRelay && window.TTMModes) {
+            curRelay = window.TTMModes.relayStart(teamOf, playersMap, gameData && gameData.pointers, curStartedAt);
+          }
+          if (relayProgressWrap && curRelay) {
+            T.fill(relayProgressWrap, relayStatusEl(curRelay, teamOf, playersMap, gameData && gameData.points, true));
+          }
           applyPromise = Promise.resolve();
         } else {
           curStartedAt = serverNow();
+          if (gameType === 'relay' && window.TTMModes) {
+            curRelay = window.TTMModes.relayStart(teamOf, playersMap, gameData && gameData.pointers, curStartedAt);
+            if (relayProgressWrap) {
+              T.fill(relayProgressWrap, relayStatusEl(curRelay, teamOf, playersMap, gameData && gameData.points, true));
+            }
+          }
           var bCount = item.type === 'fill' ? (window.QuizFormat ? window.QuizFormat.blankCount(item.text) : 2) : 0;
           var qPayload = {
             index: idx,
@@ -1705,7 +2471,7 @@
             image: item.image || null
           };
           if (bCount >= 2) qPayload.blanks = bCount;
-          var statePayload = {
+          var baseSt = {
             phase: 'question',
             index: idx,
             // Khóa câu dạng chuỗi: luật Firebase so với tên nút answers/$i (luôn là chuỗi).
@@ -1714,39 +2480,103 @@
             startedAt: window.firebase.database.ServerValue.TIMESTAMP,
             duration: duration
           };
-          if (teamMode) {
-            statePayload.teamMode = true;
-            statePayload.teamOf = teamOf;
+          if (gameType === 'wager') {
+            baseSt.sub = 'answer';
           }
+          var statePayload = buildStatePayload(baseSt);
           applyPromise = roomRef.update({
             state: statePayload,
             question: qPayload,
             reveal: null
           }).then(function () {
             return roomRef.child('state/startedAt').once('value').then(function (s) {
-              if (s.val()) curStartedAt = Number(s.val());
+              if (s.val()) {
+                curStartedAt = Number(s.val());
+                if (gameType === 'relay' && curRelay) {
+                  for (var tk in curRelay) {
+                    if (Object.prototype.hasOwnProperty.call(curRelay, tk) && curRelay[tk]) {
+                      curRelay[tk].at = curStartedAt;
+                    }
+                  }
+                  roomRef.child('state/relay').set(curRelay).catch(function () {});
+                }
+              }
             });
           });
         }
 
         applyPromise.then(function () {
-          if (!tracker.alive() || phase !== 'question' || curIndex !== idx) return;
+          if (!tracker.alive() || phase !== 'question' || curIndex !== idx || (gameType === 'wager' && curSub !== 'answer')) return;
 
           offAnswerListener = tracker.on(roomRef.child('answers/' + idx), 'value', function (snap) {
             currentQAnswers = snap.val() || {};
             updateAnsweredCount();
-            var totalP = Object.keys(playersMap).length;
-            var ansP = countValidAnswers(currentQAnswers, playersMap);
-            if (totalP > 0 && ansP >= totalP && !revealing) {
-              revealQuestion(idx);
+            if (gameType === 'relay') {
+              var changed = evaluateRelayAnswers(item, currentQAnswers);
+              if (changed) {
+                var deepUpd = {};
+                for (var kt in curRelay) {
+                  if (Object.prototype.hasOwnProperty.call(curRelay, kt)) {
+                    deepUpd['state/relay/' + kt] = curRelay[kt];
+                  }
+                }
+                deepUpd['state/gameData'] = gameData;
+                roomRef.update(deepUpd).catch(function () {});
+                persistLocal();
+                if (relayProgressWrap) {
+                  T.fill(relayProgressWrap, relayStatusEl(curRelay, teamOf, playersMap, gameData && gameData.points, true));
+                }
+              }
+              if (allRelayTeamsDone(curRelay) && !revealing) {
+                revealQuestion(idx);
+              }
+            } else {
+              var totalP = Object.keys(playersMap).length;
+              var ansP = countValidAnswers(currentQAnswers, playersMap);
+              if (totalP > 0 && ansP >= totalP && !revealing) {
+                revealQuestion(idx);
+              }
             }
           });
 
           function tick() {
-            var leftMs = (Number(curStartedAt) + duration * 1000) - serverNow();
+            var nowMs = serverNow();
+            var leftMs = (Number(curStartedAt) + duration * 1000) - nowMs;
             var sec = Math.max(0, Math.ceil(leftMs / 1000));
             clockEl.textContent = '⏱ ' + sec + 's';
             clockEl.classList.toggle('low', sec <= 5);
+
+            if (gameType === 'relay' && curRelay && !revealing && leftMs > 0 && window.TTMModes) {
+              var turnLimitMs = Math.max(6, Math.floor(duration / 3)) * 1000;
+              var relayUpdates = {};
+              var anyTimedOut = false;
+              for (var rt = 0; rt < 3; rt++) {
+                var rSlot = curRelay[String(rt)];
+                if (rSlot && !rSlot.done && rSlot.uid) {
+                  var startedTurnAt = Number(rSlot.at || curStartedAt || nowMs);
+                  if (nowMs - startedTurnAt >= turnLimitMs) {
+                    var tMembers = window.TTMModes.teamMembers(teamOf, playersMap, rt);
+                    window.TTMModes.relayAdvance(curRelay, rt, tMembers, nowMs);
+                    evaluateRelayAnswers(item, currentQAnswers);
+                    relayUpdates['state/relay/' + rt] = curRelay[String(rt)];
+                    anyTimedOut = true;
+                  }
+                }
+              }
+              if (anyTimedOut) {
+                relayUpdates['state/gameData'] = gameData;
+                roomRef.update(relayUpdates).catch(function () {});
+                persistLocal();
+                if (relayProgressWrap) {
+                  T.fill(relayProgressWrap, relayStatusEl(curRelay, teamOf, playersMap, gameData && gameData.points, true));
+                }
+                if (allRelayTeamsDone(curRelay) && !revealing) {
+                  revealQuestion(idx);
+                  return;
+                }
+              }
+            }
+
             if (leftMs <= 0 && !revealing) {
               revealQuestion(idx);
             }
@@ -1766,12 +2596,25 @@
         Promise.all([
           roomRef.child('answers/' + idx).once('value'),
           roomRef.child('players').once('value'),
-          roomRef.child('state/startedAt').once('value')
+          roomRef.child('state/startedAt').once('value'),
+          gameType === 'wager' ? roomRef.child('answers/b' + idx).once('value') : Promise.resolve(null)
         ]).then(function (snaps) {
           if (!tracker.alive()) return;
           var ansMap = snaps[0].val() || {};
           playersMap = snaps[1].val() || playersMap || {};
           var startedAt = Number(snaps[2].val() || curStartedAt || serverNow());
+          if (gameType === 'wager' && snaps[3]) {
+            var rawB = snaps[3].val() || {};
+            var bMap = betsByQ[idx] || {};
+            Object.keys(rawB).forEach(function (u) {
+              if (rawB[u] && rawB[u].a !== undefined) bMap[u] = rawB[u].a;
+            });
+            betsByQ[idx] = bMap;
+          }
+
+          if (gameType === 'relay') {
+            evaluateRelayAnswers(item, ansMap);
+          }
 
           var counts = item.type === 'mc'
             ? (item.options || []).map(function () { return 0; })
@@ -1779,13 +2622,65 @@
 
           var pUids = Object.keys(playersMap);
           var newScores = {};
+          var ratioByUid = {};
+          var qBets = betsByQ[idx] || {};
+          var startPts = (window.TTMModes && window.TTMModes.WAGER_START) || 1000;
 
           pUids.forEach(function (u) {
-            var prev = scoresMap[u] || { score: 0, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, rank: 1 };
+            var defaultPrevScore = gameType === 'wager' ? startPts : 0;
+            var prev = scoresMap[u] || { score: defaultPrevScore, correctCount: 0, streak: 0, lastCorrect: false, lastGain: 0, rank: 1 };
             var ans = ansMap[u];
-            var hasAns = ans && ans.a !== undefined && ans.a !== null && ans.a !== '';
+            var hasAns = !!(ans && ans.a !== undefined && ans.a !== null && ans.a !== '');
             var right = false;
             var ratio = 0;
+
+            if (gameType === 'relay') {
+              var uTeam = teamOf[u];
+              var slot = (uTeam !== undefined && curRelay) ? curRelay[String(uTeam)] : null;
+              var triedList = (slot && window.TTMModes) ? window.TTMModes.toStrArray(slot.triedUids) : [];
+              var hadTurn = !!(slot && (triedList.indexOf(u) >= 0 || slot.uid === u));
+              var rightOnTurn = !!(slot && slot.done && slot.ok && slot.uid === u);
+
+              if (hadTurn && hasAns) {
+                if (item.type === 'mc') {
+                  var kRel = Number(ans.a);
+                  if (kRel >= 0 && kRel < counts.length) counts[kRel]++;
+                } else {
+                  if (rightOnTurn) counts[0]++;
+                  else counts[1]++;
+                }
+              }
+
+              if (rightOnTurn) {
+                var relElapsed = (ans && ans.t && startedAt)
+                  ? Math.max(0, Math.min(duration, (Number(ans.t) - startedAt) / 1000))
+                  : duration;
+                var relBase = Math.round(1000 * (1 - 0.5 * (relElapsed / duration)));
+                var relStreak = Number(prev.streak || 0) + 1;
+                var relBonus = relStreak >= 2 ? Math.min(500, 100 * (relStreak - 1)) : 0;
+                var relGain = relBase + relBonus;
+                newScores[u] = {
+                  score: Number(prev.score || 0) + relGain,
+                  correctCount: Number(prev.correctCount || 0) + 1,
+                  streak: relStreak,
+                  lastCorrect: true,
+                  lastGain: relGain,
+                  lastTurn: true,
+                  rank: 1
+                };
+              } else {
+                newScores[u] = {
+                  score: Number(prev.score || 0),
+                  correctCount: Number(prev.correctCount || 0),
+                  streak: Number(prev.streak || 0),
+                  lastCorrect: false,
+                  lastGain: 0,
+                  lastTurn: !!hadTurn,
+                  rank: 1
+                };
+              }
+              return;
+            }
 
             if (item.type === 'mc') {
               right = hasAns ? window.QuizFormat.isCorrect(item, ans.a) : false;
@@ -1807,6 +2702,27 @@
               ratio = right ? 1 : 0;
               if (right) counts[0]++;
               else counts[1]++;
+            }
+
+            ratioByUid[u] = ratio;
+
+            if (gameType === 'wager' && window.TTMModes) {
+              var betLevel = qBets[u];
+              var betAmt = window.TTMModes.betAmount(betLevel, prev.score);
+              var wRes = window.TTMModes.applyWager(prev.score, betAmt, ratio, hasAns);
+              var wStreak = ratio === 1 ? (Number(prev.streak || 0) + 1) : 0;
+              newScores[u] = {
+                score: wRes.score,
+                correctCount: Number(prev.correctCount || 0) + (right ? 1 : 0),
+                streak: wStreak,
+                lastCorrect: !!right,
+                lastGain: wRes.gain,
+                lastLoss: wRes.loss,
+                lastBet: betAmt,
+                lastPartial: ratio > 0 && ratio < 1,
+                rank: 1
+              };
+              return;
             }
 
             var gain = 0;
@@ -1870,18 +2786,37 @@
             counts: counts,
             top: top
           };
-          if (teamMode) {
-            revealObj.teams = teamStandings(teamOf, playersMap, newScores);
+
+          if (gameType === 'race' && window.TTMModes) {
+            gameData.pos = window.TTMModes.raceStep(gameData && gameData.pos, teamOf, playersMap, ratioByUid);
+            revealObj.teams = window.TTMModes.raceStandings(gameData.pos, teamOf, playersMap, questions.length);
+          } else if (gameType === 'tug' && window.TTMModes) {
+            gameData.rope = window.TTMModes.tugStep(gameData && gameData.rope, teamOf, playersMap, ratioByUid, questions.length);
+            revealObj.teams = window.TTMModes.tugStandings(gameData.rope, teamOf, playersMap, newScores);
+          } else if (gameType === 'relay' && window.TTMModes) {
+            gameData.pointers = window.TTMModes.relayNextPointers(gameData && gameData.pointers, curRelay, teamOf, playersMap);
+            revealObj.teams = window.TTMModes.relayStandings(gameData.points, teamOf, playersMap);
+            revealObj.relay = curRelay;
+          } else if (teamMode && gameType !== 'wager') {
+            revealObj.teams = teamStandings(teamOf, playersMap, newScores, teamCount);
           }
 
           scoresMap = newScores;
           persistLocal();
 
-          return roomRef.update({
+          var fbUpd = {
             'state/phase': 'reveal',
             reveal: revealObj,
             scores: newScores
-          }).then(function () {
+          };
+          if (gameData) {
+            fbUpd['state/gameData'] = gameData;
+          }
+          if (gameType === 'relay' && curRelay) {
+            fbUpd['state/relay'] = curRelay;
+          }
+
+          return roomRef.update(fbUpd).then(function () {
             if (!tracker.alive()) return;
             drawRevealView(idx, revealObj);
           });
@@ -1898,13 +2833,14 @@
         var item = questions[idx];
         var counts = revealObj.counts || [];
         var top = revealObj.top || [];
-        var isLast = idx >= questions.length - 1;
+        var tugKo = (gameType === 'tug' && gameData && Math.abs(Number(gameData.rope || 0)) >= 100);
+        var isLast = (idx >= questions.length - 1) || tugKo;
 
         var nextBtn = h('button', {
           class: 'btn btn-lg' + (isLast ? ' btn-accent' : ''),
           onclick: function () {
             if (isLast) finishMatch();
-            else startQuestion(idx + 1, false);
+            else startQuestion(idx + 1, false, false);
           }
         }, isLast ? '🏆 Xem kết quả' : 'Câu tiếp →');
 
@@ -1973,11 +2909,20 @@
           ];
         }
 
+        var modeVisualBanner = null;
+        if (gameType === 'race') {
+          modeVisualBanner = raceTrackEl(gameData && gameData.pos, questions.length, teamOf, playersMap, false);
+        } else if (gameType === 'tug') {
+          modeVisualBanner = tugRopeEl(gameData && gameData.rope, false);
+        } else if (gameType === 'relay') {
+          modeVisualBanner = relayStatusEl((revealObj && revealObj.relay) || curRelay, teamOf, playersMap, gameData && gameData.points, false);
+        }
+
         var rightCol;
-        if (teamMode) {
+        if (teamMode && gameType !== 'wager') {
           rightCol = h('div', { class: 'panel' },
             h('h3', { class: 'game-subhead' }, '👥 Bảng điểm nhóm'),
-            teamBoardEl(revealObj.teams || [], null));
+            teamBoardEl(revealObj.teams || [], null, gameType));
         } else {
           rightCol = h('div', { class: 'panel' },
             h('h3', { class: 'game-subhead' }, '🔥 Top 5 dẫn đầu'),
@@ -1995,6 +2940,7 @@
             h('div', { class: 'add-bar' },
               h('button', { class: 'btn btn-ghost danger-text', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'),
               nextBtn)),
+          modeVisualBanner,
           h('div', { class: 'panel game-q-panel compact' },
             h('h2', { class: 'game-q-text sm prewrap' }, T.qNodes(item.text || '')),
             item.image ? T.qImageEl({ kind: 'quiz', id: q.id, key: item.image }) : null,
@@ -2007,12 +2953,25 @@
             rightCol));
       }
 
+      function computeFinalTeams() {
+        if (gameType === 'race' && window.TTMModes) {
+          return window.TTMModes.raceStandings(gameData && gameData.pos, teamOf, playersMap, questions.length);
+        }
+        if (gameType === 'tug' && window.TTMModes) {
+          return window.TTMModes.tugStandings(gameData && gameData.rope, teamOf, playersMap, scoresMap);
+        }
+        if (gameType === 'relay' && window.TTMModes) {
+          return window.TTMModes.relayStandings(gameData && gameData.points, teamOf, playersMap);
+        }
+        return teamStandings(teamOf, playersMap, scoresMap, teamCount);
+      }
+
       function finishMatch() {
         clearQuestionWatchers();
         phase = 'end';
         roomActive = false;
-        if (teamMode) {
-          var finalTeams = teamStandings(teamOf, playersMap, scoresMap);
+        if (teamMode && gameType !== 'wager') {
+          var finalTeams = computeFinalTeams();
           roomRef.child('reveal/teams').set(finalTeams).catch(function () {});
         }
         roomRef.child('state/phase').set('end').catch(function () {});
@@ -2036,8 +2995,8 @@
             uid: u,
             username: p.username || '',
             fullName: p.name || p.username || 'Học sinh',
-            score: Number(s.score || 0),
-            correctCount: Number(s.correctCount || 0),
+            score: Math.max(0, Number(s.score || 0)),
+            correctCount: Math.max(0, Number(s.correctCount || 0)),
             joinedAt: p.joinedAt || 0
           };
         }).sort(function (a, b) {
@@ -2092,16 +3051,64 @@
         }
 
         var podiumOrTeamBlock = null;
-        if (teamMode) {
-          var endTeams = teamStandings(teamOf, playersMap, scoresMap);
+        if (teamMode && gameType !== 'wager') {
+          var endTeams = computeFinalTeams();
+          var topTeams = endTeams.filter(function (tm) { return tm.rank === 1 && tm.n > 0; });
+          var winnerBanner = null;
+          if (topTeams.length === 1) {
+            var winT = topTeams[0].t;
+            var winInfo = TEAMS[winT] || { name: 'Nhóm ' + (winT + 1), icon: '🏆', color: '#1368ce' };
+            var winNames = results.filter(function (r) { return teamOf[r.uid] === winT; }).map(function (r) { return r.fullName; });
+            winnerBanner = h('div', { class: 'game-winner-banner', style: '--team-color:' + winInfo.color },
+              h('div', { class: 'game-winner-title' }, '🏆 Nhóm chiến thắng: ' + winInfo.icon + ' ' + winInfo.name),
+              winNames.length ? h('div', { class: 'game-winner-members muted small' }, 'Thành viên: ' + winNames.join(', ')) : null
+            );
+          } else if (topTeams.length > 1) {
+            var tieNames = topTeams.map(function (tm) {
+              var inf = TEAMS[tm.t];
+              return inf ? (inf.icon + ' ' + inf.name) : ('Nhóm ' + (tm.t + 1));
+            }).join(' & ');
+            winnerBanner = h('div', { class: 'game-winner-banner is-tie' },
+              h('div', { class: 'game-winner-title' }, '🤝 Kết quả chung cuộc: Hòa (' + tieNames + ')')
+            );
+          }
+
+          var endVisual = null;
+          if (gameType === 'race') {
+            endVisual = raceTrackEl(gameData && gameData.pos, questions.length, teamOf, playersMap, false);
+          } else if (gameType === 'tug') {
+            endVisual = tugRopeEl(gameData && gameData.rope, false);
+          }
+
           podiumOrTeamBlock = h('div', { class: 'panel' },
             h('h3', { class: 'game-subhead', style: 'margin-bottom:14px' }, '🏆 Bảng xếp hạng nhóm chung cuộc'),
-            h('div', { class: 'game-team-cols game-team-end-grid' }, endTeams.map(function (tm) {
+            winnerBanner,
+            endVisual,
+            h('div', { class: 'game-team-cols game-team-end-grid' + (teamCount === 2 ? ' cols-2' : '') }, endTeams.map(function (tm) {
               var tmInfo = TEAMS[tm.t] || { name: 'Nhóm ' + (tm.t + 1), icon: '👥', color: '#1368ce' };
-              var medal = tm.rank === 1 ? '🥇' : tm.rank === 2 ? '🥈' : tm.rank === 3 ? '🥉' : '🏁';
+              var isTiedFirst = tm.rank === 1 && topTeams.length > 1;
+              var medal = isTiedFirst ? '🤝' : (tm.rank === 1 ? '🥇' : tm.rank === 2 ? '🥈' : tm.rank === 3 ? '🥉' : '🏁');
               var members = results.filter(function (r) {
                 return teamOf[r.uid] === tm.t;
               });
+              var bigScoreStr;
+              var subScoreStr;
+              if (gameType === 'race') {
+                var stp = tm.value !== undefined ? tm.value : 0;
+                bigScoreStr = T.fmtScore(Math.round(stp * 10) / 10) + ' bước';
+                subScoreStr = Math.round(tm.pct || 0) + '% đường đua · ' + tm.n + ' bạn';
+              } else if (gameType === 'relay') {
+                var rPts = tm.value !== undefined ? tm.value : 0;
+                bigScoreStr = T.fmtScore(rPts) + ' điểm';
+                subScoreStr = 'Tiếp sức · ' + tm.n + ' bạn';
+              } else if (gameType === 'tug') {
+                var adv = tm.value !== undefined ? tm.value : 0;
+                bigScoreStr = (adv > 0 ? '+' : '') + T.fmtScore(adv) + '% dây';
+                subScoreStr = 'TB cá nhân ' + T.fmtScore(tm.avg || 0) + ' đ · ' + tm.n + ' bạn';
+              } else {
+                bigScoreStr = T.fmtScore(tm.avg) + ' đ';
+                subScoreStr = 'Tổng ' + T.fmtScore(tm.total) + ' đ · ' + tm.n + ' bạn';
+              }
               return h('div', {
                 class: 'game-team-end-card',
                 style: '--team-color:' + tmInfo.color
@@ -2110,8 +3117,8 @@
                   h('span', { class: 'game-team-end-medal' }, medal),
                   h('span', null, tmInfo.icon + ' ' + tmInfo.name)
                 ),
-                h('div', { class: 'game-team-big-score' }, T.fmtScore(tm.avg) + ' đ'),
-                h('div', { class: 'muted small' }, 'Tổng ' + T.fmtScore(tm.total) + ' đ · ' + tm.n + ' bạn'),
+                h('div', { class: 'game-team-big-score' }, bigScoreStr),
+                h('div', { class: 'muted small' }, subScoreStr),
                 h('div', { class: 'game-team-member-list' },
                   members.length ? members.map(function (m) {
                     return h('div', { class: 'game-team-member-item' },
@@ -2155,7 +3162,7 @@
                   h('tr', null,
                     h('th', null, 'Hạng'),
                     h('th', null, 'Học sinh'),
-                    teamMode ? h('th', null, 'Nhóm') : null,
+                    (teamMode && gameType !== 'wager') ? h('th', null, 'Nhóm') : null,
                     h('th', null, 'Số câu đúng'),
                     h('th', null, 'Tổng điểm'))),
                 h('tbody', null, results.map(function (r) {
@@ -2165,7 +3172,7 @@
                   return h('tr', null,
                     h('td', null, h('strong', null, medal + '#' + r.rank)),
                     h('td', null, r.fullName, r.username ? h('span', { class: 'muted small' }, ' (' + r.username + ')') : null),
-                    teamMode ? h('td', null, tmInfo ? h('span', {
+                    (teamMode && gameType !== 'wager') ? h('td', null, tmInfo ? h('span', {
                       class: 'pill',
                       style: 'border-color:' + tmInfo.color + ';color:' + tmInfo.color + ';font-weight:700'
                     }, tmInfo.icon + ' ' + tmInfo.name) : '–') : null,
@@ -2178,7 +3185,7 @@
 
       // Khởi chạy màn hình phù hợp (kể cả khi giáo viên tải lại trang và tiếp tục phòng đang mở)
       if (phase === 'question' && curIndex >= 0 && curIndex < questions.length) {
-        startQuestion(curIndex, true);
+        startQuestion(curIndex, true, curSub === 'answer');
       } else if (phase === 'reveal' && curIndex >= 0 && curIndex < questions.length && hostState.resumedRoom && hostState.resumedRoom.reveal) {
         drawRevealView(curIndex, hostState.resumedRoom.reveal);
       } else if (phase === 'end') {

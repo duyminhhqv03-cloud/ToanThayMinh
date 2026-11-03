@@ -12,7 +12,7 @@
 
 ## Cấu trúc
 - `index.html`, `style.css`: trang giới thiệu cho phụ huynh.
-- `hoc/`: Khu học tập (SPA ES5 thuần, không build) trên GitHub Pages: `app.js` (đăng nhập, khóa học, nhánh, tài liệu, bài tập về nhà theo tuần, luyện tập, học phí, tài khoản), `game.js` (Đấu cả lớp kiểu Kahoot qua Firebase), `quiz-format.js` (đọc đề dạng chữ, chấm trả lời ngắn), `config.js` (API_URL Apps Script + FIREBASE_CONFIG — các giá trị này công khai).
+- `hoc/`: Khu học tập (SPA ES5 thuần, không build) trên GitHub Pages: `app.js` (đăng nhập, khóa học, nhánh, tài liệu, bài tập về nhà theo tuần, luyện tập, học phí, tài khoản), `game.js` (Đấu cả lớp qua Firebase: kiểu Kahoot, Đua nhóm, Kéo co, Tiếp sức, Đặt cược), `game-modes.js` (luật tính điểm thuần của các game, kiểm tra bằng `node tools/modes-test.js`), `review.js` (Ôn từ vựng), `quiz-format.js` (đọc đề dạng chữ, chấm trả lời ngắn), `config.js` (API_URL Apps Script + FIREBASE_CONFIG — các giá trị này công khai).
 - `apps-script/Code.gs`: máy chủ Google Apps Script + Google Sheets. Hướng dẫn: `apps-script/HUONG-DAN.md`, `apps-script/FIREBASE.md`.
 - `firebase/database.rules.json`: luật bảo mật Realtime Database (dự án Firebase `toan-thay-minh`).
 - Trang thật: https://duyminhhqv03-cloud.github.io/ToanThayMinh/ (Khu học tập ở `/hoc/`).

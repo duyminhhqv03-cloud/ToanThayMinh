@@ -1326,3 +1326,412 @@ span.blank.static.is-bad {
 .frac-hint[hidden] { display: none; }
 .game-short-form .frac-hint { display: block; margin: 6px 0 10px; text-align: center; font-size: 22px; }
 .game-short-form .frac-hint[hidden] { display: none; }
+
+/* ───────── 4 chế độ chơi mới: Chọn game, Đua nhóm, Kéo co, Tiếp sức, Đặt cược ───────── */
+.game-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+  margin-bottom: 6px;
+}
+.game-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 13px 15px;
+  border: 2px solid var(--line, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease;
+}
+.game-mode-card:hover:not(.is-disabled) {
+  border-color: #9fdcc6;
+  background: #fafdfb;
+}
+.game-mode-card:focus-visible {
+  outline: 2px solid var(--brand, #0f9d74);
+  outline-offset: 2px;
+}
+.game-mode-card.active {
+  border-color: var(--brand, #0f9d74);
+  background: #eefaf5;
+  box-shadow: 0 0 0 2px rgba(15, 157, 116, 0.16);
+}
+.game-mode-card.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #f8faf9;
+}
+.game-mode-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.game-mode-icon {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.game-mode-name {
+  font-size: 15px;
+  font-weight: 700;
+  flex: 1;
+  min-width: 0;
+}
+.game-mode-badge {
+  flex-shrink: 0;
+}
+.game-mode-desc {
+  font-size: 13px;
+  color: var(--muted, #64748b);
+  line-height: 1.45;
+}
+.game-mode-note {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0d7f5e;
+  margin-top: 2px;
+}
+.game-mode-note.is-err {
+  color: #c0392b;
+}
+
+.game-team-cols.cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+/* Đường đua nhóm (race) */
+.game-race-track {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-sizing: border-box;
+  width: 100%;
+  overflow: hidden;
+}
+.game-race-track.is-compact {
+  padding: 10px 14px;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.game-race-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.game-race-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.game-race-team {
+  color: var(--team-color, #1368ce);
+}
+.game-race-step {
+  color: var(--muted, #64748b);
+  font-size: 12.5px;
+}
+.game-race-rail {
+  position: relative;
+  height: 26px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  border: 1px solid var(--line, #e2e8f0);
+  margin: 0 6px;
+  box-sizing: border-box;
+}
+.game-race-track.is-compact .game-race-rail {
+  height: 20px;
+}
+.game-race-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: var(--team-color, #1368ce);
+  opacity: 0.22;
+  border-radius: 999px;
+  transition: width .6s ease;
+}
+.game-race-finish {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  line-height: 1;
+  pointer-events: none;
+}
+.game-race-runner {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 18px;
+  line-height: 1;
+  transition: left .6s ease;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Dây kéo co (tug) */
+.game-tug-wrap {
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-sizing: border-box;
+  width: 100%;
+  overflow: hidden;
+}
+.game-tug-wrap.is-compact {
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.game-tug-ends {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-weight: 700;
+  font-size: 14px;
+}
+.game-tug-side.is-red {
+  color: #e21b3c;
+}
+.game-tug-side.is-blue {
+  color: #1368ce;
+}
+.game-tug-status {
+  text-align: center;
+  flex: 1;
+  min-width: 140px;
+}
+.game-tug-track {
+  position: relative;
+  height: 32px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1.5px solid var(--line, #e2e8f0);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.game-tug-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  opacity: 0.12;
+}
+.game-tug-zone.is-red {
+  left: 0;
+  background: #e21b3c;
+}
+.game-tug-zone.is-blue {
+  right: 0;
+  background: #1368ce;
+}
+.game-tug-rope-line {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 50%;
+  height: 6px;
+  margin-top: -3px;
+  background: #b45309;
+  border-radius: 4px;
+}
+.game-tug-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #334155;
+  z-index: 1;
+}
+.game-tug-knot {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 18px;
+  line-height: 1;
+  transition: left .6s ease;
+  z-index: 2;
+  background: #fff;
+  border: 2px solid #b45309;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+/* Tiếp sức (relay) */
+.game-relay-host-wrap {
+  margin-bottom: 12px;
+}
+.game-relay-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.game-relay-col {
+  background: #fff;
+  border: 1.5px solid var(--line, #e2e8f0);
+  border-left: 4px solid var(--team-color, #1368ce);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-sizing: border-box;
+  min-width: 0;
+}
+.game-relay-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+}
+.game-relay-col-turn {
+  color: var(--ink);
+  font-weight: 600;
+  word-break: break-word;
+}
+.game-relay-turn-banner {
+  background: #fffbeb;
+  border: 2px solid #f59e0b;
+  color: #b45309;
+  font-weight: 800;
+  font-size: 16px;
+  text-align: center;
+  padding: 8px 12px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+
+/* Đặt cược điểm (wager) */
+.game-bet-panel {
+  text-align: center;
+  padding: 18px 14px;
+  box-sizing: border-box;
+}
+.game-bet-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+.game-bet-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 10px;
+  border-radius: 12px;
+  border: 2px solid #1368ce;
+  background: #f0f7ff;
+  color: #0c4a8a;
+  font: inherit;
+  cursor: pointer;
+  min-height: 68px;
+  box-sizing: border-box;
+  transition: transform .1s ease, background-color .15s ease;
+}
+.game-bet-btn:hover {
+  background: #e0effe;
+}
+.game-bet-btn:active {
+  transform: scale(0.98);
+}
+.game-bet-btn.is-all {
+  grid-column: 1 / -1;
+  border-color: #d89e00;
+  background: #fffbeb;
+  color: #92400e;
+}
+.game-bet-btn.is-all:hover {
+  background: #fef3c7;
+}
+.game-bet-label {
+  font-size: 18px;
+  font-weight: 800;
+}
+.game-bet-sub {
+  font-size: 12.5px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.game-bet-host-panel {
+  text-align: center;
+  padding: 32px 20px;
+}
+
+/* Biểu ngữ nhóm thắng chung cuộc */
+.game-winner-banner {
+  background: #f8fafc;
+  border: 2px solid var(--team-color, #0f9d74);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  text-align: center;
+  box-sizing: border-box;
+}
+.game-winner-banner.is-tie {
+  border-color: #d89e00;
+  background: #fffbeb;
+}
+.game-winner-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--team-color, var(--ink));
+}
+.game-winner-banner.is-tie .game-winner-title {
+  color: #92400e;
+}
+.game-winner-members {
+  margin-top: 4px;
+  font-size: 13.5px;
+}
+
+@media (max-width: 680px) {
+  .game-relay-strip {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .game-team-cols.cols-2 {
+    grid-template-columns: 1fr;
+  }
+  .game-mode-grid {
+    grid-template-columns: 1fr;
+  }
+  .game-tug-status {
+    width: 100%;
+    order: 3;
+  }
+}

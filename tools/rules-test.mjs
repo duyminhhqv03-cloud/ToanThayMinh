@@ -61,6 +61,15 @@ await expect('Giáo viên đọc cả phòng', 'ok', req('GET', room, host));
 await expect('Giáo viên mở câu 2 (trả lời ngắn)', 'ok', req('PATCH', room, host, { state: { phase: 'question', index: 1, qkey: '1', total: 2, startedAt: TS, duration: 5 }, question: { index: 1, type: 'short', text: '1/2 + 1/4 = ?' } }));
 await expect('Học sinh gửi câu trả lời ngắn (chữ)', 'ok', req('PUT', `${room}/answers/1/${s2.uid}`, s2, { a: '0,75', t: TS }));
 await expect('Câu trả lời ngắn rỗng → chặn', 'deny', req('PUT', `${room}/answers/1/${s1.uid}`, s1, { a: '', t: TS }));
+await expect('Giáo viên mở bước đặt cược (wager)', 'ok', req('PATCH', room, host, {
+  state: { phase: 'question', index: 0, qkey: 'b0', total: 2, startedAt: TS, duration: 10, gameType: 'wager' },
+  question: { index: 0, type: 'mc', text: 'Đặt cược' }
+}));
+await expect('Học sinh 1 ghi mức cược (answers/b0)', 'ok', req('PUT', `${room}/answers/b0/${s1.uid}`, s1, { a: 2, t: TS }));
+await expect('Học sinh 1 ghi mức cược lần hai → chặn', 'deny', req('PUT', `${room}/answers/b0/${s1.uid}`, s1, { a: 3, t: TS }));
+await expect('Giáo viên ghi scores có lastLoss và lastTurn', 'ok', req('PATCH', `${room}/scores`, host, {
+  [s1.uid]: { score: 700, correctCount: 1, streak: 0, lastCorrect: false, lastGain: 0, lastLoss: 300, lastTurn: true, rank: 1 }
+}));
 await expect('Học sinh xóa phòng → chặn', 'deny', req('DELETE', room, s1));
 await expect('Giáo viên đóng (xóa) phòng', 'ok', req('DELETE', room, host));
 console.log(fails ? `\n${fails} kiểm tra KHÔNG đạt` : '\nTất cả kiểm tra đều đạt');
