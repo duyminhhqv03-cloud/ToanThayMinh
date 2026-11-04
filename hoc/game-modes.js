@@ -766,6 +766,77 @@
     return { score: nextScore, gain: 0, loss: actualLoss };
   }
 
+  /* ═══════════ 5. Kho thẻ kéo thả cho câu điền khuyết (fill) ═══════════ */
+
+  function normBankKey(s) {
+    return String(s == null ? '' : s).replace(/\s+/g, '').toLowerCase();
+  }
+
+  function buildBank(item, allQuestions, shuffleFn) {
+    if (!item || item.type !== 'fill' || !Array.isArray(item.answers)) return [];
+    var cards = [];
+    var seen = {};
+    var i;
+    for (i = 0; i < item.answers.length; i++) {
+      var slot = item.answers[i];
+      var raw = Array.isArray(slot) ? slot[0] : slot;
+      if (raw === null || raw === undefined) continue;
+      var val = String(raw).trim();
+      if (!val) continue;
+      var key = normBankKey(val);
+      if (!key) continue;
+      cards.push(val);
+      seen[key] = true;
+    }
+    if (!cards.length) return [];
+
+    var qs = Array.isArray(allQuestions) ? allQuestions : [];
+    var pool = [];
+    for (i = 0; i < qs.length; i++) {
+      var q = qs[i];
+      if (!q || q === item) continue;
+      if (q.type === 'fill' && Array.isArray(q.answers)) {
+        for (var j = 0; j < q.answers.length; j++) {
+          var fSlot = q.answers[j];
+          var fRaw = Array.isArray(fSlot) ? fSlot[0] : fSlot;
+          if (fRaw === null || fRaw === undefined) continue;
+          var fVal = String(fRaw).trim();
+          if (!fVal || fVal.length > 40) continue;
+          var fKey = normBankKey(fVal);
+          if (!fKey || seen[fKey]) continue;
+          seen[fKey] = true;
+          pool.push(fVal);
+        }
+      } else if (q.type === 'short' && Array.isArray(q.answers)) {
+        for (var k = 0; k < q.answers.length; k++) {
+          var sRaw = Array.isArray(q.answers[k]) ? q.answers[k][0] : q.answers[k];
+          if (sRaw === null || sRaw === undefined) continue;
+          var sVal = String(sRaw).trim();
+          if (!sVal) continue;
+          if (sVal.length <= 40) {
+            var sKey = normBankKey(sVal);
+            if (sKey && !seen[sKey]) {
+              seen[sKey] = true;
+              pool.push(sVal);
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    var distractors = typeof shuffleFn === 'function'
+      ? pool.slice(0, 2)
+      : defaultShuffle(pool).slice(0, 2);
+    for (i = 0; i < distractors.length; i++) {
+      cards.push(distractors[i]);
+    }
+
+    if (cards.join('').length > 1500) return [];
+    var shuf = typeof shuffleFn === 'function' ? shuffleFn : defaultShuffle;
+    return shuf(cards);
+  }
+
   var TTMModes = {
     GAMES: GAMES,
     BET_LEVELS: BET_LEVELS,
@@ -791,7 +862,8 @@
     relayNextPointers: relayNextPointers,
     relayStandings: relayStandings,
     betAmount: betAmount,
-    applyWager: applyWager
+    applyWager: applyWager,
+    buildBank: buildBank
   };
 
   if (typeof window !== 'undefined') window.TTMModes = TTMModes;

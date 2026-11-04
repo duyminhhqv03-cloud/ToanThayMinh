@@ -352,6 +352,72 @@ check('recommend: useCount giảm đúng khi 30 câu, 5 phút và có warn thờ
   assert.strictEqual(rev.warn, '');
 });
 
+check('buildBank: đủ thẻ đúng, tối đa 2 thẻ nhiễu, không trùng (bỏ khoảng trắng/hoa thường)', function () {
+  var noShuffle = function (arr) { return arr.slice(); };
+  var item = {
+    type: 'fill',
+    text: 'Solar = .... ; Wind = ....',
+    answers: [['Mặt trời', 'Năng lượng mặt trời'], ['Gió']]
+  };
+  var allQ = [
+    item,
+    { type: 'fill', text: 'A = .... ; B = ....', answers: [['mặt  trời'], ['Nước', 'Thủy điện']] },
+    { type: 'short', text: 'Than đá là gì?', answers: ['Than đá', 'Hóa thạch'] },
+    { type: 'short', text: 'Khí đốt?', answers: ['Khí đốt'] }
+  ];
+  var bank = M.buildBank(item, allQ, noShuffle);
+  // 2 thẻ đúng ('Mặt trời', 'Gió') + tối đa 2 thẻ nhiễu ('Nước', 'Than đá'), bỏ qua 'mặt  trời' vì trùng 'Mặt trời'
+  assert.deepStrictEqual(bank, ['Mặt trời', 'Gió', 'Nước', 'Than đá']);
+});
+
+check('buildBank: thẻ đúng trùng nhau giữ đủ số lượng, câu fill nhiều cách viết chỉ lấy cách đầu', function () {
+  var revShuffle = function (arr) { return arr.slice().reverse(); };
+  var item = {
+    type: 'fill',
+    text: 'Ô 1: .... ; Ô 2: .... ; Ô 3: ....',
+    answers: [['1/2', '0,5'], ['3/4', '0,75'], ['1/2', '0.5']]
+  };
+  var allQ = [
+    item,
+    { type: 'short', text: 'Câu khác', answers: ['1 / 2'] }, // trùng với 1/2 khi bỏ khoảng trắng -> không lấy làm nhiễu
+    { type: 'short', text: 'Câu khác 2', answers: ['5/6', 'năm phần sáu'] }
+  ];
+  var bank = M.buildBank(item, allQ, revShuffle);
+  assert.strictEqual(bank.length, 4);
+  var countHalf = bank.filter(function (x) { return x === '1/2'; }).length;
+  assert.strictEqual(countHalf, 2);
+  assert.strictEqual(bank.indexOf('0,5'), -1);
+  assert.strictEqual(bank.indexOf('0,75'), -1);
+  assert.strictEqual(bank.indexOf('5/6') !== -1, true);
+});
+
+check('buildBank: không có câu khác thì không có thẻ nhiễu; bỏ qua rỗng/thẻ nhiễu > 40 ký tự; quá 1500 ký tự trả []', function () {
+  var noShuffle = function (arr) { return arr.slice(); };
+  var item = {
+    type: 'fill',
+    text: 'Bước 1: .... ; Bước 2: ....',
+    answers: [['Đọc đề'], [''], ['Giải bài']]
+  };
+  var bankSingle = M.buildBank(item, [item], noShuffle);
+  assert.deepStrictEqual(bankSingle, ['Đọc đề', 'Giải bài']);
+
+  var longDistractor = 'Chuỗi nhiễu này dài hơn bốn mươi ký tự nên không được chọn vào ngân hàng thẻ';
+  var bankFiltered = M.buildBank(item, [
+    item,
+    { type: 'short', answers: [longDistractor] },
+    { type: 'short', answers: ['Kiểm tra lại'] }
+  ], noShuffle);
+  assert.deepStrictEqual(bankFiltered, ['Đọc đề', 'Giải bài', 'Kiểm tra lại']);
+
+  var hugeStr = new Array(800).join('ab'); // 1598 ký tự
+  var hugeItem = {
+    type: 'fill',
+    text: '.... và ....',
+    answers: [[hugeStr], ['ngắn']]
+  };
+  assert.deepStrictEqual(M.buildBank(hugeItem, [hugeItem], noShuffle), []);
+});
+
 check('Kiểm tra mã nguồn thuần ES5 (không let/const/arrow/class/template literal/block function)', function () {
   var fs = require('fs');
   var files = ['game-modes.js', 'game.js', 'app.js', 'quiz-format.js', 'review.js'];

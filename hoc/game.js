@@ -1078,7 +1078,7 @@
           h('div', { class: 'game-wiz-head-row' },
             h('p', { class: 'muted small' }, 'Thầy cô dán đề và đáp án (hoặc lấy từ file PDF), hệ thống sẽ tự tách câu hỏi.'),
             pdfBtn),
-          T.field('Đề bài', deTa),
+          T.field('Đề bài', deTa, 'Mẹo: câu có từ 2 chỗ trống "....", ví dụ ghép cặp "Solar = ...." hoặc xếp thứ tự "Bước 1: ....", sẽ cho học sinh kéo thả đáp án.'),
           T.field('Đáp án (nếu để riêng)', dapAnTa),
           h('div', { class: 'actions-start' }, readBtn),
           step1ResultBox,
@@ -1457,10 +1457,21 @@
     var seq = T.getSeq();
     var tracker = createTracker(seq);
     var activeGame = false;
+    var activeDragCleanup = null;
+    function clearActiveDrag() {
+      if (activeDragCleanup) {
+        var fn = activeDragCleanup;
+        activeDragCleanup = null;
+        fn();
+      }
+    }
     T.setLeaveGuard(
       function () { return activeGame; },
       'Trận đấu đang diễn ra. Em có chắc muốn rời phòng?',
-      tracker.cleanup
+      function () {
+        clearActiveDrag();
+        tracker.cleanup();
+      }
     );
 
     T.fill(T.app, T.loading('Đang vào phòng ' + fmtPin(pin) + '…'));
@@ -1564,6 +1575,7 @@
         stage);
 
       function clearQTimer() {
+        clearActiveDrag();
         if (stopTimer) { stopTimer(); stopTimer = null; }
       }
 
@@ -1915,6 +1927,7 @@
         }
 
         function renderLocked(msg, pickedLabel, iconStr) {
+          clearActiveDrag();
           T.fill(bodyBox,
             h('div', { class: 'panel game-sent-box' },
               h('div', { class: 'game-status-icon' }, iconStr || '📨'),
@@ -1937,6 +1950,7 @@
 
         function submitAnswer(val) {
           if (answeredMap[qKey]) return;
+          clearActiveDrag();
           answeredMap[qKey] = { a: val, sent: true };
           renderLocked('Đã gửi, chờ các bạn…', formatPicked(val));
           roomRef.child('answers/' + qKey + '/' + uid).set({
@@ -1958,6 +1972,7 @@
         var isRelayMyTurn = (gType === 'relay' && relaySlot && !relaySlot.done && relaySlot.uid === uid);
 
         function drawControls() {
+          clearActiveDrag();
           if (gType === 'relay') {
             if (relaySlot && relaySlot.done) {
               renderLocked('Nhóm em đã xong câu này', null, relaySlot.ok ? '✅' : '🏁');
@@ -2001,6 +2016,336 @@
                     h('span', { class: 'game-pad-letter' }, letter)),
                   h('span', { class: 'game-pad-text' }, T.mathNodes(optText)));
               })));
+          } else if (q.blanks && q.blanks >= 2 && Array.isArray(q.bank) && q.bank.length > 0) {
+            var bank = q.bank;
+            var QF = window.QuizFormat;
+            var splitText = QF && QF.splitParts ? QF.splitParts(q.text || '') : String(q.text || '');
+            var textParts = QF && QF.splitBlanks ? QF.splitBlanks(splitText) : [splitText];
+            var slotCount = Math.max(Number(q.blanks) || 2, textParts.length - 1);
+            var slotChipIdx = [];
+            for (var sbi = 0; sbi < slotCount; sbi++) slotChipIdx.push(-1);
+            var selectedChipIdx = -1;
+            var suppressClickUntil = 0;
+            var dragState = null;
+            var touchMoveOpts = { passive: false };
+
+            var slotEls = [];
+            var textNodes = [];
+            for (var pk = 0; pk < textParts.length; pk++) {
+              if (textParts[pk]) {
+                var mns = T.mathNodes(textParts[pk]);
+                for (var mi = 0; mi < mns.length; mi++) textNodes.push(mns[mi]);
+              }
+              if (pk < textParts.length - 1) {
+                var sBtn = h('button', {
+                  type: 'button',
+                  class: 'game-drop-slot',
+                  'data-i': String(pk)
+                });
+                slotEls.push(sBtn);
+                textNodes.push(sBtn);
+              }
+            }
+            while (slotEls.length < slotCount) {
+              var extraIdx = slotEls.length;
+              var extraBtn = h('button', {
+                type: 'button',
+                class: 'game-drop-slot',
+                'data-i': String(extraIdx)
+              });
+              slotEls.push(extraBtn);
+              textNodes.push(' ', extraBtn);
+            }
+
+            var chipEls = bank.map(function (cardText, cIdx) {
+              return h('button', {
+                type: 'button',
+                class: 'game-drag-chip',
+                'data-chip': String(cIdx)
+              }, T.mathNodes(cardText));
+            });
+
+            var fillTextEl = h('div', { class: 'game-fill-text prewrap fill-wrap game-drag-text' }, textNodes);
+            var bankEl = h('div', { class: 'game-chip-bank' }, chipEls);
+            var fillBox = h('div', { class: 'panel game-fill-box game-drag-box' }, fillTextEl, bankEl);
+
+            var syncDragFillUI = function () {
+              var usedMap = {};
+              var si;
+              for (si = 0; si < slotCount; si++) {
+                var placed = slotChipIdx[si];
+                if (placed >= 0 && placed < bank.length) {
+                  usedMap[placed] = true;
+                }
+              }
+              if (selectedChipIdx >= 0 && usedMap[selectedChipIdx]) {
+                selectedChipIdx = -1;
+              }
+              for (si = 0; si < slotEls.length; si++) {
+                var slotEl = slotEls[si];
+                var cIdx = slotChipIdx[si];
+                var hasCard = cIdx >= 0 && cIdx < bank.length;
+                slotEl.className = 'game-drop-slot' + (hasCard ? ' is-filled' : '');
+                if (hasCard) {
+                  slotEl.setAttribute('data-chip', String(cIdx));
+                  T.fill(slotEl, T.mathNodes(bank[cIdx]));
+                } else {
+                  slotEl.removeAttribute('data-chip');
+                  T.fill(slotEl);
+                }
+              }
+              for (var ci = 0; ci < chipEls.length; ci++) {
+                var chipEl = chipEls[ci];
+                var isUsed = !!usedMap[ci];
+                var isSel = !isUsed && selectedChipIdx === ci;
+                chipEl.hidden = isUsed;
+                chipEl.className = 'game-drag-chip'
+                  + (isSel ? ' is-selected' : '')
+                  + (isUsed ? ' is-used' : '');
+              }
+            };
+
+            var findSlotIndexAt = function (x, y) {
+              if (typeof document.elementFromPoint !== 'function') return -1;
+              var el = document.elementFromPoint(x, y);
+              while (el && el !== document.body && el !== document.documentElement) {
+                if (el.classList && el.classList.contains('game-drop-slot') && fillBox.contains(el)) {
+                  var attr = el.getAttribute('data-i');
+                  var idx = attr !== null ? parseInt(attr, 10) : -1;
+                  return (isFinite(idx) && idx >= 0 && idx < slotEls.length) ? idx : -1;
+                }
+                el = el.parentNode;
+              }
+              return -1;
+            };
+
+            var onDocMouseMove = function (e) {
+              handlePointerMove(e.clientX, e.clientY, e);
+            };
+            var onDocMouseUp = function (e) {
+              handlePointerEnd(e.clientX, e.clientY);
+            };
+            var onDocTouchMove = function (e) {
+              if (!e.touches || !e.touches.length) return;
+              var t = e.touches[0];
+              handlePointerMove(t.clientX, t.clientY, e);
+            };
+            var onDocTouchEnd = function (e) {
+              var t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
+              var cx = t ? t.clientX : (dragState ? dragState.lastX : null);
+              var cy = t ? t.clientY : (dragState ? dragState.lastY : null);
+              handlePointerEnd(cx, cy);
+            };
+            var onDocTouchCancel = function () {
+              cancelDrag();
+              syncDragFillUI();
+            };
+
+            var cancelDrag = function () {
+              document.removeEventListener('mousemove', onDocMouseMove, false);
+              document.removeEventListener('mouseup', onDocMouseUp, false);
+              document.removeEventListener('touchmove', onDocTouchMove, touchMoveOpts);
+              document.removeEventListener('touchmove', onDocTouchMove, false);
+              document.removeEventListener('touchmove', onDocTouchMove, true);
+              document.removeEventListener('touchend', onDocTouchEnd, false);
+              document.removeEventListener('touchcancel', onDocTouchCancel, false);
+              if (dragState) {
+                if (dragState.overSlotIdx >= 0 && slotEls[dragState.overSlotIdx]) {
+                  slotEls[dragState.overSlotIdx].classList.remove('is-over');
+                }
+                if (dragState.srcEl) {
+                  dragState.srcEl.classList.remove('is-dragging-src');
+                }
+                if (dragState.ghostEl && dragState.ghostEl.parentNode) {
+                  dragState.ghostEl.parentNode.removeChild(dragState.ghostEl);
+                }
+                dragState = null;
+              }
+              if (activeDragCleanup === cancelDrag) {
+                activeDragCleanup = null;
+              }
+            };
+
+            var handlePointerMove = function (clientX, clientY, rawEv) {
+              if (!dragState || !document.body.contains(fillBox)) {
+                cancelDrag();
+                return;
+              }
+              dragState.lastX = clientX;
+              dragState.lastY = clientY;
+              var dx = clientX - dragState.startX;
+              var dy = clientY - dragState.startY;
+              if (!dragState.moved) {
+                if (dx * dx + dy * dy <= 36) return;
+                dragState.moved = true;
+                var ghost = h('div', {
+                  class: 'game-drag-chip game-drag-ghost',
+                  style: 'position:fixed;pointer-events:none;z-index:9999'
+                }, T.mathNodes(bank[dragState.chipIdx]));
+                document.body.appendChild(ghost);
+                dragState.ghostEl = ghost;
+                if (dragState.srcEl) {
+                  dragState.srcEl.classList.add('is-dragging-src');
+                }
+              }
+              if (rawEv && dragState.isTouch && rawEv.cancelable) {
+                rawEv.preventDefault();
+              }
+              if (dragState.ghostEl) {
+                dragState.ghostEl.style.left = Math.round(clientX - dragState.offsetX) + 'px';
+                dragState.ghostEl.style.top = Math.round(clientY - dragState.offsetY) + 'px';
+              }
+              var hitIdx = findSlotIndexAt(clientX, clientY);
+              if (hitIdx !== dragState.overSlotIdx) {
+                if (dragState.overSlotIdx >= 0 && slotEls[dragState.overSlotIdx]) {
+                  slotEls[dragState.overSlotIdx].classList.remove('is-over');
+                }
+                dragState.overSlotIdx = hitIdx;
+                if (hitIdx >= 0 && slotEls[hitIdx]) {
+                  slotEls[hitIdx].classList.add('is-over');
+                }
+              }
+            };
+
+            var handlePointerEnd = function (clientX, clientY) {
+              if (!dragState) return;
+              var ds = dragState;
+              if (!ds.moved) {
+                cancelDrag();
+                return;
+              }
+              var targetSlot = (typeof clientX === 'number' && typeof clientY === 'number' && document.body.contains(fillBox))
+                ? findSlotIndexAt(clientX, clientY)
+                : ds.overSlotIdx;
+              cancelDrag();
+              suppressClickUntil = Date.now() + 400;
+              if (!document.body.contains(fillBox)) return;
+              if (targetSlot >= 0 && targetSlot < slotCount) {
+                for (var k = 0; k < slotCount; k++) {
+                  if (slotChipIdx[k] === ds.chipIdx) slotChipIdx[k] = -1;
+                }
+                if (ds.fromSlot >= 0 && ds.fromSlot !== targetSlot) {
+                  slotChipIdx[ds.fromSlot] = -1;
+                }
+                slotChipIdx[targetSlot] = ds.chipIdx;
+                selectedChipIdx = -1;
+              } else {
+                if (ds.fromSlot >= 0) {
+                  slotChipIdx[ds.fromSlot] = -1;
+                }
+                selectedChipIdx = -1;
+              }
+              syncDragFillUI();
+            };
+
+            var beginPress = function (chipIdx, fromSlot, srcEl, startX, startY, isTouch) {
+              cancelDrag();
+              var rect = srcEl.getBoundingClientRect ? srcEl.getBoundingClientRect() : null;
+              var offX = (rect && rect.width) ? Math.min(Math.max(16, startX - rect.left), rect.width - 16) : 36;
+              var offY = (rect && rect.height) ? Math.min(Math.max(12, startY - rect.top), rect.height - 12) : 22;
+              dragState = {
+                chipIdx: chipIdx,
+                fromSlot: fromSlot,
+                srcEl: srcEl,
+                startX: startX,
+                startY: startY,
+                lastX: startX,
+                lastY: startY,
+                offsetX: offX,
+                offsetY: offY,
+                moved: false,
+                ghostEl: null,
+                overSlotIdx: -1,
+                isTouch: !!isTouch
+              };
+              activeDragCleanup = cancelDrag;
+              if (isTouch) {
+                document.addEventListener('touchmove', onDocTouchMove, touchMoveOpts);
+                document.addEventListener('touchend', onDocTouchEnd, false);
+                document.addEventListener('touchcancel', onDocTouchCancel, false);
+              } else {
+                document.addEventListener('mousemove', onDocMouseMove, false);
+                document.addEventListener('mouseup', onDocMouseUp, false);
+              }
+            };
+
+            chipEls.forEach(function (chipBtn, cIdx) {
+              chipBtn.addEventListener('mousedown', function (e) {
+                if (e.button !== undefined && e.button !== 0) return;
+                if (chipBtn.hidden) return;
+                beginPress(cIdx, -1, chipBtn, e.clientX, e.clientY, false);
+              });
+              chipBtn.addEventListener('touchstart', function (e) {
+                if (!e.touches || !e.touches.length || chipBtn.hidden) return;
+                var t = e.touches[0];
+                beginPress(cIdx, -1, chipBtn, t.clientX, t.clientY, true);
+              });
+              chipBtn.addEventListener('click', function (e) {
+                if (Date.now() < suppressClickUntil) {
+                  e.preventDefault();
+                  return;
+                }
+                if (chipBtn.hidden) return;
+                selectedChipIdx = (selectedChipIdx === cIdx) ? -1 : cIdx;
+                syncDragFillUI();
+              });
+            });
+
+            slotEls.forEach(function (slotBtn, sIdx) {
+              slotBtn.addEventListener('mousedown', function (e) {
+                if (e.button !== undefined && e.button !== 0) return;
+                var cIdx = slotChipIdx[sIdx];
+                if (cIdx < 0) return;
+                beginPress(cIdx, sIdx, slotBtn, e.clientX, e.clientY, false);
+              });
+              slotBtn.addEventListener('touchstart', function (e) {
+                if (!e.touches || !e.touches.length) return;
+                var cIdx = slotChipIdx[sIdx];
+                if (cIdx < 0) return;
+                var t = e.touches[0];
+                beginPress(cIdx, sIdx, slotBtn, t.clientX, t.clientY, true);
+              });
+              slotBtn.addEventListener('click', function (e) {
+                if (Date.now() < suppressClickUntil) {
+                  e.preventDefault();
+                  return;
+                }
+                if (selectedChipIdx >= 0 && selectedChipIdx < bank.length) {
+                  for (var k = 0; k < slotCount; k++) {
+                    if (slotChipIdx[k] === selectedChipIdx) slotChipIdx[k] = -1;
+                  }
+                  slotChipIdx[sIdx] = selectedChipIdx;
+                  selectedChipIdx = -1;
+                  syncDragFillUI();
+                } else if (slotChipIdx[sIdx] >= 0) {
+                  slotChipIdx[sIdx] = -1;
+                  syncDragFillUI();
+                }
+              });
+            });
+
+            syncDragFillUI();
+
+            var dfBtn = h('button', { type: 'button', class: 'btn btn-lg btn-block' }, 'Gửi đáp án');
+            dfBtn.addEventListener('click', function () {
+              var outVals = [];
+              var hasFilled = false;
+              for (var bi = 0; bi < slotCount; bi++) {
+                var cIdx = slotChipIdx[bi];
+                if (cIdx >= 0 && cIdx < bank.length && bank[cIdx] != null && String(bank[cIdx]).trim() !== '') {
+                  outVals.push(String(bank[cIdx]));
+                  hasFilled = true;
+                } else {
+                  outVals.push('');
+                }
+              }
+              if (!hasFilled) return T.toast('Em hãy kéo ít nhất một thẻ vào ô trống trước khi gửi.', 'error');
+              cancelDrag();
+              var joined = outVals.join('\u241F').slice(0, 200);
+              submitAnswer(joined);
+            });
+            var dfForm = h('div', { class: 'game-short-form' }, fillBox, dfBtn);
+            T.fill(bodyBox, dfForm);
           } else if (q.blanks && q.blanks >= 2) {
             var vals = [];
             for (var b = 0; b < q.blanks; b++) vals.push('');
@@ -2354,6 +2699,7 @@
       var c = d.course;
       var duration = 20;
       var shuffleBox = h('input', { type: 'checkbox' });
+      var dragFillBox = h('input', { type: 'checkbox', checked: true });
       var durBar = h('div', { class: 'chips filter' });
       var gameMode = presetMode === 'on-tap' ? 'review' : 'classic';
       var limitMin = 5;
@@ -2364,7 +2710,18 @@
       var durField = h('div', { class: 'field' }, h('span', null, 'Thời gian suy nghĩ mỗi câu'), durBar);
       var limitField = h('div', { class: 'field' }, h('span', null, 'Thời gian cho cả lượt ôn'), limitBar);
       var shuffleField = h('label', { class: 'check' }, shuffleBox, 'Trộn thứ tự câu hỏi');
+      var dragFillField = h('div', { class: 'field' },
+        h('label', { class: 'check' }, dragFillBox, 'Học sinh kéo thả đáp án vào ô trống (câu điền khuyết)'),
+        h('small', null, 'Tắt nếu cần các em tự tính và gõ đáp án, vì thẻ làm lộ các đáp số'));
       var planBanner = h('div');
+
+      var mcCount = baseQuestions.filter(function (x) { return x.type === 'mc'; }).length;
+      var shortCount = baseQuestions.filter(function (x) { return x.type === 'short'; }).length;
+      var fillCount = baseQuestions.filter(function (x) { return x.type === 'fill'; }).length;
+      var parts = [];
+      if (mcCount) parts.push(mcCount + ' câu trắc nghiệm');
+      if (shortCount) parts.push(shortCount + ' câu trả lời ngắn');
+      if (fillCount) parts.push(fillCount + ' câu điền khuyết');
 
       var allModeCards = (window.TTMModes ? window.TTMModes.GAMES : []).concat([
         {
@@ -2479,6 +2836,7 @@
         var useSubsetNow = plan && gameMode === plan.gameType && gameMode !== 'review' && Number(plan.useCount) > 0 && Number(plan.useCount) < baseQuestions.length;
         durField.style.display = isReview ? 'none' : '';
         shuffleField.style.display = (isReview || useSubsetNow) ? 'none' : '';
+        dragFillField.style.display = (!isReview && fillCount > 0) ? '' : 'none';
         limitField.style.display = isReview ? '' : 'none';
         drawPlanBanner();
       }
@@ -2530,14 +2888,6 @@
       }
       drawDur();
 
-      var mcCount = baseQuestions.filter(function (x) { return x.type === 'mc'; }).length;
-      var shortCount = baseQuestions.filter(function (x) { return x.type === 'short'; }).length;
-      var fillCount = baseQuestions.filter(function (x) { return x.type === 'fill'; }).length;
-      var parts = [];
-      if (mcCount) parts.push(mcCount + ' câu trắc nghiệm');
-      if (shortCount) parts.push(shortCount + ' câu trả lời ngắn');
-      if (fillCount) parts.push(fillCount + ' câu điền khuyết');
-
       var openBtn = h('button', { class: 'btn btn-lg' }, '🎮 Mở phòng đấu');
       openBtn.addEventListener('click', function () {
         if (gameMode === 'review') return openReviewRoom();
@@ -2560,6 +2910,7 @@
         } else {
           qs = shuffleBox.checked ? shuffleArray(baseQuestions) : baseQuestions.slice();
         }
+        var useDragFill = !!dragFillBox.checked;
         T.busy(openBtn, true, 'Đang tạo mã phòng…');
         createUniquePin(fb.db, 0).then(function (pin) {
           if (!tracker.alive()) return;
@@ -2570,7 +2921,8 @@
             total: qs.length,
             startedAt: 0,
             duration: duration,
-            gameType: selectedType
+            gameType: selectedType,
+            dragFill: useDragFill
           };
           if (isAutoTeam) {
             initState.teamMode = true;
@@ -2599,6 +2951,7 @@
               scores: {},
               savedMatch: false,
               gameType: selectedType,
+              dragFill: useDragFill,
               teamMode: isAutoTeam,
               teamCount: tCount,
               teamOf: {},
@@ -2640,6 +2993,9 @@
           var qDur = (exSt.sub === 'bet' && exSaved.duration)
             ? Number(exSaved.duration)
             : Number(exSt.duration || exSaved.duration || 20);
+          var rDragFill = exSt.dragFill !== undefined
+            ? !!exSt.dragFill
+            : (exSaved.dragFill !== undefined ? !!exSaved.dragFill : true);
           var hsObj = {
             pin: existing.pin,
             quizId: q.id,
@@ -2648,6 +3004,7 @@
             scores: existing.room.scores || exSaved.scores || {},
             savedMatch: !!exSaved.savedMatch,
             gameType: rGameType,
+            dragFill: rDragFill,
             teamMode: isTeam,
             teamCount: rTeamCount,
             teamOf: exSt.teamOf || exSaved.teamOf || {},
@@ -2690,6 +3047,7 @@
           durField,
           limitField,
           shuffleField,
+          dragFillField,
           h('div', { class: 'actions-start' }, openBtn)));
       drawMode();
     }
@@ -2717,6 +3075,9 @@
 
       var rState = (hostState.resumedRoom && hostState.resumedRoom.state) || {};
       var gameType = hostState.gameType || rState.gameType || 'classic';
+      var dragFill = hostState.dragFill !== undefined
+        ? !!hostState.dragFill
+        : (rState.dragFill !== undefined ? !!rState.dragFill : true);
       var isFixedTeamGame = (gameType === 'race' || gameType === 'tug' || gameType === 'relay');
       var teamMode = !!(isFixedTeamGame || hostState.teamMode || rState.teamMode);
       var teamCount = Number(hostState.teamCount || rState.teamCount || (window.TTMModes ? window.TTMModes.teamCount(gameType) : 3) || 3);
@@ -2780,6 +3141,7 @@
           }
         }
         st.gameType = gameType;
+        st.dragFill = dragFill;
         if (teamMode && gameType !== 'wager') {
           st.teamMode = true;
           st.teamCount = teamCount;
@@ -2805,6 +3167,7 @@
           scores: scoresMap,
           savedMatch: !!hostState.savedMatch,
           gameType: gameType,
+          dragFill: dragFill,
           teamMode: teamMode,
           teamCount: teamCount,
           teamOf: teamOf,
@@ -3274,6 +3637,25 @@
           progressBanner = relayProgressWrap;
         }
 
+        var bCount = item.type === 'fill' ? (window.QuizFormat ? window.QuizFormat.blankCount(item.text) : 2) : 0;
+        var builtBank = null;
+        var hasBank = false;
+        if (isResume && curStartedAt) {
+          var resumedQ = hostState.resumedRoom && hostState.resumedRoom.question;
+          if (resumedQ && Number(resumedQ.index) === idx) {
+            hasBank = !!(resumedQ.bank && resumedQ.bank.length > 0);
+          } else if (dragFill && item.type === 'fill' && bCount >= 2 && window.TTMModes && window.TTMModes.buildBank) {
+            var chkBank = window.TTMModes.buildBank(item, questions);
+            hasBank = !!(chkBank && chkBank.length > 0);
+          }
+        } else if (dragFill && item.type === 'fill' && bCount >= 2 && window.TTMModes && window.TTMModes.buildBank) {
+          var candBank = window.TTMModes.buildBank(item, questions);
+          if (candBank && candBank.length > 0) {
+            builtBank = candBank;
+            hasBank = true;
+          }
+        }
+
         var optionsEl = null;
         if (item.type === 'mc') {
           optionsEl = h('div', { class: 'game-mc-grid' }, (item.options || []).map(function (optText, k) {
@@ -3287,7 +3669,9 @@
           }));
         } else if (item.type === 'fill') {
           optionsEl = h('div', { class: 'panel game-short-banner' },
-            '✍️ Câu điền khuyết — học sinh điền các ô trống trên điện thoại và bấm Gửi.');
+            hasBank
+              ? '🧩 Học sinh kéo thẻ vào ô trống trên điện thoại'
+              : '✍️ Câu điền khuyết — học sinh điền các ô trống trên điện thoại và bấm Gửi.');
         } else {
           optionsEl = h('div', { class: 'panel game-short-banner' },
             '✍️ Câu trả lời ngắn — học sinh nhập đáp án trên điện thoại và bấm Gửi.');
@@ -3324,7 +3708,6 @@
               T.fill(relayProgressWrap, relayStatusEl(curRelay, teamOf, playersMap, gameData && gameData.points, true));
             }
           }
-          var bCount = item.type === 'fill' ? (window.QuizFormat ? window.QuizFormat.blankCount(item.text) : 2) : 0;
           var qPayload = {
             index: idx,
             type: item.type === 'fill' ? 'short' : item.type,
@@ -3333,6 +3716,7 @@
             image: item.image || null
           };
           if (bCount >= 2) qPayload.blanks = bCount;
+          if (builtBank) qPayload.bank = builtBank;
           var baseSt = {
             phase: 'question',
             index: idx,
