@@ -969,9 +969,196 @@
     };
   }
 
+  function classStats(questions, submissions) {
+    var qs = Array.isArray(questions) ? questions : [];
+    var valid = (Array.isArray(submissions) ? submissions : []).filter(function (x) {
+      return x && x.submission && (x.submission.status === 'submitted' || x.submission.status === 'returned');
+    });
+    var total = valid.length;
+
+    function itemScore(sub, i) {
+      if (sub.itemScores && sub.itemScores[i] !== null && sub.itemScores[i] !== undefined && sub.itemScores[i] !== '') {
+        var n1 = Number(sub.itemScores[i]);
+        if (!isNaN(n1)) return n1;
+      }
+      if (sub.auto && sub.auto[i] !== null && sub.auto[i] !== undefined && sub.auto[i] !== '') {
+        var n2 = Number(sub.auto[i]);
+        if (!isNaN(n2)) return n2;
+      }
+      return null;
+    }
+
+    function isBlank(q, idx, sub) {
+      var ans = sub.answers ? sub.answers[idx] : null;
+      if (q.type === 'mc') {
+        return ans === null || ans === undefined || ans === '';
+      }
+      if (q.type === 'fill') {
+        if (!Array.isArray(ans) || !ans.length) return true;
+        for (var k = 0; k < ans.length; k++) {
+          if (ans[k] !== null && ans[k] !== undefined && String(ans[k]).trim() !== '') return false;
+        }
+        return true;
+      }
+      if (q.type === 'essay') {
+        var hasText = ans !== null && ans !== undefined && String(ans).trim() !== '';
+        if (hasText) return false;
+        var files = Array.isArray(sub.files) ? sub.files : [];
+        for (var f = 0; f < files.length; f++) {
+          if (files[f] && files[f].q === idx) return false;
+        }
+        return true;
+      }
+      return ans === null || ans === undefined || String(ans).trim() === '';
+    }
+
+    function addWrong(map, list, key, display) {
+      if (!map[key]) {
+        map[key] = { answer: display, count: 0 };
+        list.push(map[key]);
+      }
+      map[key].count++;
+    }
+
+    var items = qs.map(function (q, i) {
+      var pts = Number(q.points) || 1;
+      var scored = 0;
+      var pending = 0;
+      var sumScore = 0;
+      var correctCount = 0;
+      var partialCount = 0;
+      var wrongCount = 0;
+      var blankCountVal = 0;
+      var blankZero = 0; // đã có điểm 0 vì bỏ trống (để không đếm hai lần với "sai")
+      var wrongNames = [];
+      var wrongMap = {};
+      var wrongList = [];
+
+      valid.forEach(function (x) {
+        var sub = x.submission;
+        var blank = isBlank(q, i, sub);
+        if (blank) blankCountVal++;
+
+        var sc = itemScore(sub, i);
+        if (sc === null) {
+          pending++;
+          return;
+        }
+        scored++;
+        sumScore += sc;
+        if (sc >= pts - 1e-9) {
+          correctCount++;
+        } else {
+          if (sc > 1e-9) partialCount++;
+          else {
+            wrongCount++;
+            if (blank) blankZero++;
+          }
+          wrongNames.push(x.fullName || '');
+          if (!blank) {
+            var ans = sub.answers ? sub.answers[i] : null;
+            if (q.type === 'mc') {
+              var optIdx = Number(ans);
+              if (!isNaN(optIdx) && optIdx >= 0) {
+                var optText = q.options && q.options[optIdx] !== undefined ? q.options[optIdx] : '';
+                var mcLabel = String.fromCharCode(65 + optIdx) + '. ' + optText;
+                addWrong(wrongMap, wrongList, 'mc:' + optIdx, mcLabel);
+              }
+            } else if (q.type === 'short') {
+              var raw = String(ans).trim();
+              if (raw) {
+                addWrong(wrongMap, wrongList, normAnswer(raw), raw);
+              }
+            }
+          }
+        }
+      });
+
+      wrongList.sort(function (a, b) { return b.count - a.count; });
+      var wrongAnswers = (q.type === 'mc' || q.type === 'short') ? wrongList.slice(0, 5) : [];
+
+      var blanks = null;
+      if (q.type === 'fill') {
+        var ansArr = Array.isArray(q.answers) ? q.answers : [];
+        blanks = ansArr.map(function (bAns, k) {
+          var bCorrect = 0;
+          var bMap = {};
+          var bList = [];
+          valid.forEach(function (x) {
+            var sub = x.submission;
+            var ans = sub.answers && Array.isArray(sub.answers[i]) ? sub.answers[i] : [];
+            var a = ans[k] !== null && ans[k] !== undefined ? String(ans[k]).trim() : '';
+            if (isCorrect({ type: 'short', answers: bAns }, a)) {
+              bCorrect++;
+            } else if (a !== '') {
+              addWrong(bMap, bList, normAnswer(a), a);
+            }
+          });
+          bList.sort(function (a, b) { return b.count - a.count; });
+          return {
+            correctCount: bCorrect,
+            total: total,
+            wrongAnswers: bList.slice(0, 3)
+          };
+        });
+      }
+
+      var avgRatio = scored > 0 ? sumScore / (scored * pts) : null;
+      var level = avgRatio === null ? null : (avgRatio < 0.5 - 1e-9 ? 'weak' : (avgRatio < 0.8 - 1e-9 ? 'watch' : 'good'));
+
+      return {
+        index: i,
+        type: q.type,
+        points: pts,
+        scored: scored,
+        pending: pending,
+        avgRatio: avgRatio,
+        correctCount: correctCount,
+        partialCount: partialCount,
+        wrongCount: wrongCount,
+        blankCount: blankCountVal,
+        blankZero: blankZero,
+        wrongNames: wrongNames,
+        wrongAnswers: wrongAnswers,
+        blanks: blanks,
+        level: level
+      };
+    });
+
+    var students = valid.map(function (x) {
+      var sub = x.submission;
+      var earnedSum = 0;
+      var ptsSum = 0;
+      var wrongQs = [];
+      qs.forEach(function (q, i) {
+        var pts = Number(q.points) || 1;
+        var sc = itemScore(sub, i);
+        if (sc === null) return;
+        earnedSum += sc;
+        ptsSum += pts;
+        if (sc < pts - 1e-9) wrongQs.push(i + 1);
+      });
+      return {
+        fullName: x.fullName || '',
+        ratio: ptsSum > 0 ? earnedSum / ptsSum : null,
+        wrongQuestions: wrongQs
+      };
+    });
+
+    students.sort(function (a, b) {
+      if (a.ratio === null && b.ratio === null) return 0;
+      if (a.ratio === null) return 1;
+      if (b.ratio === null) return -1;
+      return a.ratio - b.ratio;
+    });
+
+    return { total: total, items: items, students: students };
+  }
+
   var api = {
     parse: parse,
     summary: summary,
+    classStats: classStats,
     isCorrect: isCorrect,
     fillScore: fillScore,
     blankCount: blankCount,

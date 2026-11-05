@@ -3562,6 +3562,7 @@
         stat(count(isUngraded), autoOnly ? 'Chờ chốt' : 'Chờ chấm', count(isUngraded) ? 'warn' : ''),
         stat(count(isGraded), 'Đã chốt điểm'),
         stat(avgScore(list), 'Điểm trung bình')),
+      classSummaryPanel(d),
       autoOnly && count(isUngraded) ? finalizeBar() : null,
       chipBar, listBox);
     drawList();
@@ -3594,6 +3595,181 @@
           h('p', { class: 'muted small' }, 'Học sinh chưa thấy điểm cho đến khi chốt. Bấm vào tên từng em để xem và sửa điểm nếu máy chấm sai.')),
         btn);
     }
+  }
+
+  function classSummaryPanel(d) {
+    var a = d.assignment;
+    var qs = d.fullQuestions || [];
+    var list = d.students || [];
+    if (!qs.length || !window.QuizFormat || !window.QuizFormat.classStats) return null;
+    var st = window.QuizFormat.classStats(qs, list);
+    if (!st.total) return null;
+
+    var pendingTotal = 0;
+    var needFix = [];
+    var goodNums = [];
+    var ungradedNums = [];
+    st.items.forEach(function (it) {
+      pendingTotal += it.pending;
+      if (it.scored === 0) ungradedNums.push(it.index + 1);
+      else if (it.level === 'weak' || it.level === 'watch') needFix.push(it);
+      else if (it.level === 'good') goodNums.push(it.index + 1);
+    });
+    needFix.sort(function (x, y) {
+      if (x.avgRatio !== y.avgRatio) return x.avgRatio - y.avgRatio;
+      return x.index - y.index;
+    });
+
+    function rightAnswerText(q) {
+      if (q.type === 'mc') {
+        var c = q.correct;
+        var opt = q.options && q.options[c] != null ? String(q.options[c]) : '';
+        return (typeof c === 'number' ? String.fromCharCode(65 + c) : '') + (opt ? '. ' + opt : '');
+      }
+      if (q.type === 'short') return (q.answers || []).join(' | ');
+      if (q.type === 'fill') {
+        return (q.answers || []).map(function (arr, k) {
+          return 'Ô ' + (k + 1) + ': ' + (arr || []).join(' | ');
+        }).join('; ');
+      }
+      if (q.type === 'essay') return q.explain ? String(q.explain) : '';
+      return '';
+    }
+
+    function essayAiReasons(qIdx) {
+      var out = [];
+      for (var i = 0; i < list.length && out.length < 8; i++) {
+        var s = list[i] && list[i].submission;
+        if (!s || (s.status !== 'submitted' && s.status !== 'returned')) continue;
+        var items = s.ai && Array.isArray(s.ai.items) ? s.ai.items : [];
+        for (var j = 0; j < items.length && out.length < 8; j++) {
+          var it = items[j];
+          // Chỉ lấy nhận xét của bài chưa đạt đủ điểm; bài đúng không giúp gì cho việc chữa.
+          if (it && it.q === qIdx && it.reason && String(it.reason).trim() && !(Number(it.score) >= Number(qs[qIdx].points || 1))) {
+            out.push(String(it.reason).trim());
+          }
+        }
+      }
+      return out;
+    }
+
+    var fixNodes = needFix.length ? h('div', { class: 'cs-items' }, needFix.map(function (it) {
+      var q = qs[it.index] || {};
+      var pct = Math.round((it.avgRatio || 0) * 100);
+      var pill = it.level === 'weak'
+        ? h('span', { class: 'pill p-bad' }, 'Cần chữa')
+        : h('span', { class: 'pill p-wait' }, 'Nên xem lại');
+      var ansStr = rightAnswerText(q);
+      var reasons = q.type === 'essay' ? essayAiReasons(it.index) : [];
+
+      return h('details', { class: 'cs-item' },
+        h('summary', { class: 'cs-item-sum' },
+          h('strong', { class: 'cs-qnum' }, 'Câu ' + (it.index + 1)),
+          pill,
+          h('span', { class: 'cs-bar' }, h('span', { class: 'cs-bar-fill ' + it.level, style: 'width:' + pct + '%' })),
+          h('strong', { class: 'cs-pct' }, pct + '%'),
+          h('span', { class: 'muted small cs-counts' },
+            'Sai ' + (it.wrongCount - it.blankZero) + ' · Đúng một phần ' + it.partialCount + ' · Bỏ trống ' + it.blankZero + ' / ' + it.scored + ' bài')),
+        h('div', { class: 'cs-item-body' },
+          h('div', { class: 'cs-qtext prewrap' }, qNodes(q.text || '')),
+          ansStr ? h('div', { class: 'cs-row' },
+            h('strong', null, q.type === 'essay' ? 'Hướng dẫn chấm: ' : 'Đáp án đúng: '),
+            mathNodes(ansStr)) : null,
+          it.wrongAnswers && it.wrongAnswers.length ? h('div', { class: 'cs-row' },
+            h('strong', null, 'Câu trả lời sai phổ biến:'),
+            h('ul', { class: 'cs-list' }, it.wrongAnswers.map(function (w) {
+              return h('li', null, mathNodes(w.answer), ' — ' + w.count + ' em');
+            }))) : null,
+          it.blanks && it.blanks.length ? h('div', { class: 'cs-row' },
+            h('strong', null, 'Theo từng ô:'),
+            h('ul', { class: 'cs-list' }, it.blanks.map(function (b, k) {
+              var wNodes = b.wrongAnswers && b.wrongAnswers.length ? [
+                ' — sai phổ biến: ',
+                b.wrongAnswers.map(function (w, wi) {
+                  return h('span', null, wi ? '; ' : '', mathNodes(w.answer), ' — ' + w.count + ' em');
+                })
+              ] : null;
+              return h('li', null, 'Ô ' + (k + 1) + ': ' + b.correctCount + '/' + b.total + ' đúng', wNodes);
+            }))) : null,
+          it.wrongNames && it.wrongNames.length ? h('div', { class: 'cs-row' },
+            h('strong', null, 'Học sinh chưa đạt (' + it.wrongNames.length + '): '),
+            h('span', { class: 'cs-names' }, it.wrongNames.join(', '))) : null,
+          reasons.length ? h('div', { class: 'cs-row' },
+            h('strong', null, 'Nhận xét từ Gemini:'),
+            h('ul', { class: 'cs-list' }, reasons.map(function (r) {
+              return h('li', null, mathNodes(r));
+            }))) : null));
+    })) : h('p', { class: 'muted small' }, 'Lớp làm tốt tất cả các câu đã chấm 👍');
+
+    var weakStudents = st.students.filter(function (stu) {
+      return stu.ratio !== null && stu.ratio < 0.5 - 1e-9;
+    }).slice(0, 10);
+
+    var aiBtn = h('button', { type: 'button', class: 'btn btn-ai' },
+      d.aiSummary ? '✨ Tóm tắt lại' : '✨ Gemini tóm tắt phần lớp còn yếu');
+    var aiBox = h('div', { class: 'cs-ai-box' });
+
+    function drawAiBox() {
+      var sum = d.aiSummary;
+      aiBtn.textContent = sum ? '✨ Tóm tắt lại' : '✨ Gemini tóm tắt phần lớp còn yếu';
+      if (!sum) { fill(aiBox); aiBox.hidden = true; return; }
+      aiBox.hidden = false;
+      var weakList = Array.isArray(sum.weak) ? sum.weak : [];
+      fill(aiBox,
+        weakList.length ? h('div', { class: 'cs-ai-list' }, weakList.map(function (w) {
+          var qLabel = Array.isArray(w.questions) && w.questions.length ? ' (Câu ' + w.questions.join(', ') + ')' : '';
+          return h('div', { class: 'cs-ai-item' },
+            h('div', { class: 'cs-ai-topic' }, h('strong', null, w.topic || ''), qLabel),
+            w.why ? h('p', { class: 'small' }, 'Lỗi chính: ', mathNodes(w.why)) : null,
+            w.fix ? h('p', { class: 'small' }, 'Cách chữa: ', mathNodes(w.fix)) : null);
+        })) : null,
+        sum.note ? h('p', { class: 'small cs-ai-note' }, mathNodes(sum.note)) : null,
+        h('p', { class: 'muted small' },
+          'Tóm tắt lúc ' + fmtDateTime(sum.at) + ' trên ' + sum.count + ' bài' +
+          (st.total !== sum.count ? ' · có bài mới, nên tóm tắt lại' : '')));
+    }
+    drawAiBox();
+
+    aiBtn.addEventListener('click', function () {
+      busy(aiBtn, true, 'Gemini đang tóm tắt…');
+      var t0 = Date.now();
+      var timer = setInterval(function () {
+        aiBtn.textContent = 'Gemini đang tóm tắt… ' + Math.round((Date.now() - t0) / 1000) + ' giây';
+      }, 1000);
+      var stop = function () { clearInterval(timer); busy(aiBtn, false); };
+      api('aiClassSummary', { assignmentId: a.id }).then(function (r) {
+        d.aiSummary = r.summary;
+        stop();
+        drawAiBox();
+      }, function (e) {
+        stop();
+        aiBtn.textContent = d.aiSummary ? '✨ Tóm tắt lại' : '✨ Gemini tóm tắt phần lớp còn yếu';
+        toast(e.message, 'error');
+      });
+    });
+
+    return h('details', { class: 'panel class-summary', open: true },
+      h('summary', null, '📊 Tổng hợp bài làm cả lớp'),
+      h('div', { class: 'cs-body' },
+        h('p', { class: 'muted small cs-meta' },
+          'Tính trên ' + st.total + '/' + list.length + ' bài đã nộp' +
+          (pendingTotal ? ' · còn ' + pendingTotal + ' lượt câu tự luận chưa chấm, số liệu sẽ đổi sau khi chấm' : '')),
+        h('div', { class: 'cs-section' },
+          h('h3', { class: 'cs-title' }, 'Câu cần chữa'),
+          fixNodes,
+          goodNums.length ? h('p', { class: 'muted small cs-extra' }, 'Các câu làm tốt: ' + goodNums.join(', ')) : null,
+          ungradedNums.length ? h('p', { class: 'muted small cs-extra' }, 'Chưa chấm: ' + ungradedNums.join(', ')) : null),
+        weakStudents.length ? h('div', { class: 'cs-section' },
+          h('h3', { class: 'cs-title' }, 'Học sinh cần kèm'),
+          h('ul', { class: 'cs-list cs-students' }, weakStudents.map(function (stu) {
+            return h('li', null,
+              h('strong', null, stu.fullName),
+              ' — ' + Math.round(stu.ratio * 100) + '%' +
+              (stu.wrongQuestions.length ? ' · sai câu ' + stu.wrongQuestions.join(', ') : ''));
+          }))) : null,
+        h('div', { class: 'cs-section cs-ai-wrap' },
+          aiBtn,
+          aiBox)));
   }
 
   function stat(value, label, cls) {

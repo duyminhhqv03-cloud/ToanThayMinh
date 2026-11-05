@@ -2102,3 +2102,63 @@ span.blank.static.is-bad {
 
 /* Admin xem thử như học sinh */
 .demo-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; padding: 10px 16px; background: #fff4d6; border-bottom: 1px solid #f0d68a; color: #6b4e00; font-weight: 600; font-size: 14px; }
+
+/* Tổng hợp bài làm cả lớp */
+.class-summary { margin-bottom: 16px; }
+.class-summary .cs-body { display: grid; gap: 14px; min-width: 0; }
+.class-summary .cs-meta { margin: 0; }
+.class-summary .cs-section { display: grid; gap: 8px; min-width: 0; }
+.class-summary .cs-title { font-size: 15px; font-weight: 700; margin: 0; color: var(--ink); }
+.class-summary .cs-extra { margin: 2px 0 0; }
+.class-summary .cs-items { display: grid; gap: 8px; min-width: 0; }
+.class-summary .cs-item {
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg-alt); overflow: hidden; min-width: 0;
+}
+.class-summary .cs-item-sum {
+  list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  padding: 10px 14px; font-size: 14.5px;
+}
+.class-summary .cs-item-sum::-webkit-details-marker { display: none; }
+.class-summary .cs-item-sum::before { content: '▸'; color: var(--muted); transition: transform .15s; }
+.class-summary .cs-item[open] > .cs-item-sum::before { transform: rotate(90deg); }
+.class-summary .cs-qnum { white-space: nowrap; }
+.class-summary .cs-bar {
+  flex: 1 1 80px; min-width: 60px; max-width: 140px; height: 8px; border-radius: 999px;
+  background: #e2e8f0; overflow: hidden; display: inline-block;
+}
+.class-summary .cs-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--brand); }
+.class-summary .cs-bar-fill.weak { background: #dc2626; }
+.class-summary .cs-bar-fill.watch { background: #d97706; }
+.class-summary .cs-pct { font-size: 13.5px; white-space: nowrap; }
+.class-summary .cs-counts { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.class-summary .cs-item-body {
+  padding: 12px 14px; border-top: 1px solid var(--line); background: #fff;
+  display: grid; gap: 8px; font-size: 14.5px; min-width: 0; overflow-wrap: anywhere;
+}
+.class-summary .cs-qtext { margin: 0; font-weight: 500; overflow-wrap: anywhere; word-break: break-word; }
+.class-summary .cs-row { line-height: 1.5; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.class-summary .cs-names { overflow-wrap: anywhere; word-break: break-word; }
+.class-summary .cs-list { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.class-summary .cs-list li { overflow-wrap: anywhere; word-break: break-word; }
+.class-summary .cs-students { margin-top: 2px; }
+.class-summary .cs-ai-wrap { padding-top: 4px; border-top: 1px solid var(--line); justify-items: start; }
+.class-summary .cs-ai-box {
+  width: 100%; margin-top: 6px; padding: 12px 14px; border-radius: 12px;
+  background: #f8fafc; border: 1px solid var(--line); display: grid; gap: 10px; box-sizing: border-box;
+}
+.class-summary .cs-ai-box[hidden] { display: none; }
+.class-summary .cs-ai-list { display: grid; gap: 10px; }
+.class-summary .cs-ai-item {
+  padding: 10px 12px; border-radius: 10px; background: #fff; border: 1px solid var(--line);
+  display: grid; gap: 4px; overflow-wrap: anywhere; word-break: break-word;
+}
+.class-summary .cs-ai-item p,
+.class-summary .cs-ai-box > p { margin: 0; }
+.class-summary .cs-ai-topic { font-size: 14.5px; }
+.class-summary .cs-ai-note { font-weight: 500; }
+@media (max-width: 480px) {
+  .class-summary .cs-item-sum { padding: 9px 11px; gap: 6px 8px; }
+  .class-summary .cs-counts { flex-basis: 100%; }
+  .class-summary .cs-item-body { padding: 10px 11px; }
+  .class-summary .btn-ai { width: 100%; text-align: center; justify-content: center; }
+}

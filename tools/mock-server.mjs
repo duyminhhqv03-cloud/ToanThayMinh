@@ -136,18 +136,70 @@ http.createServer((req, res) => {
           const qs = QUIZ.fullQuestions;
           out = {
             ok: true,
-            assignment: { id: 'a1', courseId: 'c1', title: 'Bài tập phân số & điền khuyết', dueAt: '2026-11-20T14:00:00Z', maxScore: 10 },
+            assignment: { id: 'a1', courseId: 'c1', title: 'Bài tập phân số & điền khuyết', dueAt: '2026-11-20T14:00:00Z', maxScore: 7 },
             course: { id: 'c1', name: 'Toán', grade: 'Lớp 5', canEdit: true, teachers: [] },
             fullQuestions: qs,
             questions: qs.map(q => ({ type: q.type, text: q.text, options: q.options, points: q.points, image: q.image })),
             submission: null,
+            aiSummary: null,
             canSubmit: me.role === 'student',
             canGrade: me.role !== 'student',
             canEdit: me.role !== 'student',
-            students: me.role === 'student' ? [] : [{ username: 'hs1', fullName: 'Nguyễn An', submission: {
-              id: 's1', username: 'hs1', status: 'submitted', submittedAt: '2026-11-04T10:00:00Z', text: '', files: [], feedback: '',
-              answers: [0, 1, ['3,0002', '12,3'], '0,75', 'Em giải như sau…'], itemScores: [1, 1, 2, 1, null], auto: [1, 1, 2, 1, null]
-            } }]
+            students: me.role === 'student' ? [] : [
+              {
+                username: 'hs1', fullName: 'Nguyễn An', submission: {
+                  id: 's1', username: 'hs1', status: 'returned', score: 6.5, submittedAt: '2026-11-04T10:00:00Z', gradedAt: '2026-11-04T12:00:00Z', gradedBy: 'Thầy Minh', text: '', files: [], feedback: 'Làm bài tốt.',
+                  answers: [0, 1, ['3,0002', '12,3'], '0,75', 'Em đổi ra phân số thập phân rồi cộng.'],
+                  itemScores: [1, 1, 2, 1, 1.5], auto: [1, 1, 2, 1, null],
+                  ai: { items: [{ q: 4, score: 1.5, reason: 'Thiếu bước kết luận cuối bài.' }] }
+                }
+              },
+              {
+                username: 'hs2', fullName: 'Trần Bình', submission: {
+                  id: 's2', username: 'hs2', status: 'submitted', submittedAt: '2026-11-04T10:30:00Z', text: '', files: [], feedback: '',
+                  answers: [1, 1, ['3,02', '12,3'], '0,5', ''],
+                  itemScores: [0, 1, 1, 0, null], auto: [0, 1, 1, 0, null],
+                  ai: { items: [{ q: 4, score: 0, reason: 'Học sinh bỏ trống phần lời giải tự luận.' }] }
+                }
+              },
+              {
+                username: 'hs3', fullName: 'Lê Chi', submission: {
+                  id: 's3', username: 'hs3', status: 'submitted', submittedAt: '2026-11-04T11:00:00Z', text: '', files: [], feedback: '',
+                  answers: [1, null, ['', ''], '', 'Em chỉ ghi đáp số 3/4.'],
+                  itemScores: [0, 0, 0, 0, 0.5], auto: [0, 0, 0, 0, null],
+                  ai: { items: [{ q: 4, score: 0.5, reason: 'Chỉ ghi đáp số, thiếu phép tính trung gian.' }] }
+                }
+              },
+              {
+                username: 'hs4', fullName: 'Phạm Dũng', submission: null
+              }
+            ]
+          };
+        }
+        else if (p.action === 'aiClassSummary') {
+          out = me.role === 'student' ? { ok: false, code: 403, error: 'Chỉ giáo viên mới dùng được chức năng này.' } : {
+            ok: true,
+            summary: {
+              weak: [
+                {
+                  topic: 'Đổi phân số thập phân ra hỗn số',
+                  questions: [1, 3],
+                  why: 'Nhiều học sinh đặt sai phần nguyên hoặc thiếu chữ số 0 ở phần thập phân khi đổi đơn vị diện tích.',
+                  fix: 'Ôn lại bảng đơn vị đo diện tích (mỗi đơn vị liền kề hơn kém nhau 100 lần) và cách tách phần nguyên của phân số thập phân.'
+                },
+                {
+                  topic: 'Cộng hai phân số khác mẫu số',
+                  questions: [4, 5],
+                  why: 'Học sinh quy đồng nhầm mẫu số hoặc bỏ qua bước trình bày lời giải tự luận.',
+                  fix: 'Yêu cầu học sinh viết rõ bước quy đồng mẫu số và câu kết luận trước khi ghi đáp số.'
+                }
+              ],
+              note: 'Lớp nắm được phép cộng phân số cùng mẫu nhưng còn lúng túng khi đổi đơn vị diện tích và trình bày bài tự luận.',
+              at: new Date().toISOString(),
+              count: 3,
+              secs: 2,
+              model: 'gemini-3.6-flash'
+            }
           };
         }
         else if (p.action === 'demoStudent') {
