@@ -3575,6 +3575,43 @@
   }
 
   /** Màn chấm bài. Có câu hỏi: máy đã chấm trắc nghiệm/trả lời ngắn, giáo viên nhập điểm từng câu tự luận. */
+  /** Ô "Cách Gemini nhận xét": giáo viên tự viết yêu cầu, máy nhớ cho các lần chấm sau. */
+  function aiStyleBox() {
+    var ta = h('textarea', { rows: '4', maxlength: '500', 'aria-label': 'Cách Gemini nhận xét', disabled: true });
+    var saveBtn = h('button', { type: 'button', class: 'btn btn-sm', disabled: true }, 'Lưu');
+    var resetBtn = h('button', { type: 'button', class: 'btn btn-sm btn-ghost', disabled: true }, 'Về mặc định');
+    var note = h('p', { class: 'muted small' }, 'Đang tải…');
+    var defaultStyle = '';
+    var loaded = false;
+    function setBusy(on) { ta.disabled = saveBtn.disabled = resetBtn.disabled = on; }
+    function save(text) {
+      setBusy(true);
+      api('saveAiStyle', { style: text }).then(function (r) {
+        ta.value = r.style;
+        setBusy(false);
+        toast('Đã lưu. Áp dụng từ lần Gemini chấm tiếp theo.', 'success');
+      }, function (e) { setBusy(false); toast(e.message, 'error'); });
+    }
+    saveBtn.addEventListener('click', function () { save(ta.value); });
+    resetBtn.addEventListener('click', function () { save(defaultStyle); });
+    var box = h('details', { class: 'ai-style' },
+      h('summary', null, '⚙️ Cách Gemini nhận xét'),
+      ta,
+      note,
+      h('div', { class: 'ai-style-btns' }, saveBtn, resetBtn));
+    box.addEventListener('toggle', function () {
+      if (!box.open || loaded) return;
+      loaded = true;
+      api('aiStyle', {}).then(function (r) {
+        defaultStyle = r.defaultStyle;
+        ta.value = r.style;
+        setBusy(false);
+        note.textContent = 'Áp dụng cho các lần chấm sau; bài đã chấm cần bấm "Gemini chấm lại". Chỉ đổi cách viết nhận xét, không đổi cách cho điểm.';
+      }, function (e) { loaded = false; note.textContent = e.message; });
+    });
+    return box;
+  }
+
   function gradeView(d, index) {
     var a = d.assignment;
     var x = d.students[index];
@@ -3741,6 +3778,7 @@
       });
       return h('div', { class: 'ai-panel' }, btn,
         h('p', { class: 'muted small' }, 'Gemini đọc ảnh bài làm và hướng dẫn chấm rồi điền sẵn điểm (thường 20–60 giây, đừng đóng cửa sổ). Thầy xem lại trước khi lưu.'),
+        aiStyleBox(),
         aiFbBox);
     }
     function scoreInput(q) { return q === null || q === undefined ? score : essayInputs[q]; }

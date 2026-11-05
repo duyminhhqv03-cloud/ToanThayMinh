@@ -167,6 +167,8 @@ function handle_(p) {
     case 'grade': return withLock_(function () { return grade_(me, p); });
     case 'finalizeAll': return withLock_(function () { return finalizeAll_(me, p); });
     case 'aiGrade': return aiGrade_(me, String(p.submissionId || ''));
+    case 'aiStyle': return aiStyle_(me);
+    case 'saveAiStyle': return saveAiStyle_(me, p);
 
     // Luyện tập
     case 'quiz': return quizDetail_(me, id);
@@ -1287,6 +1289,42 @@ function withAi_(pub, row) {
   return pub;
 }
 
+// Cách nhận xét mặc định; mỗi giáo viên đổi được trên màn chấm bài (lưu trong Thuộc tính tập lệnh).
+var AI_STYLE_DEFAULT = 'Nhận xét tối đa 1 câu, nêu đúng chỗ sai và cách sửa. Làm đúng thì chỉ ghi "Đúng". Không khen sáo, không dùng từ hoa mỹ. Không nhắc lại đề bài.';
+var AI_STYLE_MAX = 500;
+
+function aiStyleOf_(me) {
+  return String(PropertiesService.getScriptProperties().getProperty('AI_STYLE_' + me.username) || '').trim() || AI_STYLE_DEFAULT;
+}
+
+function requireStaff_(me) {
+  if (me.role !== 'admin' && me.role !== 'teacher') throw err_('Chỉ giáo viên mới dùng được chức năng này.', 403);
+}
+
+function aiStyle_(me) {
+  requireStaff_(me);
+  return { style: aiStyleOf_(me), defaultStyle: AI_STYLE_DEFAULT };
+}
+
+/** Lưu cách nhận xét của giáo viên; để trống thì quay về mặc định. */
+function saveAiStyle_(me, p) {
+  requireStaff_(me);
+  var style = clean_(p.style, AI_STYLE_MAX);
+  var props = PropertiesService.getScriptProperties();
+  if (!style || style === AI_STYLE_DEFAULT) props.deleteProperty('AI_STYLE_' + me.username);
+  else props.setProperty('AI_STYLE_' + me.username, style);
+  return { style: style || AI_STYLE_DEFAULT, defaultStyle: AI_STYLE_DEFAULT };
+}
+
+function aiSystemPrompt_(style) {
+  return 'Bạn là giáo viên tiểu học Việt Nam đang chấm bài tự luận của học sinh. ' +
+    'Đọc kỹ chữ viết tay trong ảnh. Chấm theo đáp án/hướng dẫn chấm của giáo viên; cho điểm từng phần hợp lý, điểm là bội số của 0,25, không vượt điểm tối đa của câu. ' +
+    'Học sinh làm cách khác nhưng đúng vẫn cho điểm. Không đọc được chữ, ảnh mờ hoặc không chắc chắn thì đặt "unsure": true và nói rõ trong "reason". ' +
+    'Yêu cầu của giáo viên về cách viết "comment" và "feedback" (chỉ áp dụng cho văn phong nhận xét, không thay đổi cách cho điểm): ' + style + ' ' +
+    'Chỉ trả về JSON đúng dạng: {"items":[{"q":<số thứ tự câu như trong đề, ví dụ 3>,"score":<số>,"reason":"<1 câu ngắn cho giáo viên: vì sao cho điểm này, sai ở đâu>","comment":"<nhận xét gửi học sinh theo yêu cầu trên, không nêu điểm số>","unsure":<true|false>}],' +
+    '"feedback":"<nhận xét chung gửi học sinh theo yêu cầu trên, không nêu điểm số>"}. Mỗi câu tự luận đúng một mục trong items.';
+}
+
 function aiGrade_(me, submissionId) {
   var s = findBy_('submissions', submissionId);
   if (!s) throw err_('Không tìm thấy bài nộp.', 404);
@@ -1337,11 +1375,7 @@ function aiGrade_(me, submissionId) {
   }
   if (budget.skipped.length) parts.push({ text: '(Có ' + budget.skipped.length + ' file không gửi được vì quá lớn hoặc không phải ảnh/PDF.)' });
 
-  var sys = 'Bạn là giáo viên tiểu học Việt Nam đang chấm bài tự luận của học sinh. ' +
-    'Đọc kỹ chữ viết tay trong ảnh. Chấm theo đáp án/hướng dẫn chấm của giáo viên; cho điểm từng phần hợp lý, điểm là bội số của 0,25, không vượt điểm tối đa của câu. ' +
-    'Học sinh làm cách khác nhưng đúng vẫn cho điểm. Không đọc được chữ, ảnh mờ hoặc không chắc chắn thì đặt "unsure": true và nói rõ trong "reason". ' +
-    'Chỉ trả về JSON đúng dạng: {"items":[{"q":<số thứ tự câu như trong đề, ví dụ 3>,"score":<số>,"reason":"<1 câu ngắn cho giáo viên: vì sao cho điểm này, sai ở đâu>","comment":"<1–2 câu nhận xét gửi học sinh: xưng em, nhẹ nhàng, khen phần làm đúng, chỉ rõ chỗ cần sửa, không nêu điểm số>","unsure":<true|false>}],' +
-    '"feedback":"<1–2 câu nhận xét chung gửi học sinh>"}. Mỗi câu tự luận đúng một mục trong items.';
+  var sys = aiSystemPrompt_(aiStyleOf_(me));
 
   var res = callGemini_(sys, parts);
   var byQ = {};

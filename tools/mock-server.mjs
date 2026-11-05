@@ -30,6 +30,8 @@ const QUIZ = {
 };
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 const saved = [];
+const AI_STYLE_DEFAULT = 'Nhận xét tối đa 1 câu, nêu đúng chỗ sai và cách sửa. Làm đúng thì chỉ ghi "Đúng". Không khen sáo, không dùng từ hoa mỹ. Không nhắc lại đề bài.';
+const aiStyle = {};
 const MOCK_QUIZZES = {};
 
 const MOCK_PDF_BASE64 = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 3 3]>>endobj\nxref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000052 00000 n\n0000000101 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n147\n%%EOF\n').toString('base64');
@@ -138,8 +140,20 @@ http.createServer((req, res) => {
             questions: qs.map(q => ({ type: q.type, text: q.text, options: q.options, points: q.points, image: q.image })),
             submission: null,
             canSubmit: me.role === 'student',
-            students: []
+            canGrade: me.role !== 'student',
+            canEdit: me.role !== 'student',
+            students: me.role === 'student' ? [] : [{ username: 'hs1', fullName: 'Nguyễn An', submission: {
+              id: 's1', username: 'hs1', status: 'submitted', submittedAt: '2026-11-04T10:00:00Z', text: '', files: [], feedback: '',
+              answers: [0, 1, ['3,0002', '12,3'], '0,75', 'Em giải như sau…'], itemScores: [1, 1, 2, 1, null], auto: [1, 1, 2, 1, null]
+            } }]
           };
+        }
+        else if (p.action === 'aiStyle') {
+          out = me.role === 'student' ? { ok: false, code: 403, error: 'Chỉ giáo viên mới dùng được chức năng này.' } : { ok: true, style: aiStyle[me.username] || AI_STYLE_DEFAULT, defaultStyle: AI_STYLE_DEFAULT };
+        }
+        else if (p.action === 'saveAiStyle') {
+          aiStyle[me.username] = String(p.style || '').trim().slice(0, 500);
+          out = { ok: true, style: aiStyle[me.username] || AI_STYLE_DEFAULT, defaultStyle: AI_STYLE_DEFAULT };
         }
         else if (p.action === 'submit') {
           out = { ok: true, submission: { id: 'sub_' + Date.now(), status: 'submitted' } };

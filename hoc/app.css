@@ -643,6 +643,11 @@ code { background: var(--bg-alt); border: 1px solid var(--line); border-radius: 
 .btn.btn-ai:disabled { opacity: .75; }
 .ai-fb { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .ai-fb p { margin: 0; flex-basis: 100%; }
+.ai-style { margin-top: 10px; }
+.ai-style > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.ai-style textarea { width: 100%; margin-top: 8px; }
+.ai-style p { margin: 6px 0; }
+.ai-style-btns { display: flex; flex-wrap: wrap; gap: 8px; }
 .ai-note { margin-top: 12px; background: #f5f2ff; border: 1px solid #ddd3ff; border-radius: 12px; padding: 10px 14px; }
 .ai-note p { margin: 4px 0 0; }
 .ai-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
