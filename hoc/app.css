@@ -2099,3 +2099,6 @@ span.blank.static.is-bad {
   max-width: calc(100vw - 32px);
 }
 
+
+/* Admin xem thử như học sinh */
+.demo-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; padding: 10px 16px; background: #fff4d6; border-bottom: 1px solid #f0d68a; color: #6b4e00; font-weight: 600; font-size: 14px; }

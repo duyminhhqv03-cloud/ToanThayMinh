@@ -545,7 +545,19 @@
         h('div', { class: 'add-bar' },
           h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/soan-de/' + encodeURIComponent(cd.course.id) + '/' + x.id); } }, 'Sửa'),
           h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/dau-host/' + encodeURIComponent(x.id) + '/on-tap'); } }, '⚡ Ôn từ vựng'),
-          h('button', { class: 'btn btn-sm', onclick: function () { T.go('#/dau-host/' + encodeURIComponent(x.id)); } }, '🎮 Mở phòng')));
+          h('button', { class: 'btn btn-sm', onclick: function () { T.go('#/dau-host/' + encodeURIComponent(x.id)); } }, '🎮 Mở phòng'),
+          h('button', { class: 'btn btn-sm btn-ghost danger-text', onclick: function () {
+            if (formDirty && !confirm('Bài đấu đang soạn chưa được lưu. Bỏ nội dung này?')) return;
+            T.confirmBox('Xóa bài đấu?', 'Xóa "' + x.title + '" cùng kết quả luyện tập của học sinh ở bài này. Không thể hoàn tác.', 'Xóa', function () {
+              return T.api('deleteQuiz', { id: x.id }).then(function () {
+                formDirty = false;
+                cd.quizzes = (cd.quizzes || []).filter(function (o) { return o.id !== x.id; });
+                T.forgetCourse(cd.course.id);
+                T.toast('Đã xóa bài đấu.', 'success');
+                drawQuizzes(cd);
+              });
+            });
+          } }, 'Xóa')));
     }
 
     /** saveQuiz ghi đè cả bài nên phải đọc đủ nội dung rồi gửi lại, chỉ đổi cờ gameOnly. */

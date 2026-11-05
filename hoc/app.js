@@ -24,6 +24,8 @@
     }
   };
 
+  var DEMO_USERNAME = 'demo.hocsinh';
+  var DEMO_BACK_KEY = 'ttm_demo_back'; // phiên admin cần quay lại sau khi xem thử như học sinh
   var token = store.get('ttm_token');
   var me = null;
   try { if (token) me = JSON.parse(store.get('ttm_me') || 'null'); } catch (e) { me = null; }
@@ -567,6 +569,7 @@
     coursesCache = null;
     viewCache = {};
     store.set('ttm_token', t);
+    if (!t) store.set(DEMO_BACK_KEY, null); // hết phiên / đăng xuất: không giữ lại phiên admin cũ
     saveMe();
     if (!sameUser) fileCache.clear();
   }
@@ -1054,6 +1057,7 @@
   /* ═════════ Thanh trên cùng ═════════ */
 
   function renderNav() {
+    drawDemoBar();
     if (!me) {
       var guestClose = function (e) { var d = e.target.closest('details'); if (d) d.open = false; };
       fill(navUser,
@@ -1100,11 +1104,58 @@
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tai-lieu-mien-phi'); } }, '🎁 Tài liệu miễn phí'),
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/hoc-phi'); } }, 'Thống kê & học phí') : null,
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tai-khoan'); } }, 'Quản lý tài khoản') : null,
-          h('button', { onclick: function (e) { closeMenu(e); changePassword(); } }, 'Đổi mật khẩu'),
-          h('button', { onclick: logout }, 'Đăng xuất'))));
+          me.role === 'admin' ? h('button', { onclick: function (e) { closeMenu(e); startDemo(); } }, '👀 Xem thử như học sinh') : null,
+          isDemo() ? null : h('button', { onclick: function (e) { closeMenu(e); changePassword(); } }, 'Đổi mật khẩu'),
+          h('button', { onclick: logout }, isDemo() ? 'Về tài khoản admin' : 'Đăng xuất'))));
+  }
+
+  /* —— Admin xem thử như học sinh: giữ phiên admin để quay lại —— */
+  var demoBar = null;
+  function isDemo() { return !!(me && me.username === DEMO_USERNAME); }
+
+  function startDemo() {
+    if (leaveGuard && !leaveGuard()) return;
+    leaveGuard = null;
+    feeSync.flush();
+    var admin = JSON.stringify({ token: token, me: me });
+    api('demoStudent').then(function (r) {
+      store.set(DEMO_BACK_KEY, admin);
+      setSession(r.token, r.user);
+      location.hash = '';
+      route();
+      toast('Đang xem thử như học sinh. Bài làm không được lưu.', 'success');
+    }, function (e) { toast(e.message, 'error'); });
+  }
+
+  function endDemo() {
+    if (leaveGuard && !leaveGuard()) return;
+    leaveGuard = null;
+    var t = token;
+    var back = null;
+    try { back = JSON.parse(store.get(DEMO_BACK_KEY) || 'null'); } catch (e) { back = null; }
+    store.set(DEMO_BACK_KEY, null);
+    if (back && back.token && back.me) setSession(back.token, back.me); else setSession(null, null);
+    location.hash = '';
+    route();
+    if (t) {
+      fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'logout', token: t }) }).catch(function () {});
+    }
+  }
+
+  function drawDemoBar() {
+    if (!isDemo()) {
+      if (demoBar) { demoBar.parentNode.removeChild(demoBar); demoBar = null; }
+      return;
+    }
+    if (demoBar) return;
+    demoBar = h('div', { class: 'demo-bar', role: 'status' },
+      h('span', null, '👀 Đang xem thử như học sinh · bài làm không được lưu'),
+      h('button', { type: 'button', class: 'btn btn-sm', onclick: endDemo }, 'Về tài khoản admin'));
+    app.parentNode.insertBefore(demoBar, app);
   }
 
   function logout() {
+    if (isDemo()) return endDemo();
     if (leaveGuard && !leaveGuard()) return;
     leaveGuard = null;
     feeSync.flush();

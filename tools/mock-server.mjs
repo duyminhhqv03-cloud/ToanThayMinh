@@ -14,7 +14,9 @@ const PORT = 8765;
 const USERS = {
   'tk-teacher': { username: 'gv1', fullName: 'Thầy Minh', role: 'teacher', courses: 'c1' },
   'tk-student': { username: 'hs1', fullName: 'Nguyễn An', role: 'student', courses: 'c1' },
-  'tk-student2': { username: 'hs2', fullName: 'Trần Bình', role: 'student', courses: 'c1' }
+  'tk-student2': { username: 'hs2', fullName: 'Trần Bình', role: 'student', courses: 'c1' },
+  'tk-admin': { username: 'admin', fullName: 'Quản trị viên', role: 'admin', courses: '' },
+  'tk-demo': { username: 'demo.hocsinh', fullName: 'Học sinh demo', role: 'student', courses: 'c1' }
 };
 const QUIZ = {
   quiz: { id: 'q1', title: 'Phân số – Đề 1', topic: 'Phân số' },
@@ -76,9 +78,9 @@ const MOCK_CATALOG = [
 ];
 
 const MOCK_COURSES = [
-  { id: 'c1', name: 'Toán', grade: 'Lớp 5', branches: ['Toán', 'Toán tiếng Anh', 'Science'], canEdit: true },
-  { id: 'c2', name: 'Tiếng Việt', grade: 'Lớp 4', branches: [], canEdit: true },
-  { id: 'c3', name: 'Tiếng Anh', grade: 'Lớp 5', branches: [], canEdit: false }
+  { id: 'c1', name: 'Toán', grade: 'Lớp 5', branches: ['Toán', 'Toán tiếng Anh', 'Science'], canEdit: true, teachers: [] },
+  { id: 'c2', name: 'Tiếng Việt', grade: 'Lớp 4', branches: [], canEdit: true, teachers: [] },
+  { id: 'c3', name: 'Tiếng Anh', grade: 'Lớp 5', branches: [], canEdit: false, teachers: [] }
 ];
 
 const MOCK_FREE_DOCS = [
@@ -135,7 +137,7 @@ http.createServer((req, res) => {
           out = {
             ok: true,
             assignment: { id: 'a1', courseId: 'c1', title: 'Bài tập phân số & điền khuyết', dueAt: '2026-11-20T14:00:00Z', maxScore: 10 },
-            course: { id: 'c1', name: 'Toán', grade: 'Lớp 5', canEdit: true },
+            course: { id: 'c1', name: 'Toán', grade: 'Lớp 5', canEdit: true, teachers: [] },
             fullQuestions: qs,
             questions: qs.map(q => ({ type: q.type, text: q.text, options: q.options, points: q.points, image: q.image })),
             submission: null,
@@ -148,12 +150,21 @@ http.createServer((req, res) => {
             } }]
           };
         }
+        else if (p.action === 'demoStudent') {
+          out = me.role === 'admin' ? { ok: true, token: 'tk-demo', user: USERS['tk-demo'] } : { ok: false, code: 403, error: 'Chỉ admin mới làm được thao tác này.' };
+        }
+        else if (p.action === 'deleteQuiz') {
+          out = { ok: true };
+        }
         else if (p.action === 'aiStyle') {
           out = me.role === 'student' ? { ok: false, code: 403, error: 'Chỉ giáo viên mới dùng được chức năng này.' } : { ok: true, style: aiStyle[me.username] || AI_STYLE_DEFAULT, defaultStyle: AI_STYLE_DEFAULT };
         }
         else if (p.action === 'saveAiStyle') {
           aiStyle[me.username] = String(p.style || '').trim().slice(0, 500);
           out = { ok: true, style: aiStyle[me.username] || AI_STYLE_DEFAULT, defaultStyle: AI_STYLE_DEFAULT };
+        }
+        else if (p.action === 'submit' && me.username === 'demo.hocsinh') {
+          out = { ok: false, code: 400, error: 'Đây là tài khoản demo nên bài không được nộp. Học sinh thật bấm Nộp bài là nộp được.' };
         }
         else if (p.action === 'submit') {
           out = { ok: true, submission: { id: 'sub_' + Date.now(), status: 'submitted' } };
@@ -222,7 +233,7 @@ http.createServer((req, res) => {
           MOCK_QUIZZES[id] = { id, courseId: p.courseId || 'c1', topic: p.topic || '', title: p.title, count: (p.questions || []).length, timeLimit: p.timeLimit || 0, showAnswers: p.showAnswers !== false, gameOnly: !!p.gameOnly, branch: p.branch || '', source: p.source, fullQuestions: p.questions };
           out = { ok: true, id };
         }
-        else if (p.action === 'courses') out = { ok: true, courses: me.role === 'student' ? [] : MOCK_COURSES };
+        else if (p.action === 'courses') out = { ok: true, courses: me.role === 'student' && me.username !== 'demo.hocsinh' ? [] : MOCK_COURSES };
         // Thêm / sửa / xóa tài liệu: ghi thẳng vào Kho tài liệu miễn phí giả (chỉ tài liệu tích Miễn phí mới ở lại).
         else if (p.action === 'upload') {
           const c = MOCK_COURSES.find(x => x.id === p.courseId);

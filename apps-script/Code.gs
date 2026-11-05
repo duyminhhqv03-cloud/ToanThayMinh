@@ -182,6 +182,7 @@ function handle_(p) {
   if (me.role !== 'admin') throw err_('Chỉ admin mới làm được thao tác này.', 403);
   switch (action) {
     case 'users': return { users: rows_('users').map(publicUser_) };
+    case 'demoStudent': return demoStudent_();
     case 'createUser': return withLock_(function () { return createUser_(me, p); });
     case 'bulkCreate': return withLock_(function () { return bulkCreate_(me, p); });
     case 'updateUser': return withLock_(function () { return updateUser_(me, p); });
@@ -233,9 +234,35 @@ function auth_(token) {
     username = s.username;
     cache.put('s_' + token, username, 21600);
   }
+  if (username === DEMO_USERNAME) return demoUser_();
   var u = findUser_(username);
   if (!u || !isActive_(u)) throw err_('Tài khoản không còn hoạt động.', 401);
   return u;
+}
+
+/* Tài khoản demo cho admin xem thử giao diện học sinh: KHÔNG có dòng trong trang users nên không
+ * đăng nhập được bằng mật khẩu và không xuất hiện trong danh sách lớp, thống kê, học phí.
+ * Ghi danh mọi lớp; bài làm không được lưu. */
+var DEMO_USERNAME = 'demo.hocsinh';
+function demoUser_() {
+  return {
+    username: DEMO_USERNAME,
+    fullName: 'Học sinh demo',
+    role: 'student',
+    courses: rows_('courses').map(function (c) { return c.id; }).join(','),
+    active: '1'
+  };
+}
+function isDemo_(u) {
+  return u.username === DEMO_USERNAME;
+}
+/** Admin vào xem thử: tạo phiên riêng (1 ngày) cho tài khoản demo. */
+function demoStudent_() {
+  var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  withLock_(function () {
+    append_('sessions', { token: token, username: DEMO_USERNAME, expiresAt: String(Date.now() + 86400000) });
+  });
+  return { token: token, user: publicUser_(demoUser_()) };
 }
 
 function logout_(token) {
@@ -248,6 +275,7 @@ function logout_(token) {
 }
 
 function changePassword_(me, p) {
+  if (isDemo_(me)) throw err_('Tài khoản demo không đổi được mật khẩu.');
   if (hash_(me.salt, String(p.oldPassword || '')) !== me.passwordHash) throw err_('Mật khẩu hiện tại không đúng.');
   var pw = String(p.newPassword || '');
   checkPassword_(pw);
@@ -975,6 +1003,7 @@ function submit_(me, p) {
   var a = findBy_('assignments', assignmentId);
   if (!a) throw err_('Không tìm thấy bài tập.', 404);
   if (!isStudentIn_(me, a.courseId)) throw err_('Chỉ học sinh của khóa này mới nộp bài được.', 403);
+  if (isDemo_(me)) throw err_('Đây là tài khoản demo nên bài không được nộp. Học sinh thật bấm Nộp bài là nộp được.');
   var existing = rows_('submissions').filter(function (s) { return s.assignmentId === a.id && s.username === me.username; })[0];
   if (existing && existing.status === 'returned') {
     throw err_('Bài đã được chốt điểm nên không nộp lại được. Hãy nhắn giáo viên nếu cần sửa.');
@@ -1695,7 +1724,7 @@ function submitQuiz_(me, p) {
     submittedAt: new Date().toISOString()
   };
   // Chỉ lưu kết quả của học sinh; giáo viên làm thử thì không tính.
-  if (isStudentIn_(me, q.courseId)) append_('attempts', t);
+  if (isStudentIn_(me, q.courseId) && !isDemo_(me)) append_('attempts', t);
   return reviewAttempt_(q, t);
 }
 
@@ -1992,7 +2021,7 @@ function validateUserInput_(p, isNew) {
   if (!/^[a-z0-9._-]{3,30}$/.test(username)) {
     throw err_('Tên đăng nhập "' + username + '" không hợp lệ: 3–30 ký tự, chỉ gồm chữ không dấu, số, dấu chấm, gạch ngang.');
   }
-  if (isNew && findUser_(username)) throw err_('Tên đăng nhập "' + username + '" đã tồn tại.');
+  if (isNew && (findUser_(username) || username === DEMO_USERNAME)) throw err_('Tên đăng nhập "' + username + '" đã tồn tại.');
   var fullName = clean_(p.fullName, 100);
   if (!fullName) throw err_('Vui lòng nhập họ tên cho "' + username + '".');
   var role = String(p.role || 'student');
