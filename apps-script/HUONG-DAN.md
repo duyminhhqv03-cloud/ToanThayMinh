@@ -82,6 +82,7 @@ Lưu ý:
 - Báo "hết lượt" nghĩa là đã vượt giới hạn của gói miễn phí, thầy đợi vài phút rồi bấm lại.
 - Gemini mặc định "suy nghĩ" ở mức thấp (`low`) cho nhanh. Muốn chấm kỹ hơn nhưng chậm hơn thì thêm thuộc tính `GEMINI_THINKING` = `medium` hoặc `high`.
 - Mặc định web dùng mô hình `gemini-3.6-flash` (bản 3.8 mới hơn nhưng trả lời rất chậm, có khi vài phút). Muốn đổi mô hình thì thêm thuộc tính `GEMINI_MODEL`, ví dụ `gemini-flash-latest` (luôn là bản Flash mới nhất).
+- Muốn giảm token ảnh thì thêm thuộc tính `GEMINI_MEDIA_RES` = `medium` hoặc `low` (`high` là cao nhất; để trống là mặc định) — lưu ý giảm độ phân giải có thể làm Gemini đọc kém chữ viết tay hơn, nên thử trước trên vài bài.
 
 ## Quên mật khẩu admin
 Trong Apps Script, chọn hàm **resetAdminPassword** → **Chạy**. Mật khẩu mới hiện trong Nhật ký thực thi.

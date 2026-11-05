@@ -323,6 +323,13 @@
   function fmtScore(n) {
     return Number(n).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
   }
+  function aiUsageText(u) {
+    if (!u || !(u.total > 0)) return '';
+    var dot = function (n) {
+      return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    };
+    return ' · ' + dot(u.total) + ' token' + (u.cached > 0 ? ' (' + dot(u.cached) + ' token được giảm giá)' : '');
+  }
   function loginUrl() {
     return location.origin + location.pathname;
   }
@@ -3725,7 +3732,7 @@
         })) : null,
         sum.note ? h('p', { class: 'small cs-ai-note' }, mathNodes(sum.note)) : null,
         h('p', { class: 'muted small' },
-          'Tóm tắt lúc ' + fmtDateTime(sum.at) + ' trên ' + sum.count + ' bài' +
+          'Tóm tắt lúc ' + fmtDateTime(sum.at) + ' trên ' + sum.count + ' bài' + aiUsageText(sum.usage) +
           (st.total !== sum.count ? ' · có bài mới, nên tóm tắt lại' : '')));
     }
     drawAiBox();
@@ -4038,7 +4045,7 @@
         fill(aiFbBox,
           ai.skipped ? h('p', { class: 'small err' }, ai.skipped + ' file không gửi được cho Gemini (quá lớn hoặc không phải ảnh/PDF) – thầy tự xem phần đó.') : null,
           aiFeedback ? h('button', { type: 'button', class: 'chip-btn', onclick: function () { fb.value = aiFeedback; } }, 'Dùng nhận xét của Gemini') : null,
-          h('span', { class: 'muted small' }, 'Gợi ý lúc ' + fmtDateTime(ai.at) + (ai.secs ? ' · ' + ai.secs + ' giây' : '')));
+          h('span', { class: 'muted small' }, 'Gợi ý lúc ' + fmtDateTime(ai.at) + (ai.secs ? ' · ' + ai.secs + ' giây' : '') + aiUsageText(ai.usage)));
         aiFbBox.hidden = false;
       }
       if (hasQ) drawTotal();

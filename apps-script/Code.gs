@@ -1323,6 +1323,32 @@ function withAi_(pub, row) {
 // Cách nhận xét mặc định; mỗi giáo viên đổi được trên màn chấm bài (lưu trong Thuộc tính tập lệnh).
 var AI_STYLE_DEFAULT = 'Nhận xét tối đa 1 câu, nêu đúng chỗ sai và cách sửa. Làm đúng thì chỉ ghi "Đúng". Không khen sáo, không dùng từ hoa mỹ. Không nhắc lại đề bài.';
 var AI_STYLE_MAX = 500;
+var AI_GRADE_SCHEMA_ = {
+  type: 'OBJECT',
+  properties: {
+    items: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          q: { type: 'INTEGER', nullable: true },
+          score: { type: 'NUMBER', nullable: true },
+          reason: { type: 'STRING' },
+          comment: { type: 'STRING' },
+          unsure: { type: 'BOOLEAN' }
+        },
+        required: ['q', 'score', 'reason', 'unsure']
+      }
+    },
+    feedback: { type: 'STRING' }
+  },
+  required: ['items', 'feedback']
+};
+var MEDIA_RES_MAP_ = {
+  low: 'MEDIA_RESOLUTION_LOW',
+  medium: 'MEDIA_RESOLUTION_MEDIUM',
+  high: 'MEDIA_RESOLUTION_HIGH'
+};
 
 function aiStyleOf_(me) {
   return String(PropertiesService.getScriptProperties().getProperty('AI_STYLE_' + me.username) || '').trim() || AI_STYLE_DEFAULT;
@@ -1352,8 +1378,9 @@ function aiSystemPrompt_(style) {
     'Đọc kỹ chữ viết tay trong ảnh. Chấm theo đáp án/hướng dẫn chấm của giáo viên; cho điểm từng phần hợp lý, điểm là bội số của 0,25, không vượt điểm tối đa của câu. ' +
     'Học sinh làm cách khác nhưng đúng vẫn cho điểm. Không đọc được chữ, ảnh mờ hoặc không chắc chắn thì đặt "unsure": true và nói rõ trong "reason". ' +
     'Yêu cầu của giáo viên về cách viết "comment" và "feedback" (chỉ áp dụng cho văn phong nhận xét, không thay đổi cách cho điểm): ' + style + ' ' +
-    'Chỉ trả về JSON đúng dạng: {"items":[{"q":<số thứ tự câu như trong đề, ví dụ 3>,"score":<số>,"reason":"<1 câu ngắn cho giáo viên: vì sao cho điểm này, sai ở đâu>","comment":"<nhận xét gửi học sinh theo yêu cầu trên, không nêu điểm số>","unsure":<true|false>}],' +
-    '"feedback":"<nhận xét chung gửi học sinh theo yêu cầu trên, không nêu điểm số>"}. Mỗi câu tự luận đúng một mục trong items.';
+    'Chỉ trả về JSON đúng dạng: {"items":[{"q":<số thứ tự câu như trong đề, ví dụ 3>,"score":<số>,"reason":"<1 câu ngắn tối đa 20 từ cho giáo viên: vì sao cho điểm này, sai ở đâu>","comment":"<nhận xét gửi học sinh theo yêu cầu trên, không nêu điểm số>","unsure":<true|false>}],' +
+    '"feedback":"<nhận xét chung tối đa 2 câu gửi học sinh theo yêu cầu trên, không nêu điểm số>"}. ' +
+    'Chỉ trả mục trong items cho các câu nằm trong dòng "Chỉ chấm các câu" (nếu có), mỗi câu cần chấm đúng một mục.';
 }
 
 function aiGrade_(me, submissionId) {
@@ -1366,62 +1393,106 @@ function aiGrade_(me, submissionId) {
   var questions = parseQuestions_(a);
   var answers = parseJson_(s.answers, []);
   var files = parseFiles_(s.files);
-  var budget = { left: AI_TOTAL_MAX, skipped: [] };
+  var budget = { left: AI_TOTAL_MAX, skipped: [], seen: {} };
   var parts = [];
-  var targets = []; // [{q: chỉ số câu (null = cả bài), max: điểm tối đa}]
-
-  parts.push({ text: 'Môn/lớp: ' + (c.name || '') + ' – ' + (c.grade || 'tiểu học') +
-    '\nBài tập: ' + a.title + (a.instructions ? '\nYêu cầu chung của giáo viên: ' + a.instructions : '') });
+  var allTargets = []; // [{q: chỉ số câu (null = cả bài), max: điểm tối đa, ...}]
+  var targets = [];    // chỉ các câu thực sự gửi cho Gemini chấm
+  var general = files.filter(function (f) { return f.q === null || f.q === undefined; });
 
   if (questions.length) {
     var essays = questions.map(function (x, i) { return { x: x, i: i }; }).filter(function (o) { return o.x.type === 'essay'; });
     if (!essays.length) throw err_('Bài này không có câu tự luận – máy đã chấm hết.');
-    var imgs = parseJson_(a.images, {});
-    essays.forEach(function (o) {
+    allTargets = essays.map(function (o) {
       var x = o.x, i = o.i;
-      targets.push({ q: i, max: Number(x.points || 1) });
-      parts.push({ text: '\n### CÂU ' + (i + 1) + ' (tối đa ' + x.points + ' điểm)\nĐề: ' + x.text +
-        '\nĐáp án / hướng dẫn chấm của giáo viên: ' + (x.explain || '(không có – hãy tự giải cẩn thận rồi chấm)') +
-        (answers[i] ? '\nHọc sinh gõ câu trả lời: ' + answers[i] : '') });
-      if (x.image && imgs[x.image]) addAiFile_(parts, budget, imgs[x.image], 'image/jpeg', 'Hình trong đề câu ' + (i + 1));
+      var ans = String(answers[i] === null || answers[i] === undefined ? '' : answers[i]).trim();
       var photos = files.filter(function (f) { return f.q === i; });
-      var lost = 0;
-      photos.forEach(function (f, k) { if (!addAiFile_(parts, budget, f.fileId, f.mimeType, 'Bài làm câu ' + (i + 1) + (photos.length > 1 ? ' (ảnh ' + (k + 1) + ')' : ''), f.name)) lost++; });
-      if (lost) parts.push({ text: '(Học sinh có ' + lost + ' ảnh bài làm câu ' + (i + 1) + ' nhưng không gửi được cho bạn – KHÔNG coi là bỏ trống; chấm phần thấy được và đặt "unsure": true.)' });
-      if (!answers[i] && !photos.length) parts.push({ text: '(Không có ảnh riêng cho câu ' + (i + 1) + ' – có thể nằm trong ảnh bài làm chung bên dưới, nếu không thấy thì coi là bỏ trống.)' });
+      var blank = !ans && !photos.length && !general.length;
+      return { q: i, max: Number(x.points || 1), x: x, ans: ans, photos: photos, blank: blank };
     });
-    var general = files.filter(function (f) { return f.q === null || f.q === undefined; });
+    targets = allTargets.filter(function (t) { return !t.blank; });
+    if (!targets.length) {
+      var emptyOut = {
+        items: allTargets.map(function (t) {
+          return { q: t.q, score: 0, reason: 'Học sinh bỏ trống.', comment: '', unsure: false };
+        }),
+        feedback: '',
+        model: '',
+        secs: 0,
+        at: new Date().toISOString(),
+        skipped: 0,
+        usage: null
+      };
+      withLock_(function () {
+        var cur = findBy_('submissions', s.id);
+        if (cur && cur.submittedAt === s.submittedAt) update_('submissions', cur, { aiSuggest: JSON.stringify(emptyOut) });
+      });
+      return { ai: emptyOut };
+    }
+  } else {
+    if (!s.text && !files.length) throw err_('Bài nộp trống.');
+    var max = Number(a.maxScore || 10);
+    allTargets = [{ q: null, max: max, blank: false }];
+    targets = allTargets;
+  }
+
+  // A. Phần cố định của đề (giống hệt từng byte cho mọi học sinh trong cùng bài tập).
+  parts.push({ text: 'Môn/lớp: ' + (c.name || '') + ' – ' + (c.grade || 'tiểu học') +
+    '\nBài tập: ' + a.title + (a.instructions ? '\nYêu cầu chung của giáo viên: ' + a.instructions : '') });
+
+  if (questions.length) {
+    var imgs = parseJson_(a.images, {});
+    allTargets.forEach(function (t) {
+      var x = t.x, i = t.q;
+      parts.push({ text: '\n### CÂU ' + (i + 1) + ' (tối đa ' + x.points + ' điểm)\nĐề: ' + x.text +
+        '\nĐáp án / hướng dẫn chấm của giáo viên: ' + (x.explain || '(không có – hãy tự giải cẩn thận rồi chấm)') });
+      if (x.image && imgs[x.image]) addAiFile_(parts, budget, imgs[x.image], 'image/jpeg', 'Hình trong đề câu ' + (i + 1));
+    });
+  } else {
+    parts.push({ text: '\nChấm CẢ BÀI theo thang ' + allTargets[0].max + ' điểm (mục "q" trong kết quả để null).' });
+    if (a.fileId) addAiFile_(parts, budget, a.fileId, a.mimeType, 'ĐỀ BÀI (file của giáo viên)', a.fileName);
+  }
+
+  // B. Phần bài làm của học sinh.
+  if (questions.length) {
+    parts.push({ text: '\n### BÀI LÀM CỦA HỌC SINH\nChỉ chấm các câu: ' + targets.map(function (t) { return t.q + 1; }).join(', ') + '.' });
+    targets.forEach(function (t) {
+      var i = t.q, photos = t.photos;
+      if (t.ans) parts.push({ text: 'Câu ' + (i + 1) + ' – Học sinh gõ câu trả lời: ' + answers[i] });
+      var lost = 0;
+      photos.forEach(function (f, k) {
+        if (!addAiFile_(parts, budget, f.fileId, f.mimeType, 'Bài làm câu ' + (i + 1) + (photos.length > 1 ? ' (ảnh ' + (k + 1) + ')' : ''), f.name)) lost++;
+      });
+      if (lost) parts.push({ text: '(Học sinh có ' + lost + ' ảnh bài làm câu ' + (i + 1) + ' nhưng không gửi được cho bạn – KHÔNG coi là bỏ trống; chấm phần thấy được và đặt "unsure": true.)' });
+      if (!t.ans && !photos.length) parts.push({ text: '(Không có ảnh riêng cho câu ' + (i + 1) + ' – có thể nằm trong ảnh bài làm chung bên dưới, nếu không thấy thì coi là bỏ trống.)' });
+    });
     if (general.length) {
       parts.push({ text: '\n### ẢNH BÀI LÀM CHUNG (có thể chứa lời giải của nhiều câu – tự tìm phần của từng câu tự luận ở trên)' });
       general.forEach(function (f, k) { addAiFile_(parts, budget, f.fileId, f.mimeType, 'Ảnh chung ' + (k + 1), f.name); });
     }
   } else {
-    var max = Number(a.maxScore || 10);
-    targets.push({ q: null, max: max });
-    parts.push({ text: '\nChấm CẢ BÀI theo thang ' + max + ' điểm (mục "q" trong kết quả để null).' });
-    if (a.fileId) addAiFile_(parts, budget, a.fileId, a.mimeType, 'ĐỀ BÀI (file của giáo viên)', a.fileName);
+    parts.push({ text: '\n### BÀI LÀM CỦA HỌC SINH' });
     if (s.text) parts.push({ text: 'Học sinh viết: ' + s.text });
     files.forEach(function (f, k) { addAiFile_(parts, budget, f.fileId, f.mimeType, 'Bài làm của học sinh (file ' + (k + 1) + ')', f.name); });
-    if (!s.text && !files.length) throw err_('Bài nộp trống.');
   }
   if (budget.skipped.length) parts.push({ text: '(Có ' + budget.skipped.length + ' file không gửi được vì quá lớn hoặc không phải ảnh/PDF.)' });
 
   var sys = aiSystemPrompt_(aiStyleOf_(me));
 
-  var res = callGemini_(sys, parts);
+  var res = callGemini_(sys, parts, { schema: AI_GRADE_SCHEMA_ });
   var byQ = {};
   (Array.isArray(res.items) ? res.items : []).forEach(function (it) {
     var q = it && it.q !== null && it.q !== undefined && it.q !== '' ? Number(it.q) - 1 : null;
     byQ[q === null || isNaN(q) ? 'all' : q] = it;
   });
-  var items = targets.map(function (t) {
+  var items = allTargets.map(function (t) {
+    if (t.blank) return { q: t.q, score: 0, reason: 'Học sinh bỏ trống.', comment: '', unsure: false };
     var it = byQ[t.q === null ? 'all' : t.q] || (targets.length === 1 ? (res.items || [])[0] : null);
     if (!it) return { q: t.q, score: null, reason: 'Gemini không trả lời câu này.', comment: '', unsure: true };
     var n = Number(String(it.score).replace(',', '.'));
     n = isNaN(n) ? null : Math.max(0, Math.min(t.max, Math.round(n * 4) / 4));
     return { q: t.q, score: n, reason: clean_(it.reason, 400), comment: clean_(it.comment, 400), unsure: !!it.unsure || n === null };
   });
-  var out = { items: items, feedback: clean_(res.feedback, 600), model: res._model, secs: res._secs, at: new Date().toISOString(), skipped: budget.skipped.length };
+  var out = { items: items, feedback: clean_(res.feedback, 600), model: res._model, secs: res._secs, at: new Date().toISOString(), skipped: budget.skipped.length, usage: res._usage || null };
 
   // Lưu lại để mở lại màn chấm vẫn thấy (khóa chỉ giữ lúc ghi, không giữ trong lúc chờ Gemini).
   withLock_(function () {
@@ -1595,7 +1666,8 @@ function aiClassSummary_(me, assignmentId) {
     at: new Date().toISOString(),
     count: subs.length,
     secs: res._secs,
-    model: res._model
+    model: res._model,
+    usage: res._usage || null
   };
 
   withLock_(function () {
@@ -1609,16 +1681,35 @@ function addAiFile_(parts, budget, fileId, mimeType, label, name) {
   var mt = String(mimeType || '').toLowerCase();
   if (mt === 'image/jpg') mt = 'image/jpeg';
   if (!AI_MIME.test(mt)) { budget.skipped.push(name || label); return false; }
+  var seen = budget.seen || (budget.seen = {});
+  if (fileId && seen[fileId]) {
+    parts.push({ text: label + ': (cùng ảnh với "' + seen[fileId] + '")' });
+    return true;
+  }
+  var file, size;
+  try {
+    file = DriveApp.getFileById(fileId);
+    size = file.getSize();
+  } catch (e) { budget.skipped.push(name || label); return false; }
+  if (size > AI_FILE_MAX || size > budget.left) { budget.skipped.push(name || label); return false; }
   var bytes;
-  try { bytes = DriveApp.getFileById(fileId).getBlob().getBytes(); } catch (e) { budget.skipped.push(name || label); return false; }
+  try { bytes = file.getBlob().getBytes(); } catch (e) { budget.skipped.push(name || label); return false; }
   if (bytes.length > AI_FILE_MAX || bytes.length > budget.left) { budget.skipped.push(name || label); return false; }
+  var hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, bytes));
+  if (seen[hash]) {
+    if (fileId) seen[fileId] = seen[hash];
+    parts.push({ text: label + ': (cùng ảnh với "' + seen[hash] + '")' });
+    return true;
+  }
+  if (fileId) seen[fileId] = label;
+  seen[hash] = label;
   budget.left -= bytes.length;
   parts.push({ text: label + ':' });
   parts.push({ inline_data: { mime_type: mt, data: Utilities.base64Encode(bytes) } });
   return true;
 }
 
-function callGemini_(system, parts) {
+function callGemini_(system, parts, opts) {
   var props = PropertiesService.getScriptProperties();
   var key = String(props.getProperty('GEMINI_API_KEY') || '').trim();
   if (!key) throw err_('Chưa có khóa Gemini. Admin vào Apps Script → Cài đặt dự án → Thuộc tính tập lệnh, thêm GEMINI_API_KEY (lấy ở aistudio.google.com).');
@@ -1626,12 +1717,15 @@ function callGemini_(system, parts) {
   // Mức "suy nghĩ" của Gemini: mặc định 'low' cho nhanh (mặc định của Google là high → chấm 1 bài mất vài phút).
   // Đổi bằng Thuộc tính tập lệnh GEMINI_THINKING = minimal / low / medium / high, hoặc 'off' để không gửi.
   var thinking = String(props.getProperty('GEMINI_THINKING') || 'low').trim().toLowerCase();
+  var mediaRes = String(props.getProperty('GEMINI_MEDIA_RES') || '').trim().toLowerCase();
   var body = {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: 'user', parts: parts }],
     generationConfig: { responseMimeType: 'application/json', temperature: 0.2 }
   };
   if (thinking && thinking !== 'off') body.generationConfig.thinkingConfig = { thinkingLevel: thinking };
+  if (opts && opts.schema) body.generationConfig.responseSchema = opts.schema;
+  if (MEDIA_RES_MAP_[mediaRes]) body.generationConfig.mediaResolution = MEDIA_RES_MAP_[mediaRes];
 
   var started = Date.now();
   var code, data, tries = 0;
@@ -1649,9 +1743,17 @@ function callGemini_(system, parts) {
     code = resp.getResponseCode();
     data = parseJson_(resp.getContentText(), {});
     var msg = (data.error && data.error.message) || '';
-    // Mô hình không hỗ trợ mức suy nghĩ → gửi lại không kèm thinkingConfig.
+    // Mô hình không hỗ trợ mức suy nghĩ / khuôn JSON / độ phân giải ảnh → bỏ trường đó rồi gửi lại.
     if (code === 400 && body.generationConfig.thinkingConfig && /think/i.test(msg)) {
       delete body.generationConfig.thinkingConfig;
+      continue;
+    }
+    if (code === 400 && body.generationConfig.responseSchema && /schema/i.test(msg)) {
+      delete body.generationConfig.responseSchema;
+      continue;
+    }
+    if (code === 400 && body.generationConfig.mediaResolution && /media.?resolution/i.test(msg)) {
+      delete body.generationConfig.mediaResolution;
       continue;
     }
     // Gemini bận / hết lượt tạm thời → đợi chút rồi thử lại (tối đa 2 lần, khi còn thời gian).
@@ -1680,6 +1782,14 @@ function callGemini_(system, parts) {
   if (!out) throw err_('Gemini trả kết quả không đọc được. Bấm thử lại.');
   out._model = data.modelVersion || model;
   out._secs = Math.round((Date.now() - started) / 1000);
+  var u = data.usageMetadata;
+  out._usage = u ? {
+    input: Number(u.promptTokenCount || 0),
+    cached: Number(u.cachedContentTokenCount || 0),
+    output: Number(u.candidatesTokenCount || 0),
+    thoughts: Number(u.thoughtsTokenCount || 0),
+    total: Number(u.totalTokenCount || 0)
+  } : null;
   return out;
 }
 

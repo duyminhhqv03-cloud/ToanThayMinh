@@ -176,6 +176,28 @@ http.createServer((req, res) => {
             ]
           };
         }
+        else if (p.action === 'aiGrade') {
+          out = me.role === 'student' ? { ok: false, code: 403, error: 'Chỉ giáo viên mới dùng được chức năng này.' } : {
+            ok: true,
+            ai: {
+              items: [
+                {
+                  q: 4,
+                  score: 1.5,
+                  reason: 'Thiếu bước kết luận cuối bài.',
+                  comment: 'Em làm đúng phép tính, nhớ ghi câu kết luận và đáp số cuối bài.',
+                  unsure: false
+                }
+              ],
+              feedback: 'Em nắm được cách làm, cần trình bày đầy đủ câu kết luận.',
+              model: 'gemini-3.6-flash',
+              secs: 3,
+              at: new Date().toISOString(),
+              skipped: 0,
+              usage: { input: 3450, cached: 1200, output: 110, thoughts: 90, total: 3650 }
+            }
+          };
+        }
         else if (p.action === 'aiClassSummary') {
           out = me.role === 'student' ? { ok: false, code: 403, error: 'Chỉ giáo viên mới dùng được chức năng này.' } : {
             ok: true,
@@ -198,7 +220,8 @@ http.createServer((req, res) => {
               at: new Date().toISOString(),
               count: 3,
               secs: 2,
-              model: 'gemini-3.6-flash'
+              model: 'gemini-3.6-flash',
+              usage: { input: 620, cached: 0, output: 180, thoughts: 90, total: 890 }
             }
           };
         }
