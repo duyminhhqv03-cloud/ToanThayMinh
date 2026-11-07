@@ -15,5 +15,7 @@ html = html.replace(/<script([^>]*)src="([^"]+)"([^>]*)><\/script>/g, function (
   // tránh chuỗi </script> trong mã làm vỡ thẻ
   return '<script>\n' + fs.readFileSync(local(src), 'utf8').replace(/<\/script/gi, '<\\/script') + '\n</script>';
 });
+// Bản gộp dùng trong app Bảng hình học (máy của giáo viên, chạy offline): bỏ bước kiểm tra đăng nhập
+html = html.replace('<head>', '<head>\n<script>window.MAY_TINH_KHONG_DANG_NHAP = true;</script>');
 fs.writeFileSync(out, html);
 console.log('Đã tạo', out, '(' + Math.round(html.length / 1024) + ' KB)');

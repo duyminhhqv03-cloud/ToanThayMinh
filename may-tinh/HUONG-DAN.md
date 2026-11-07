@@ -1,5 +1,10 @@
 # Hướng dẫn sử dụng & nhúng Máy tính Thầy Minh (Máy 880 & Máy 580)
 
+> **Chỉ dành cho lớp:** trang `/may-tinh/` chỉ mở được khi đã đăng nhập Khu học tập (tài khoản học sinh, giáo viên, admin).
+> Chưa đăng nhập sẽ thấy nút "Đăng nhập Khu học tập"; đăng nhập xong tự quay lại Máy tính. Trong Khu học tập có mục **🧮 Máy tính** trên thanh menu.
+> Kiểm tra bằng phiên đăng nhập (lệnh `me` của Apps Script) ngay trên trang, file `dang-nhap.js`. Mã nguồn trên GitHub vẫn công khai, nên đây là chặn người dùng bình thường, không phải khóa bí mật.
+> Bản gộp một file trong app Bảng hình học (`node tools/build-may-tinh.js`) không cần đăng nhập để chạy offline.
+
 ## 1. Giới thiệu hai máy giả lập
 Ứng dụng **Máy tính Thầy Minh** giả lập tách biệt hai dòng máy tính khoa học học sinh phổ thông đang sử dụng, giúp giáo viên trình chiếu và học sinh nhìn màn hình + **Nhật ký phím** để bấm theo trên máy thật:
 

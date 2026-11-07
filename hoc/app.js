@@ -1091,7 +1091,8 @@
       h('a', { href: '#/', class: 'nav-link' }, 'Khóa học'),
       h('a', { href: '#/dau', class: 'nav-link' }, '🎮 Đấu cả lớp'),
       h('a', { href: '#/tro-choi', class: 'nav-link' }, '🎨 Trò chơi'),
-      h('a', { href: '#/tai-lieu-mien-phi', class: 'nav-link' }, '🎁 Tài liệu miễn phí')
+      h('a', { href: '#/tai-lieu-mien-phi', class: 'nav-link' }, '🎁 Tài liệu miễn phí'),
+      h('a', { href: '../may-tinh/', class: 'nav-link' }, '🧮 Máy tính')
     ];
     if (me.role === 'admin') {
       links.push(h('a', { href: '#/hoc-phi', class: 'nav-link' }, 'Học phí'));
@@ -1109,6 +1110,7 @@
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/dau'); } }, '🎮 Đấu cả lớp'),
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tro-choi'); } }, '🎨 Trò chơi'),
           h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tai-lieu-mien-phi'); } }, '🎁 Tài liệu miễn phí'),
+          h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); location.href = '../may-tinh/'; } }, '🧮 Máy tính'),
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/hoc-phi'); } }, 'Thống kê & học phí') : null,
           me.role === 'admin' ? h('button', { class: 'menu-mobile', onclick: function (e) { closeMenu(e); go('#/tai-khoan'); } }, 'Quản lý tài khoản') : null,
           me.role === 'admin' ? h('button', { onclick: function (e) { closeMenu(e); startDemo(); } }, '👀 Xem thử như học sinh') : null,
@@ -1210,6 +1212,10 @@
       api('login', { username: u.value, password: p.value }).then(function (d) {
         setSession(d.token, d.user);
         meChecked = true;
+        // Mở trang Máy tính khi chưa đăng nhập → đăng nhập xong quay lại Máy tính
+        var back = null;
+        try { back = sessionStorage.getItem('ttm_sau_dang_nhap'); sessionStorage.removeItem('ttm_sau_dang_nhap'); } catch (e2) { back = null; }
+        if (back === 'may-tinh') { location.href = '../may-tinh/'; return; }
         // Đổi hash đã tự gọi route() (hashchange) → không gọi thêm lần nữa (tránh tải trang chủ 2 lần).
         if (!location.hash || location.hash === '#') location.hash = '#/';
         else route();

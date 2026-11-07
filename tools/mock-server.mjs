@@ -121,6 +121,10 @@ http.createServer((req, res) => {
         out = { ok: true, courses: MOCK_CATALOG };
       } else if (p.action === 'freeDocs') {
         out = { ok: true, docs: MOCK_FREE_DOCS };
+      } else if (p.action === 'login') {
+        // Đăng nhập thử: tên đăng nhập trong USERS (gv1, hs1, hs2, admin…), mật khẩu nào cũng được
+        const tk = Object.keys(USERS).find(k => USERS[k].username === p.username);
+        out = tk ? { ok: true, token: tk, user: USERS[tk] } : { ok: false, error: 'Sai tên đăng nhập hoặc mật khẩu.' };
       } else if (p.action === 'freeFile') {
         out = { ok: true, name: 'tai-lieu-mau.pdf', mimeType: 'application/pdf', data: MOCK_PDF_BASE64 };
       } else {
