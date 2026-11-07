@@ -26,38 +26,71 @@ body.bg-transparent {
 
 .page-header {
   text-align: center;
-  padding: 12px 10px 6px;
+  padding: 10px 10px 4px;
 }
 
 .page-title {
   margin: 0;
-  font-size: 22px;
+  font-size: 21px;
   font-weight: 800;
   color: #0f172a;
 }
 
 .page-subtitle {
-  margin: 3px 0 0;
-  font-size: 13px;
+  margin: 2px 0 0;
+  font-size: 12.5px;
   color: #475569;
+}
+
+/* Thanh nút chuyển giữa Máy 880 và Máy 580 */
+.machine-switcher-bar {
+  text-align: center;
+  padding: 4px 10px 6px;
+}
+
+.machine-switcher-group {
+  display: inline-block;
+  background: #cbd5e1;
+  padding: 3px;
+  border-radius: 9px;
+  border: 1px solid #94a3b8;
+}
+
+.machine-switch-btn {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 16px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #334155;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.machine-switch-btn.active {
+  background: #0f172a;
+  color: #f8fafc;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.22);
 }
 
 .page-main {
   display: block;
   width: 100%;
   text-align: center;
-  padding: 4px 0 12px;
+  padding: 2px 0 12px;
 }
 
 .page-footer {
   text-align: center;
-  padding: 8px 10px 16px;
+  padding: 6px 10px 14px;
   font-size: 12px;
   color: #64748b;
 }
 
 /* Chế độ gọn khi nhúng iframe (?gon=1) */
 body.mode-compact .page-header,
+body.mode-compact .machine-switcher-bar,
 body.mode-compact .page-footer {
   display: none;
 }
@@ -78,22 +111,33 @@ body.mode-compact .page-main {
   text-align: left;
 }
 
-/* Thân máy tính: Kiểu A (Xám đen) & Kiểu B (Xanh đậm) */
+/* =========================================================================
+   THÂN MÁY (MÁY 880 & MÁY 580)
+   ========================================================================= */
 .calc-shell {
   width: 356px;
+  border-radius: 26px;
+  padding: 14px 14px 18px;
+  background: linear-gradient(165deg, #24282e 0%, #181b20 100%);
+  border: 2px solid #383e48;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.38);
+}
+
+/* Máy 880: Thân đen nhám bo tròn kiểu CW */
+.calc-shell.machine-880 {
+  border-radius: 30px;
+  background: linear-gradient(175deg, #23262b 0%, #17191d 100%);
+  border: 2.5px solid #353a42;
+}
+
+/* Máy 580: Thân đen vân carbon viền bạc kiểu EX */
+.calc-shell.machine-580 {
   border-radius: 22px;
-  padding: 14px 12px 16px;
-  background: linear-gradient(165deg, #2d333d 0%, #1c2026 100%);
-  border: 2px solid #434c59;
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  background: linear-gradient(175deg, #22262d 0%, #15181d 100%);
+  border: 2.5px solid #94a3b8;
 }
 
-.calc-shell.model-b {
-  background: linear-gradient(165deg, #1b365d 0%, #0f203c 100%);
-  border-color: #2f558a;
-}
-
-/* Đầu máy và tấm năng lượng */
+/* Đầu máy */
 .calc-brand-bar {
   display: -webkit-flex;
   display: flex;
@@ -113,33 +157,41 @@ body.mode-compact .page-main {
   display: block;
   font-size: 13px;
   font-weight: 800;
-  letter-spacing: 0.5px;
-  color: #f8fafc;
+  letter-spacing: 0.4px;
+  color: #e2e8f0;
 }
 
 .brand-sub {
   display: block;
-  font-size: 10px;
-  font-weight: 600;
-  color: #fbbf24;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #d8b26e;
   margin-top: 1px;
+}
+
+.calc-shell.machine-580 .brand-sub {
+  color: #f87171;
 }
 
 .solar-panel {
   display: -webkit-flex;
   display: flex;
-  width: 68px;
-  height: 20px;
+  width: 64px;
+  height: 18px;
   background: #2b1d16;
-  border: 1px solid #64748b;
+  border: 1px solid #525b69;
   border-radius: 4px;
   overflow: hidden;
+}
+
+.calc-shell.machine-880 .solar-panel {
+  display: none;
 }
 
 .solar-cell {
   -webkit-flex: 1;
   flex: 1;
-  border-right: 1px solid rgba(255, 255, 255, 0.18);
+  border-right: 1px solid rgba(255, 255, 255, 0.16);
   background: linear-gradient(180deg, #3b281f 0%, #241711 100%);
 }
 
@@ -147,26 +199,28 @@ body.mode-compact .page-main {
   border-right: none;
 }
 
-/* Màn hình LCD */
+/* =========================================================================
+   MÀN HÌNH LCD
+   ========================================================================= */
 .lcd-frame {
-  background: #11151c;
-  padding: 6px;
-  border-radius: 10px;
-  border: 1px solid #475569;
+  background: #101318;
+  padding: 7px;
+  border-radius: 12px;
+  border: 1px solid #3f4754;
   margin-bottom: 8px;
 }
 
 .lcd-screen {
-  background: #d4e2d4;
+  background: #d7e4d8;
   color: #0b1911;
-  border-radius: 6px;
-  min-height: 122px;
+  border-radius: 7px;
+  min-height: 124px;
   max-height: 158px;
   display: -webkit-flex;
   display: flex;
   -webkit-flex-direction: column;
   flex-direction: column;
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.2);
+  border: 1px solid #8fa392;
   overflow: hidden;
 }
 
@@ -177,7 +231,7 @@ body.mode-compact .page-main {
   justify-content: space-between;
   -webkit-align-items: center;
   align-items: center;
-  padding: 3px 6px;
+  padding: 2px 6px;
   font-size: 10px;
   font-weight: 700;
   background: rgba(0, 0, 0, 0.07);
@@ -195,24 +249,36 @@ body.mode-compact .page-main {
   display: inline-block;
   padding: 1px 4px;
   margin-right: 3px;
-  border-radius: 3px;
+  border-radius: 2px;
   font-size: 9px;
-  color: rgba(11, 25, 17, 0.25);
+  color: rgba(11, 25, 17, 0.22);
 }
 
 .st-badge.on {
-  background: #162a1e;
-  color: #d4e2d4;
+  background: #14261b;
+  color: #d7e4d8;
 }
 
 .st-badge.st-s.on {
-  background: #b45309;
+  background: #92400e;
   color: #fff;
 }
 
 .st-badge.st-a.on {
-  background: #b91c1c;
+  background: #991b1b;
   color: #fff;
+}
+
+.st-badge.st-verify.on {
+  background: #065f46;
+  color: #fff;
+}
+
+.st-battery {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  color: #14261b;
 }
 
 .st-right {
@@ -221,7 +287,7 @@ body.mode-compact .page-main {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 165px;
+  max-width: 170px;
 }
 
 .lcd-body {
@@ -232,6 +298,10 @@ body.mode-compact .page-main {
   overflow-y: auto;
   overflow-x: auto;
   position: relative;
+}
+
+.calc-shell.font-small .lcd-body {
+  font-size: 13px;
 }
 
 .calc-shell.font-large .lcd-body {
@@ -257,6 +327,13 @@ body.mode-compact .page-main {
   color: #335c45;
 }
 
+.lcd-disp-ind {
+  background: #14261b;
+  color: #d7e4d8;
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
 .lcd-expr-line {
   min-height: 44px;
   padding-right: 14px;
@@ -280,8 +357,27 @@ body.mode-compact .page-main {
   padding-top: 2px;
 }
 
+.calc-shell.font-small .lcd-res-line {
+  font-size: 17px;
+}
+
 .calc-shell.font-large .lcd-res-line {
   font-size: 23px;
+}
+
+.lcd-verify-res {
+  text-align: right;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #0b1911;
+}
+
+.lcd-solve-res {
+  font-size: 13.5px;
+  line-height: 1.45;
+  padding-top: 2px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.22);
 }
 
 .lcd-error {
@@ -291,7 +387,9 @@ body.mode-compact .page-main {
   padding: 8px 0;
 }
 
-/* Vẽ biểu thức sách giáo khoa (Math I/O) */
+/* =========================================================================
+   VẼ BIỂU THỨC SÁCH GIÁO KHOA 2D (MathI/MathO)
+   ========================================================================= */
 .m-tok {
   display: inline;
   vertical-align: middle;
@@ -400,6 +498,24 @@ body.mode-compact .page-main {
   vertical-align: top;
 }
 
+/* Số thập phân tuần hoàn (gạch ngang trên đầu) */
+.m-recur {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.m-recur-paren {
+  font-size: 0.9em;
+  opacity: 0.45;
+}
+
+.m-recur-body {
+  display: inline-block;
+  border-top: 1.8px solid #0b1911;
+  padding: 1px 1px 0;
+  line-height: 1.05;
+}
+
 .m-root {
   display: inline-block;
   vertical-align: middle;
@@ -468,75 +584,174 @@ body.mode-compact .page-main {
   margin-left: 2px;
 }
 
-/* Menu lưới ứng dụng và danh sách trong LCD */
-.lcd-menu-wrap {
-  font-size: 12px;
+/* =========================================================================
+   MÀN HÌNH HOME (MÁY 880) & MENU (MÁY 580)
+   ========================================================================= */
+/* HOME trên Máy 880: Lưới 3 cột × 2 hàng mỗi trang, không số thứ tự, có thanh cuộn dọc bên phải */
+.home880-wrap {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  height: 96px;
 }
 
-.lcd-menu-header {
-  font-size: 11px;
-  padding-bottom: 4px;
+.home880-grid {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-flex: 1;
+  flex: 1;
+}
+
+.home880-cell {
+  width: 32%;
+  margin-right: 1.3%;
   margin-bottom: 4px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+  padding: 4px 2px 3px;
+  border-radius: 4px;
+  text-align: center;
+  cursor: pointer;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-justify-content: center;
+  justify-content: center;
 }
 
-.lcd-menu-grid {
+.home880-cell.active {
+  background: #0d1c13;
+  color: #d7e4d8;
+}
+
+.home880-icon {
+  width: 34px;
+  height: 24px;
+}
+
+.home880-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.home880-name {
+  font-size: 10px;
+  font-weight: 700;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.lcd-scrollbar {
+  width: 5px;
+  height: 92px;
+  background: rgba(0, 0, 0, 0.14);
+  border-radius: 3px;
+  position: relative;
+  margin-left: 3px;
+}
+
+.lcd-scroll-thumb {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  background: #0d1c13;
+  border-radius: 3px;
+}
+
+/* MENU trên Máy 580: Lưới 4 cột × 2 hàng, mã số góc dưới phải, dòng tên ở đáy */
+.menu580-wrap {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  height: 96px;
+}
+
+.menu580-grid {
   display: -webkit-flex;
   display: flex;
   -webkit-flex-wrap: wrap;
   flex-wrap: wrap;
 }
 
-.lcd-menu-cell {
+.menu580-cell {
   width: 24%;
   margin-right: 1%;
-  margin-bottom: 4px;
-  padding: 3px 2px;
-  border: 1px solid rgba(0, 0, 0, 0.22);
-  border-radius: 4px;
-  text-align: center;
-  cursor: pointer;
+  margin-bottom: 3px;
+  height: 35px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 3px;
   position: relative;
-  background: rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.18);
 }
 
-.lcd-menu-cell.active {
-  background: #162a1e;
-  color: #e2f1e2;
-  border-color: #0b1911;
+.menu580-cell.active {
+  background: #0d1c13;
+  color: #d7e4d8;
+  border-color: #0d1c13;
 }
 
-.menu-cell-code {
+.menu580-icon {
+  width: 30px;
+  height: 22px;
+  margin: 2px auto 0;
+}
+
+.menu580-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.menu580-code {
   position: absolute;
-  top: 1px;
-  left: 3px;
+  right: 2px;
+  bottom: 1px;
   font-size: 9px;
   font-weight: 800;
+  line-height: 1;
+  padding: 1px 2px;
+  background: #0d1c13;
+  color: #d7e4d8;
+  border-radius: 2px;
 }
 
-.menu-cell-icon {
-  font-size: 12px;
+.menu580-cell.active .menu580-code {
+  background: #d7e4d8;
+  color: #0d1c13;
+}
+
+.menu580-bottom-bar {
+  font-size: 13px;
   font-weight: 800;
-  margin-top: 2px;
+  padding: 2px 4px 0;
+  border-top: 1.5px solid #0d1c13;
+  letter-spacing: 0.3px;
 }
 
-.menu-cell-name {
-  font-size: 9px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
+/* Thực đơn danh sách trong LCD */
 .lcd-menu-list {
   font-size: 12px;
 }
 
 .lcd-list-title {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
   margin-bottom: 4px;
   padding-bottom: 2px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
 }
 
 .lcd-list-item {
@@ -551,8 +766,84 @@ body.mode-compact .page-main {
 }
 
 .lcd-list-item.active {
-  background: #162a1e;
-  color: #e2f1e2;
+  background: #0d1c13;
+  color: #d7e4d8;
+}
+
+/* Bảng tuần hoàn nguyên tố hóa học (Periodic Table) trên Máy 880 */
+.pt880-wrap {
+  font-size: 12px;
+}
+
+.pt880-header {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  -webkit-align-items: center;
+  align-items: center;
+  background: #0d1c13;
+  color: #d7e4d8;
+  padding: 3px 6px;
+  border-radius: 4px;
+  margin-bottom: 5px;
+}
+
+.pt880-z {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pt880-sym {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.pt880-name {
+  font-size: 10.5px;
+}
+
+.pt880-wt {
+  font-size: 13px;
+}
+
+.pt880-strip {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.pt880-cell {
+  -webkit-flex: 1;
+  flex: 1;
+  margin-right: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 3px;
+  text-align: center;
+  padding: 2px 1px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.pt880-cell:last-child {
+  margin-right: 0;
+}
+
+.pt880-cell.active {
+  background: #0d1c13;
+  color: #d7e4d8;
+  font-weight: 800;
+}
+
+.pt-c-z {
+  font-size: 8.5px;
+}
+
+.pt-c-s {
+  font-size: 11.5px;
+  font-weight: 800;
 }
 
 /* Bảng nhập hệ số / dữ liệu trên LCD */
@@ -571,8 +862,8 @@ body.mode-compact .page-main {
 }
 
 .lcd-inline-btn {
-  background: #162a1e;
-  color: #d4e2d4;
+  background: #0d1c13;
+  color: #d7e4d8;
   padding: 1px 5px;
   border-radius: 3px;
   cursor: pointer;
@@ -604,7 +895,7 @@ body.mode-compact .page-main {
 }
 
 .lcd-grid td.sel {
-  background: #162a1e;
+  background: #0d1c13;
   color: #fff;
   font-weight: 700;
 }
@@ -620,11 +911,6 @@ body.mode-compact .page-main {
 .lcd-off-screen {
   text-align: center;
   padding: 14px 6px;
-}
-
-.lcd-dev-icon {
-  font-size: 20px;
-  font-weight: 800;
 }
 
 .lcd-dev-title,
@@ -644,12 +930,14 @@ body.mode-compact .page-main {
 .lcd-dev-sub,
 .lcd-off-sub,
 .lcd-sub-hint {
-  font-size: 11px;
+  font-size: 10.5px;
   color: #2f4f3e;
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
-/* Nhật ký phím bấm */
+/* =========================================================================
+   NHẬT KÝ PHÍM BẤM (KEYLOG)
+   ========================================================================= */
 .keylog-panel {
   background: #14181f;
   border: 1px solid #384152;
@@ -720,7 +1008,7 @@ body.mode-compact .page-main {
   border-radius: 5px;
   padding: 2px 7px;
   margin-right: 4px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
 }
 
@@ -751,104 +1039,9 @@ body.mode-compact .page-main {
   text-decoration: underline;
 }
 
-/* Hàng phím điều khiển trên + Cụm điều hướng D-Pad */
-.calc-top-row {
-  display: -webkit-flex;
-  display: flex;
-  -webkit-justify-content: space-between;
-  justify-content: space-between;
-  -webkit-align-items: center;
-  align-items: center;
-  margin-bottom: 6px;
-}
-
-.top-side-col {
-  width: 116px;
-}
-
-.top-btn-pair {
-  display: -webkit-flex;
-  display: flex;
-  -webkit-justify-content: space-between;
-  justify-content: space-between;
-  margin-bottom: 3px;
-}
-
-.top-btn-pair .key-cell {
-  -webkit-flex: 1;
-  flex: 1;
-  margin: 0 2px;
-}
-
-.dpad-wrap {
-  position: relative;
-  width: 92px;
-  height: 76px;
-  background: #171b22;
-  border-radius: 38px;
-  border: 2px solid #475569;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
-}
-
-.dpad-btn {
-  position: absolute;
-  background: #2c3545;
-  color: #f1f5f9;
-  border: 1px solid #475569;
-  font-size: 11px;
-  font-weight: 800;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-}
-
-.dpad-btn:active {
-  background: #475569;
-}
-
-.dpad-up {
-  top: 3px;
-  left: 30px;
-  width: 28px;
-  height: 20px;
-  border-radius: 8px 8px 3px 3px;
-}
-
-.dpad-down {
-  bottom: 3px;
-  left: 30px;
-  width: 28px;
-  height: 20px;
-  border-radius: 3px 3px 8px 8px;
-}
-
-.dpad-left {
-  top: 24px;
-  left: 4px;
-  width: 23px;
-  height: 24px;
-  border-radius: 8px 3px 3px 8px;
-}
-
-.dpad-right {
-  top: 24px;
-  right: 4px;
-  width: 23px;
-  height: 24px;
-  border-radius: 3px 8px 8px 3px;
-}
-
-.dpad-ok {
-  top: 24px;
-  left: 30px;
-  width: 28px;
-  height: 24px;
-  border-radius: 6px;
-  background: #3b4659;
-  font-size: 10px;
-}
-
-/* Lưới phím hàm và phím số */
+/* =========================================================================
+   BÀN PHÍM CHUNG & NHÃN PHỤ TRÊN PHÍM
+   ========================================================================= */
 .calc-sci-grid,
 .calc-num-grid {
   display: -webkit-flex;
@@ -880,26 +1073,13 @@ body.mode-compact .page-main {
   display: flex;
   -webkit-justify-content: space-between;
   justify-content: space-between;
-  height: 11px;
-  line-height: 11px;
+  height: 12px;
+  line-height: 12px;
   padding: 0 1px;
-  font-size: 9px;
+  font-size: 8.8px;
   font-weight: 700;
   overflow: hidden;
   white-space: nowrap;
-}
-
-.sub-shift {
-  color: #fbbf24;
-}
-
-.sub-base {
-  color: #38bdf8;
-  font-size: 8.5px;
-}
-
-.sub-alpha {
-  color: #f87171;
 }
 
 .calc-btn {
@@ -912,86 +1092,447 @@ body.mode-compact .page-main {
   text-align: center;
   padding: 0;
   transition: transform 0.05s ease;
-  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
 }
 
 .calc-btn:active {
   transform: translateY(1.5px);
   -webkit-transform: translateY(1.5px);
-  box-shadow: 0 0 0 rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0.5);
 }
 
-.btn-shift {
-  height: 25px;
-  font-size: 10px;
-  background: #d97706;
-  border-color: #fbbf24;
-  color: #fff;
+.k-svg {
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+  display: inline-block;
 }
 
-.btn-alpha {
-  height: 25px;
-  font-size: 10px;
-  background: #dc2626;
-  border-color: #f87171;
-  color: #fff;
+.k-svg-del {
+  width: 22px;
+  height: 16px;
 }
 
-.btn-ctrl {
-  height: 25px;
+.k-icon-var,
+.k-icon-fn {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.k-icon-format {
+  display: inline-block;
+  font-size: 8.5px;
+  line-height: 1.05;
+  font-weight: 800;
+}
+
+.k-fmt-arr {
+  display: block;
   font-size: 9px;
-  background: #334155;
+}
+
+/* =========================================================================
+   BÀN PHÍM MÁY 880 (fx-880BTG — Phím tròn xám đậm, chữ SHIFT vàng đồng)
+   ========================================================================= */
+.sub-shift-880 {
+  color: #deb873;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.sub-var-880 {
+  color: #deb873;
+  font-style: italic;
+}
+
+.sub-top-880 {
+  color: #e2e8f0;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  width: 100%;
+  text-align: center;
+}
+
+.top880-wrap {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.top880-upper {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  -webkit-align-items: center;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.top880-left-cluster {
+  width: 106px;
+}
+
+.top880-pair {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+.key-cell-880-top {
+  width: 48%;
+  text-align: center;
+}
+
+/* Cụm phím con trỏ chữ thập của Máy 880 (có nút OK tròn ở giữa) */
+.dpad880-wrap {
+  position: relative;
+  width: 112px;
+  height: 86px;
+}
+
+.dpad880-wrap .dpad-btn {
+  position: absolute;
+  background: #22262c;
+  color: #cbd5e1;
+  border: 1.5px solid #3a404a;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.55);
+}
+
+.dpad880-wrap .dpad-btn:active {
+  background: #363c46;
+}
+
+.dpad880-wrap .dpad-up {
+  top: 0;
+  left: 39px;
+  width: 34px;
+  height: 27px;
+  border-radius: 16px 16px 6px 6px;
+}
+
+.dpad880-wrap .dpad-down {
+  bottom: 0;
+  left: 39px;
+  width: 34px;
+  height: 27px;
+  border-radius: 6px 6px 16px 16px;
+}
+
+.dpad880-wrap .dpad-left {
+  top: 27px;
+  left: 4px;
+  width: 33px;
+  height: 32px;
+  border-radius: 16px 6px 6px 16px;
+}
+
+.dpad880-wrap .dpad-right {
+  top: 27px;
+  right: 4px;
+  width: 33px;
+  height: 32px;
+  border-radius: 6px 16px 16px 6px;
+}
+
+.dpad880-wrap .dpad-ok {
+  top: 26px;
+  left: 38px;
+  width: 36px;
+  height: 34px;
+  border-radius: 50%;
+  background: #1d2026;
+  color: #e2e8f0;
+  border: 1.5px solid #454c59;
+  font-size: 10.5px;
+  z-index: 2;
+}
+
+/* Phím cuộn trang dọc 2 đầu (⇑ / ⇓) bên phải D-Pad trên Máy 880 */
+.top880-right-cluster {
+  width: 96px;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-justify-content: center;
+  justify-content: center;
+}
+
+.rocker880 {
+  width: 36px;
+  height: 68px;
+  background: #20242a;
+  border: 1.5px solid #3b414b;
+  border-radius: 18px;
+  overflow: hidden;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.55);
+}
+
+.rocker880-btn {
+  -webkit-flex: 1;
+  flex: 1;
+  background: transparent;
+  color: #cbd5e1;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.rocker880-btn.rocker-up {
+  border-bottom: 1px solid #353b45;
+}
+
+.rocker880-btn:active {
+  background: #363c46;
+}
+
+/* Hàng điều hướng dưới khối trên: SHIFT, VARIABLE, FUNCTION | [gap] | CATALOG, TOOLS */
+.top880-lower {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  -webkit-align-items: flex-end;
+  align-items: flex-end;
+  margin-top: 2px;
+}
+
+.key-cell-880-nav {
+  width: 16.2%;
+  text-align: center;
+}
+
+.top880-dpad-gap {
+  width: 15%;
+}
+
+.btn-880-ctrl {
+  height: 27px;
+  border-radius: 14px;
+  background: #252930;
+  color: #e2e8f0;
+  border: 1.5px solid #3c424d;
+}
+
+.btn-880-on {
+  width: 34px;
+  height: 25px;
+  border-radius: 13px;
+}
+
+.btn-880-shift {
+  height: 30px;
+  border-radius: 15px;
+  background: linear-gradient(180deg, #d7b780 0%, #a88954 100%);
+  color: #1c1917;
+  border: 1.5px solid #e7cba0;
+}
+
+.btn-880-nav {
+  height: 30px;
+  border-radius: 15px;
+  background: #2c313a;
+  color: #f1f5f9;
+  border: 1.5px solid #454c59;
+}
+
+.btn-880-sci {
+  height: 29px;
+  border-radius: 15px;
+  font-size: 12px;
+  background: #2d323b;
   color: #f8fafc;
+  border: 1.5px solid #454c59;
 }
 
-.btn-sci-sm {
-  height: 23px;
+.btn-880-num {
+  height: 36px;
+  border-radius: 18px;
+  font-size: 17px;
+  background: #353b45;
+  color: #f8fafc;
+  border: 1.5px solid #4d5563;
+}
+
+.btn-880-format {
   font-size: 9px;
-  background: #262f3d;
+}
+
+.btn-880-exe {
+  font-size: 13.5px;
+  font-weight: 800;
+}
+
+/* =========================================================================
+   BÀN PHÍM MÁY 580 (fx-580VN X — Phím số trắng, DEL/AC xanh dương)
+   ========================================================================= */
+.calc-top-row {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  -webkit-align-items: center;
+  align-items: center;
+  margin-bottom: 5px;
+}
+
+.top-side-col {
+  width: 112px;
+}
+
+.top-btn-pair {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+.top-btn-pair .key-cell {
+  -webkit-flex: 1;
+  flex: 1;
+  margin: 0 2px;
+}
+
+.sub-shift {
+  color: #fbbf24;
+}
+
+.sub-alpha {
+  color: #f87171;
+}
+
+.sub-top-580 {
   color: #e2e8f0;
 }
 
-.btn-sci {
-  height: 27px;
-  font-size: 12px;
-  background: #242c3a;
-  color: #f1f5f9;
-  border-color: #3b475c;
+.sub-base {
+  color: #38bdf8;
+  font-size: 8px;
 }
 
-.btn-num {
-  height: 35px;
-  font-size: 16px;
-  background: #f1f5f9;
+.sub-cplx {
+  color: #c084fc;
+  font-size: 8.5px;
+}
+
+/* Cụm con trỏ bầu dục kim loại của Máy 580 (KHÔNG có nút OK ở giữa) */
+.dpad-580-oval {
+  position: relative;
+  width: 94px;
+  height: 70px;
+  background: linear-gradient(160deg, #4b5563 0%, #1f2937 100%);
+  border-radius: 36px;
+  border: 2px solid #94a3b8;
+}
+
+.dpad-580-oval .dpad-btn {
+  position: absolute;
+  background: linear-gradient(180deg, #64748b 0%, #334155 100%);
+  color: #f8fafc;
+  border: 1px solid #94a3b8;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0;
+}
+
+.dpad-580-oval .dpad-btn:active {
+  background: #475569;
+}
+
+.dpad-580-oval .dpad-up {
+  top: 3px;
+  left: 29px;
+  width: 32px;
+  height: 18px;
+  border-radius: 12px 12px 3px 3px;
+}
+
+.dpad-580-oval .dpad-down {
+  bottom: 3px;
+  left: 29px;
+  width: 32px;
+  height: 18px;
+  border-radius: 3px 3px 12px 12px;
+}
+
+.dpad-580-oval .dpad-left {
+  top: 21px;
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 12px 3px 3px 12px;
+}
+
+.dpad-580-oval .dpad-right {
+  top: 21px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px 12px 12px 3px;
+}
+
+.dpad-580-center {
+  position: absolute;
+  top: 23px;
+  left: 31px;
+  width: 28px;
+  height: 20px;
+  border-radius: 10px;
+  background: #1e242c;
+}
+
+/* Phím tròn ánh bạc phía trên của Máy 580 (SHIFT, ALPHA, MENU, ON) */
+.btn-580-metal {
+  height: 22px;
+  border-radius: 11px;
+  background: radial-gradient(circle at 35% 30%, #e2e8f0 0%, #94a3b8 65%, #475569 100%);
+  border: 1px solid #cbd5e1;
+}
+
+/* Phím hàm màu đen của Máy 580 */
+.btn-580-sci {
+  height: 26px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  background: linear-gradient(180deg, #2b313b 0%, #1c2027 100%);
+  color: #f8fafc;
+  border: 1px solid #475569;
+}
+
+/* Phím số màu trắng chữ đen của Máy 580 */
+.btn-580-num {
+  height: 34px;
+  border-radius: 6px;
+  font-size: 16.5px;
+  background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
   color: #0f172a;
-  border-color: #cbd5e1;
+  border: 1px solid #94a3b8;
 }
 
-.btn-op {
-  height: 35px;
-  font-size: 17px;
-  background: #cbd5e1;
-  color: #0f172a;
-  border-color: #94a3b8;
-}
-
-.btn-accent {
-  height: 35px;
-  font-size: 13px;
-  background: #ea580c;
+/* Phím DEL và AC màu xanh dương chữ trắng của Máy 580 */
+.btn-580-blue {
+  height: 34px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
   color: #ffffff;
-  border-color: #fb923c;
+  border: 1px solid #60a5fa;
 }
 
-.btn-eq {
-  height: 35px;
-  font-size: 18px;
-  background: #0284c7;
-  color: #ffffff;
-  border-color: #38bdf8;
-}
-
-/* Giao diện Cơ số N (Base-N) */
+/* =========================================================================
+   GIAO DIỆN CƠ SỐ N (Base-N) & MATH BOX (Number Line, Circle)
+   ========================================================================= */
 .lcd-basen {
   font-size: 12px;
 }
@@ -1073,11 +1614,11 @@ body.mode-compact .page-main {
 }
 
 .basen-pill.active {
-  background: #162a1e;
-  color: #e2f1e2;
+  background: #0d1c13;
+  color: #d7e4d8;
 }
 
-/* Biểu đồ cột CSS trong Hộp toán học */
+/* Biểu đồ cột và Canvas trong Math Box */
 .mb-bar-cell {
   width: 38%;
   text-align: left !important;
@@ -1093,29 +1634,54 @@ body.mode-compact .page-main {
 
 .mb-bar-fill {
   height: 100%;
-  background: #162a1e;
+  background: #0d1c13;
   border-radius: 2px;
 }
 
-/* Khung vẽ Rùa Canvas trong ứng dụng Thuật toán */
-.algo-canvas-wrap {
+.mb-nl-canvas-wrap {
   text-align: center;
-  background: rgba(255, 255, 255, 0.35);
-  border: 1px solid rgba(0, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.28);
+  border: 1px solid rgba(0, 0, 0, 0.22);
   border-radius: 4px;
   padding: 2px;
 }
 
-#algo-turtle-canvas {
+#mb-nl-canvas,
+#mb-cir-canvas {
   display: block;
   margin: 0 auto;
   max-width: 100%;
 }
 
-.algo-code-line {
-  font-family: monospace;
-  white-space: pre;
-  font-size: 11.5px;
+.mb-cir-layout {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  -webkit-align-items: center;
+  align-items: center;
+}
+
+.mb-cir-canvas-col {
+  width: 102px;
+  background: rgba(255, 255, 255, 0.28);
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 4px;
+  padding: 1px;
+}
+
+.mb-cir-info-col {
+  -webkit-flex: 1;
+  flex: 1;
+  padding-left: 6px;
+  font-size: 11px;
+}
+
+.mb-cir-row {
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lcd-prompt-input {

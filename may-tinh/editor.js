@@ -68,7 +68,7 @@
   function isSimpleAtomTok(node) {
     if (!node || node.type !== 'tok') return false;
     var t = node.text;
-    return /^[0-9.πeiA-FxyM]$/.test(t) || t === 'Ans' || t === 'PreAns';
+    return /^[0-9.πeiA-FxyzM]$/.test(t) || t === 'Ans' || t === 'PreAns';
   }
 
   // Chèn một token đơn (số, phép toán, hàm dạng chữ) tại vị trí con trỏ
@@ -121,6 +121,8 @@
         CalcEditor.insertToken(ed, 'sum(', 'sum(');
       } else if (tplType === 'prod') {
         CalcEditor.insertToken(ed, 'prod(', 'prod(');
+      } else if (tplType === 'recur') {
+        CalcEditor.insertToken(ed, '(', '(');
       }
       return;
     }
@@ -487,6 +489,16 @@
         parts.push('sum(' + listToEvalText(n.slots[0]) + ',' + listToEvalText(n.slots[1]) + ',' + listToEvalText(n.slots[2]) + ')');
       } else if (n.type === 'prod') {
         parts.push('prod(' + listToEvalText(n.slots[0]) + ',' + listToEvalText(n.slots[1]) + ',' + listToEvalText(n.slots[2]) + ')');
+      } else if (n.type === 'recur') {
+        var prevStr = parts.join('');
+        var recInner = listToEvalText(n.slots[0]);
+        if (/\d*\.\d*$/.test(prevStr)) {
+          parts.push('(' + recInner + ')');
+        } else if (/\d+$/.test(prevStr)) {
+          parts.push('.(' + recInner + ')');
+        } else {
+          parts.push('0.(' + recInner + ')');
+        }
       }
     }
     return parts.join('');
@@ -500,7 +512,7 @@
   CalcEditor.findVariables = function (ed) {
     var text = CalcEditor.toEvalText(ed);
     var found = [];
-    var candidates = ['x', 'y', 'A', 'B', 'C', 'D', 'E', 'F', 'M'];
+    var candidates = ['x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'M'];
     // Loại bỏ x nếu x chỉ nằm trong integ/deriv/sum/prod? Vẫn có thể hỏi các biến có mặt
     for (var i = 0; i < candidates.length; i++) {
       var v = candidates[i];
@@ -663,6 +675,9 @@
           '</span>'
         );
       }
+      if (n.type === 'recur') {
+        return '<span class="m-recur"><span class="m-recur-body">' + renderSlot(n.slots[0]) + '</span></span>';
+      }
       return '';
     }
 
@@ -743,6 +758,14 @@
     str = String(str);
     if (lineMode) {
       return escapeHtml(str).replace(/\^([\-0-9]+)/g, '<span class="m-sup">$1</span>');
+    }
+
+    // Nếu là số thập phân tuần hoàn dạng 0.(3) hoặc -1.2(34)
+    var recResMatch = str.match(/^(-?\d+\.\d*)\((\d+)\)$/);
+    if (recResMatch) {
+      var preRec = escapeHtml(recResMatch[1].replace(/-/g, '−'));
+      var bodyRec = escapeHtml(recResMatch[2]);
+      return '<span class="m-tok">' + preRec + '</span><span class="m-recur"><span class="m-recur-body">' + bodyRec + '</span></span>';
     }
 
     // Nếu là dạng khoa học 1.23×10^-5

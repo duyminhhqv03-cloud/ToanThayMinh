@@ -1,4 +1,4 @@
-/* Hệ thống mô-đun ứng dụng cho Máy tính Thầy Minh (ES5) */
+/* Hệ thống mô-đun ứng dụng cho Máy tính Thầy Minh (ES5 thuần — hỗ trợ Máy 880 & Máy 580) */
 (function (root) {
   'use strict';
 
@@ -33,80 +33,43 @@
     CalcApps.byId[appDef.id] = appDef;
   };
 
-  CalcApps.getVisibleApps = function (modelType) {
-    var list = [];
-    for (var i = 0; i < CalcApps.registry.length; i++) {
-      var app = CalcApps.registry[i];
-      if (app.onlyTypeB && modelType !== 'b') continue;
-      list.push(app);
+  CalcApps.getVisibleApps = function (machineId) {
+    var mId = (machineId === '580' || machineId === 'a') ? '580' : '880';
+    if (root.CalcMachines && root.CalcMachines[mId] && root.CalcMachines[mId].apps) {
+      return root.CalcMachines[mId].apps;
     }
-    return list;
+    return CalcApps.registry;
   };
 
-  // Danh sách hàm trong CATALOG và OPTN
-  var CATALOG_ITEMS = [
-    { label: 'sin( — Сиnus', text: 'sin(', evalText: 'sin(' },
-    { label: 'cos( — Cosinus', text: 'cos(', evalText: 'cos(' },
-    { label: 'tan( — Tang', text: 'tan(', evalText: 'tan(' },
-    { label: 'asin( — Arcsin', text: 'sin⁻¹(', evalText: 'asin(' },
-    { label: 'acos( — Arccos', text: 'cos⁻¹(', evalText: 'acos(' },
-    { label: 'atan( — Arctan', text: 'tan⁻¹(', evalText: 'atan(' },
-    { label: 'sinh( — Sinus hyperbol', text: 'sinh(', evalText: 'sinh(' },
-    { label: 'cosh( — Cosinus hyperbol', text: 'cosh(', evalText: 'cosh(' },
-    { label: 'tanh( — Tang hyperbol', text: 'tanh(', evalText: 'tanh(' },
-    { label: 'asinh( — Arcsinh', text: 'sinh⁻¹(', evalText: 'asinh(' },
-    { label: 'acosh( — Arccosh', text: 'cosh⁻¹(', evalText: 'acosh(' },
-    { label: 'atanh( — Arctanh', text: 'tanh⁻¹(', evalText: 'atanh(' },
-    { label: 'GCD(a,b) — Ước chung lớn nhất', text: 'GCD(', evalText: 'gcd(' },
-    { label: 'LCM(a,b) — Bội chung nhỏ nhất', text: 'LCM(', evalText: 'lcm(' },
-    { label: 'Int(x) — Phần nguyên', text: 'Int(', evalText: 'int(' },
-    { label: 'Intg(x) — Làm tròn xuống (Sàn)', text: 'Intg(', evalText: 'intg(' },
-    { label: 'Rnd(x) — Làm tròn theo Fix', text: 'Rnd(', evalText: 'round(' },
-    { label: '∏(f,a,b) — Tích dãy số', tpl: 'prod' },
-    { label: '∑(f,a,b) — Tổng dãy số', tpl: 'sum' },
-    { label: '∫(f,a,b) — Tích phân xác định', tpl: 'integ' },
-    { label: 'd/dx(f,a) — Đạo hàm tại điểm', tpl: 'deriv' },
-    { label: 'Pol(x,y) — Đổi sang tọa độ cực', text: 'Pol(', evalText: 'Pol(' },
-    { label: 'Rec(r,θ) — Đổi sang tọa độ vuông', text: 'Rec(', evalText: 'Rec(' },
-    { label: '÷R — Phép chia có dư', text: '÷R', evalText: '÷R' },
-    { label: 'nPr — Chỉnh hợp', text: 'P', evalText: 'nPr' },
-    { label: 'nCr — Tổ hợp', text: 'C', evalText: 'nCr' },
-    { label: 'Ran# — Số ngẫu nhiên [0,1)', text: 'Ran#', evalText: 'ran#' },
-    { label: 'RanInt#(a,b) — Số nguyên ngẫu nhiên', text: 'RanInt#(', evalText: 'ranint(' }
-  ];
+  // Chuyển phím bấm thành ký tự cho ô nhập bảng (hỗ trợ số, phân số, căn, pi)
+  function mapKeyToCellChar(key) {
+    var m = {
+      '0': '0', '1': '1', '2': '2', '3': '3', '4': '4',
+      '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
+      '.': '.', '+': '+', '-': '-', '(-)': '-', '*': '*', '/': '/',
+      'FRAC': '/', 'SQRT': 'sqrt(', '(': '(', ')': ')', 'PI': 'pi', 'E_CONST': 'e'
+    };
+    return m[key] || null;
+  }
 
-  var CALC_OPTN_ITEMS = [
-    { label: '1. Hàm Hyperbol (sinh, cosh, tanh...)', group: 'hyp' },
-    { label: '2. Ước chung lớn nhất — GCD(a,b)', text: 'GCD(', evalText: 'gcd(' },
-    { label: '3. Bội chung nhỏ nhất — LCM(a,b)', text: 'LCM(', evalText: 'lcm(' },
-    { label: '4. Phần nguyên — Int(x)', text: 'Int(', evalText: 'int(' },
-    { label: '5. Phần nguyên sàn — Intg(x)', text: 'Intg(', evalText: 'intg(' },
-    { label: '6. Làm tròn — Rnd(x)', text: 'Rnd(', evalText: 'round(' },
-    { label: '7. Tích dãy số — ∏(f,a,b)', tpl: 'prod' },
-    { label: '8. Phép chia có dư — ÷R', text: '÷R', evalText: '÷R' },
-    { label: '9. Số nguyên ngẫu nhiên — RanInt#(a,b)', text: 'RanInt#(', evalText: 'ranint(' }
-  ];
+  function evalCellInput(str, ctx, fallbackVal) {
+    str = String(str || '').replace(/^\s+|\s+$/g, '');
+    if (str === '') return fallbackVal !== undefined ? fallbackVal : 0;
+    var r = CalcEngine.evalText(str, ctx.getEvalOpts());
+    return r.ok ? r.value : NaN;
+  }
 
-  var HYP_ITEMS = [
-    { label: '1. sinh(', text: 'sinh(', evalText: 'sinh(' },
-    { label: '2. cosh(', text: 'cosh(', evalText: 'cosh(' },
-    { label: '3. tanh(', text: 'tanh(', evalText: 'tanh(' },
-    { label: '4. sinh⁻¹(', text: 'sinh⁻¹(', evalText: 'asinh(' },
-    { label: '5. cosh⁻¹(', text: 'cosh⁻¹(', evalText: 'acosh(' },
-    { label: '6. tanh⁻¹(', text: 'tanh⁻¹(', evalText: 'atanh(' }
-  ];
-
-  CalcApps.CATALOG_ITEMS = CATALOG_ITEMS;
-  CalcApps.CALC_OPTN_ITEMS = CALC_OPTN_ITEMS;
-  CalcApps.HYP_ITEMS = HYP_ITEMS;
+  CalcApps.mapKeyToCellChar = mapKeyToCellChar;
+  CalcApps.evalCellInput = evalCellInput;
 
   // =========================================================================
-  // 1. ỨNG DỤNG TÍNH TOÁN (calc)
+  // 1. ỨNG DỤNG TÍNH TOÁN (calc — Calculate)
   // =========================================================================
   CalcApps.register({
     id: 'calc',
     code: '1',
-    name: 'Tính toán',
+    name: 'Calculate',
+    viName: 'Tính toán',
     icon: '±×÷',
     stage: 1,
     init: function (ctx) {
@@ -115,16 +78,21 @@
           editor: CalcEditor.create(ctx.settings.ioMode === 'line'),
           hasResult: false,
           lastExprText: '',
-          lastResult: null, // { value, exact, decimal, recurring, extra }
-          displayStyle: 'auto', // 'auto' | 'exact' | 'decimal' | 'recurring' | 'mixed' | 'dms' | 'fact' | 'eng'
+          lastResult: null,
+          displayStyle: 'auto', // 'auto'|'exact'|'decimal'|'recurring'|'mixed'|'improper'|'dms'|'fact'|'eng'
+          formatConverted: false, // Đánh dấu vừa chuyển đổi bằng FORMAT trên máy 880 (bấm EXE để hủy)
           engShift: 0,
-          history: [], // tối đa 30 mục { editorClone, exprText, result }
+          engInteractive: false,
+          history: [],
           historyIdx: -1,
           promptMode: null, // null | 'calc' | 'solve' | 'sto'
           promptVars: [],
           promptVarIdx: 0,
           promptInput: '',
-          solveInfo: null // { x, lr }
+          solveInfo: null, // { x, lr, varName }
+          multiQueue: null, // Danh sách câu lệnh phân tách bởi ':' trên máy 580
+          multiIdx: 0,
+          lastVerifyRightExpr: '' // Vế phải của phép Verify vừa thực hiện (để nối tiếp)
         };
       }
       ctx.calcState.editor.lineMode = (ctx.settings.ioMode === 'line');
@@ -133,7 +101,7 @@
       var st = ctx.calcState;
       st.editor.lineMode = (ctx.settings.ioMode === 'line');
 
-      // Chế độ hỏi biến (CALC) hoặc hỏi nghiệm đoán (SOLVE)
+      // Chế độ hỏi biến (CALC trên máy 580)
       if (st.promptMode === 'calc') {
         var vName = st.promptVars[st.promptVarIdx];
         var curVal = ctx.vars[vName] || 0;
@@ -141,35 +109,38 @@
           '<div class="lcd-calc">' +
             '<div class="lcd-expr-small">' + CalcEditor.renderHTML(st.editor, false) + '</div>' +
             '<div class="lcd-prompt-box">' +
-              '<div class="lcd-prompt-title">Nhập giá trị biến <b>' + escapeHtml(vName) + '</b> (hiện tại: ' + CalcEngine.format(curVal, ctx.getFormatOpts()) + '):</div>' +
-              '<div class="lcd-prompt-input">' + escapeHtml(vName) + ' = ' + escapeHtml(st.promptInput) + '<span class="m-cursor"></span></div>' +
+              '<div class="lcd-prompt-title"><b>' + escapeHtml(vName) + '?</b> (hiện tại: ' + CalcEngine.format(curVal, ctx.getFormatOpts()) + ')</div>' +
+              '<div class="lcd-prompt-input">' + escapeHtml(st.promptInput) + '<span class="m-cursor"></span></div>' +
             '</div>' +
           '</div>'
         );
       }
 
+      // Chế độ hỏi giá trị ban đầu SOLVE trên máy 580
       if (st.promptMode === 'solve') {
-        var curX = ctx.vars.x || 0;
+        var sVar = st.solveTargetVar || 'x';
+        var curX = ctx.vars[sVar] || 0;
         return (
           '<div class="lcd-calc">' +
             '<div class="lcd-expr-small">' + CalcEditor.renderHTML(st.editor, false) + '</div>' +
             '<div class="lcd-prompt-box">' +
-              '<div class="lcd-prompt-title">SOLVE — Nhập giá trị ban đầu cho <b>x</b>:</div>' +
-              '<div class="lcd-prompt-input">x = ' + escapeHtml(st.promptInput !== '' ? st.promptInput : String(curX)) + '<span class="m-cursor"></span></div>' +
+              '<div class="lcd-prompt-title"><b>' + escapeHtml(sVar) + ' =</b></div>' +
+              '<div class="lcd-prompt-input">' + escapeHtml(st.promptInput !== '' ? st.promptInput : String(curX)) + '<span class="m-cursor"></span></div>' +
             '</div>' +
           '</div>'
         );
       }
 
+      // Hiển thị kết quả SOLVE
       if (st.solveInfo) {
         var sInfo = st.solveInfo;
-        var xEx = CalcEngine.toExact(sInfo.x);
-        var xDisp = xEx ? (xEx + ' ≈ ' + CalcEngine.format(sInfo.x, ctx.getFormatOpts())) : CalcEngine.format(sInfo.x, ctx.getFormatOpts());
+        var vLbl = sInfo.varName || 'x';
+        var xDisp = CalcEngine.format(sInfo.x, ctx.getFormatOpts());
         return (
           '<div class="lcd-calc">' +
             '<div class="lcd-expr-line">' + CalcEditor.renderHTML(st.editor, false) + '</div>' +
             '<div class="lcd-solve-res">' +
-              '<div><b>x = </b>' + escapeHtml(xDisp) + '</div>' +
+              '<div><b>' + escapeHtml(vLbl) + ' = </b>' + escapeHtml(xDisp) + '</div>' +
               '<div><b>L − R = </b>' + escapeHtml(CalcEngine.format(sInfo.lr, ctx.getFormatOpts())) + '</div>' +
             '</div>' +
           '</div>'
@@ -185,11 +156,19 @@
           (st.historyIdx >= 0 && st.historyIdx < st.history.length - 1 ? '▼' : '') +
         '</span>';
       }
+      if (st.multiQueue && st.multiIdx < st.multiQueue.length - 1) {
+        histHint = '<span class="lcd-hist-ind lcd-disp-ind">Disp ▲</span>';
+      }
+      if (st.engInteractive) {
+        histHint = '<span class="lcd-hist-ind">◀ ENG ▶</span>';
+      }
 
       if (st.hasResult && st.lastResult) {
         var r = st.lastResult;
         if (!r.ok) {
-          resHtml = '<div class="lcd-error">' + escapeHtml(r.error || 'Lỗi toán') + '</div>';
+          resHtml = '<div class="lcd-error">' + escapeHtml(r.error || 'Math ERROR') + '</div>';
+        } else if (r.isVerify) {
+          resHtml = '<div class="lcd-verify-res">' + escapeHtml(r.verifyText) + '</div>';
         } else {
           resHtml = formatCalcResultHTML(st, ctx);
         }
@@ -206,26 +185,62 @@
     onKey: function (key, ctx) {
       var st = ctx.calcState;
 
-      // Xử lý khi đang hiển thị kết quả SOLVE
+      // Đang ở chế độ điều chỉnh số mũ kỹ thuật ENG bằng ◀ / ▶ trên máy 880
+      if (st.engInteractive) {
+        if (key === 'LEFT') {
+          st.engShift -= 1;
+          return;
+        }
+        if (key === 'RIGHT') {
+          st.engShift += 1;
+          return;
+        }
+        if (key === '=' || key === 'OK' || key === 'BACK' || key === 'AC') {
+          st.engInteractive = false;
+          return;
+        }
+        st.engInteractive = false;
+      }
+
+      // Đang hiển thị câu lệnh trung gian của đa câu lệnh ':' trên máy 580
+      if (st.multiQueue && st.multiIdx < st.multiQueue.length - 1) {
+        if (key === '=' || key === 'OK') {
+          st.multiIdx++;
+          this.evalSingleStatementFromQueue(ctx);
+          return;
+        }
+        if (key === 'AC') {
+          st.multiQueue = null;
+          CalcEditor.clear(st.editor);
+          st.hasResult = false;
+          st.lastResult = null;
+          return;
+        }
+        st.multiQueue = null;
+      }
+
+      // Đang hiển thị kết quả SOLVE
       if (st.solveInfo) {
         st.solveInfo = null;
-        if (key === 'AC' || key === 'OK' || key === '=') {
+        if (key === 'AC' || key === 'OK' || key === '=' || key === 'BACK') {
           return;
         }
       }
 
-      // Xử lý khi đang ở chế độ chờ chọn biến để STO (lưu biến)
+      // Đang chờ chọn phím biến sau khi bấm STO trên máy 580
       if (st.promptMode === 'sto') {
         st.promptMode = null;
+        ctx.setStatusHint('');
         var varMap = {
-          'VAR_A': 'A', '(-)' : 'A',
+          'VAR_A': 'A', '(-)': 'A',
           'VAR_B': 'B', 'DMS': 'B',
-          'VAR_C': 'C', 'HYP': 'C',
+          'VAR_C': 'C', 'INV': 'C', 'HYP': 'C',
           'VAR_D': 'D', 'sin': 'D',
           'VAR_E': 'E', 'cos': 'E',
           'VAR_F': 'F', 'tan': 'F',
-          'VAR_x': 'x', 'x': 'x',
-          'VAR_y': 'y', 'S_D': 'y',
+          'VAR_x': 'x', '(': 'x', 'x': 'x',
+          'VAR_y': 'y', ')': 'y',
+          'VAR_z': 'z', 'S_D': 'z',
           'VAR_M': 'M', 'M+': 'M'
         };
         var targetVar = varMap[key];
@@ -235,27 +250,35 @@
         }
       }
 
-      // Xử lý khi đang nhập giá trị biến cho CALC hoặc SOLVE
+      // Đang nhập giá trị biến cho CALC hoặc SOLVE
       if (st.promptMode === 'calc' || st.promptMode === 'solve') {
         this.handlePromptKey(key, ctx);
         return;
       }
 
-      // Phím chức năng đặc biệt
       if (key === 'AC') {
         CalcEditor.clear(st.editor);
         st.hasResult = false;
         st.lastResult = null;
         st.historyIdx = -1;
+        st.formatConverted = false;
+        st.multiQueue = null;
         return;
       }
 
-      if (key === 'DEL') {
+      if (key === 'DEL' || key === 'BACK') {
         if (st.hasResult) {
+          if (st.formatConverted) {
+            st.displayStyle = 'auto';
+            st.formatConverted = false;
+            return;
+          }
           st.hasResult = false;
           return;
         }
-        CalcEditor.deleteBack(st.editor);
+        if (key === 'DEL') {
+          CalcEditor.deleteBack(st.editor);
+        }
         return;
       }
 
@@ -287,11 +310,10 @@
         return;
       }
 
-      if (key === 'UP') {
-        if (!st.hasResult && CalcEditor.moveUp(st.editor)) {
+      if (key === 'UP' || key === 'PAGE_UP') {
+        if (!st.hasResult && key === 'UP' && CalcEditor.moveUp(st.editor)) {
           return;
         }
-        // Duyệt lịch sử lên
         if (st.history.length > 0) {
           if (st.historyIdx === -1) st.historyIdx = st.history.length - 1;
           else if (st.historyIdx > 0) st.historyIdx--;
@@ -300,11 +322,10 @@
         return;
       }
 
-      if (key === 'DOWN') {
-        if (!st.hasResult && CalcEditor.moveDown(st.editor)) {
+      if (key === 'DOWN' || key === 'PAGE_DOWN') {
+        if (!st.hasResult && key === 'DOWN' && CalcEditor.moveDown(st.editor)) {
           return;
         }
-        // Duyệt lịch sử xuống
         if (st.history.length > 0 && st.historyIdx !== -1 && st.historyIdx < st.history.length - 1) {
           st.historyIdx++;
           this.loadHistoryItem(st, st.historyIdx);
@@ -313,26 +334,32 @@
       }
 
       if (key === '=' || key === 'OK' || key === 'APPROX_EQ') {
+        // Trên máy 880: nếu vừa đổi định dạng bằng FORMAT, bấm EXE lần nữa sẽ hủy chuyển đổi về mặc định
+        if (st.hasResult && st.formatConverted && key !== 'APPROX_EQ') {
+          st.displayStyle = 'auto';
+          st.formatConverted = false;
+          return;
+        }
         this.executeEval(ctx, key === 'APPROX_EQ');
         return;
       }
 
       if (key === 'S_D') {
-        if (st.hasResult && st.lastResult && st.lastResult.ok) {
+        if (st.hasResult && st.lastResult && st.lastResult.ok && !st.lastResult.isVerify) {
           this.cycleSD(st);
         }
         return;
       }
 
       if (key === 'MIXED_SD') {
-        if (st.hasResult && st.lastResult && st.lastResult.ok) {
-          st.displayStyle = (st.displayStyle === 'mixed') ? 'exact' : 'mixed';
+        if (st.hasResult && st.lastResult && st.lastResult.ok && !st.lastResult.isVerify) {
+          st.displayStyle = (st.displayStyle === 'mixed') ? 'improper' : 'mixed';
         }
         return;
       }
 
       if (key === 'FACT' || key === 'DMS_CONV') {
-        if (st.hasResult && st.lastResult && st.lastResult.ok) {
+        if (st.hasResult && st.lastResult && st.lastResult.ok && !st.lastResult.isVerify) {
           if (key === 'FACT') {
             st.displayStyle = (st.displayStyle === 'fact') ? 'auto' : 'fact';
           } else {
@@ -343,7 +370,7 @@
       }
 
       if (key === 'DMS') {
-        if (st.hasResult && st.lastResult && st.lastResult.ok) {
+        if (st.hasResult && st.lastResult && st.lastResult.ok && !st.lastResult.isVerify) {
           st.displayStyle = (st.displayStyle === 'dms') ? 'auto' : 'dms';
           return;
         }
@@ -352,7 +379,7 @@
       }
 
       if (key === 'ENG' || key === 'ENG_BACK') {
-        if (st.hasResult && st.lastResult && st.lastResult.ok) {
+        if (st.hasResult && st.lastResult && st.lastResult.ok && !st.lastResult.isVerify) {
           if (st.displayStyle !== 'eng') {
             st.displayStyle = 'eng';
             st.engShift = 0;
@@ -370,7 +397,7 @@
 
       if (key === 'STO') {
         st.promptMode = 'sto';
-        ctx.setStatusHint('STO → Chọn phím biến (A–F, x, y, M)');
+        ctx.setStatusHint('STO');
         return;
       }
 
@@ -390,12 +417,27 @@
       if (key === 'SOLVE') {
         if (CalcEditor.isEmpty(st.editor)) return;
         st.promptMode = 'solve';
+        st.solveTargetVar = 'x';
         st.promptInput = '';
         return;
       }
 
-      // Nếu vừa tính xong (hasResult = true) và bấm phím nhập mới:
+      // Nếu vừa tính xong (hasResult = true) và bấm phím nhập mới
       if (st.hasResult) {
+        var isRelKey = (
+          key === 'EQUAL_SIGN' || key === 'REL_EQ' || key === 'REL_NEQ' ||
+          key === 'REL_GT' || key === 'REL_LT' || key === 'REL_GE' || key === 'REL_LE'
+        );
+        // Trong chế độ Verify: nếu bấm toán tử quan hệ ngay sau kết quả True/False, lấy vế phải làm vế trái mới
+        if (ctx.verifyMode && st.lastResult && st.lastResult.isVerify && isRelKey && st.lastVerifyRightExpr) {
+          CalcEditor.clear(st.editor);
+          st.hasResult = false;
+          st.lastResult = null;
+          CalcEditor.insertTextString(st.editor, st.lastVerifyRightExpr);
+          this.insertByKey(st.editor, key);
+          return;
+        }
+
         var isContOp = (
           key === '+' || key === '-' || key === '*' || key === '/' ||
           key === 'POW' || key === 'SQ' || key === 'CUBE' || key === 'INV' ||
@@ -404,10 +446,10 @@
         CalcEditor.clear(st.editor);
         st.hasResult = false;
         st.lastResult = null;
-        if (isContOp) {
+        st.formatConverted = false;
+        if (isContOp && !ctx.verifyMode) {
           CalcEditor.insertToken(st.editor, 'Ans', 'Ans');
         } else {
-          // Báo cho nhật ký phím biết bắt đầu phép tính mới
           if (ctx.onNewExpressionAfterEqual) ctx.onNewExpressionAfterEqual();
         }
       }
@@ -416,7 +458,7 @@
     },
 
     insertByKey: function (ed, key) {
-      // Các mẫu toán học
+      // Các mẫu toán học 2D
       if (key === 'FRAC') { CalcEditor.insertTemplate(ed, 'frac'); return; }
       if (key === 'MIXED') { CalcEditor.insertTemplate(ed, 'mixed'); return; }
       if (key === 'SQRT') { CalcEditor.insertTemplate(ed, 'sqrt'); return; }
@@ -431,8 +473,8 @@
       if (key === 'DERIV') { CalcEditor.insertTemplate(ed, 'deriv'); return; }
       if (key === 'SUM') { CalcEditor.insertTemplate(ed, 'sum'); return; }
       if (key === 'PROD') { CalcEditor.insertTemplate(ed, 'prod'); return; }
+      if (key === 'RECUR') { CalcEditor.insertTemplate(ed, 'recur'); return; }
 
-      // Các phím đơn và hàm
       var tokenMap = {
         '0': ['0', '0'], '1': ['1', '1'], '2': ['2', '2'], '3': ['3', '3'], '4': ['4', '4'],
         '5': ['5', '5'], '6': ['6', '6'], '7': ['7', '7'], '8': ['8', '8'], '9': ['9', '9'],
@@ -440,23 +482,34 @@
         '+': ['+', '+'], '-': ['−', '-'], '(-)': ['-', '-'],
         '*': ['×', '*'], '/': ['÷', '/'],
         '(': ['(', '('], ')': [')', ')'], ',': [',', ','],
+        'COLON': [':', ':'],
         'PERCENT': ['%', '%'],
         'SQ': ['²', '²'], 'CUBE': ['³', '³'], 'INV': ['⁻¹', '⁻¹'],
         'FACTORIAL': ['!', '!'],
         'sin': ['sin(', 'sin('], 'cos': ['cos(', 'cos('], 'tan': ['tan(', 'tan('],
         'asin': ['sin⁻¹(', 'asin('], 'acos': ['cos⁻¹(', 'acos('], 'atan': ['tan⁻¹(', 'atan('],
+        'sinh': ['sinh(', 'sinh('], 'cosh': ['cosh(', 'cosh('], 'tanh': ['tanh(', 'tanh('],
+        'asinh': ['sinh⁻¹(', 'asinh('], 'acosh': ['cosh⁻¹(', 'acosh('], 'atanh': ['tanh⁻¹(', 'atanh('],
         'log': ['log(', 'log('], 'ln': ['ln(', 'ln('],
         'EXP10': ['×10^', 'E'],
         'PI': ['π', 'pi'], 'E_CONST': ['e', 'e'],
         'ANS': ['Ans', 'Ans'], 'PREANS': ['PreAns', 'PreAns'],
-        'x': ['x', 'x'], 'VAR_x': ['x', 'x'], 'VAR_y': ['y', 'y'],
+        'x': ['x', 'x'], 'VAR_x': ['x', 'x'], 'VAR_y': ['y', 'y'], 'VAR_z': ['z', 'z'],
         'VAR_A': ['A', 'A'], 'VAR_B': ['B', 'B'], 'VAR_C': ['C', 'C'],
         'VAR_D': ['D', 'D'], 'VAR_E': ['E', 'E'], 'VAR_F': ['F', 'F'], 'VAR_M': ['M', 'M'],
         'NPR': ['P', 'nPr'], 'NCR': ['C', 'nCr'],
         'POL': ['Pol(', 'Pol('], 'REC': ['Rec(', 'Rec('],
         'DIV_R': ['÷R', '÷R'],
         'RAN': ['Ran#', 'ran#'], 'RANINT': ['RanInt#(', 'ranint('],
-        'EQUAL_SIGN': ['=', '=']
+        'GCD_FN': ['GCD(', 'gcd('], 'LCM_FN': ['LCM(', 'lcm('],
+        'INT_FN': ['Int(', 'int('], 'INTG_FN': ['Intg(', 'intg('], 'RND_FN': ['Rnd(', 'round('],
+        'FUNC_F': ['f(', 'f('], 'FUNC_G': ['g(', 'g('], 'ATWT': ['AtWt(', 'AtWt('],
+        'EQUAL_SIGN': ['=', '='], 'REL_EQ': ['=', '='], 'REL_NEQ': ['≠', '≠'],
+        'REL_GT': ['>', '>'], 'REL_LT': ['<', '<'], 'REL_GE': ['≥', '≥'], 'REL_LE': ['≤', '≤'],
+        'ANG_DEG': ['°', '°'], 'ANG_RAD': ['ʳ', 'ʳ'], 'ANG_GRA': ['ᵍ', 'ᵍ'],
+        'ENG_m': ['m', 'm'], 'ENG_u': ['μ', 'μ'], 'ENG_n': ['n', 'n'], 'ENG_p': ['p', 'p'], 'ENG_f': ['f', 'f'],
+        'ENG_k': ['k', 'k'], 'ENG_M': ['M', 'M'], 'ENG_G': ['G', 'G'], 'ENG_T': ['T', 'T'],
+        'ENG_P': ['P', 'P'], 'ENG_E': ['E', 'E']
       };
       if (tokenMap[key]) {
         CalcEditor.insertToken(ed, tokenMap[key][0], tokenMap[key][1]);
@@ -465,7 +518,7 @@
 
     handlePromptKey: function (key, ctx) {
       var st = ctx.calcState;
-      if (key === 'AC') {
+      if (key === 'AC' || key === 'BACK') {
         st.promptMode = null;
         return;
       }
@@ -474,7 +527,7 @@
         return;
       }
       if (key === '=' || key === 'OK') {
-        var vName = st.promptMode === 'calc' ? st.promptVars[st.promptVarIdx] : 'x';
+        var vName = st.promptMode === 'calc' ? st.promptVars[st.promptVarIdx] : (st.solveTargetVar || 'x');
         var val = ctx.vars[vName] || 0;
         if (st.promptInput.replace(/\s+/g, '') !== '') {
           var r = CalcEngine.evalText(st.promptInput, ctx.getEvalOpts());
@@ -500,29 +553,26 @@
           // Giải phương trình SOLVE
           st.promptMode = null;
           var exprStr = CalcEditor.toEvalText(st.editor);
-          var sol = CalcEngine.solveNumeric(exprStr, val, ctx.getEvalOpts());
+          var opts = ctx.getEvalOpts();
+          opts.targetVar = vName;
+          var sol = CalcEngine.solveNumeric(exprStr, val, opts);
           if (sol.error) {
             st.hasResult = true;
             st.lastResult = { ok: false, error: sol.error };
           } else {
-            ctx.vars.x = sol.x;
+            ctx.vars[vName] = sol.x;
             ctx.vars.Ans = sol.x;
             ctx.saveState();
-            st.solveInfo = sol;
+            st.solveInfo = { x: sol.x, lr: sol.lr, varName: vName };
             ctx.notifyParentResult(exprStr, sol.x, CalcEngine.format(sol.x, ctx.getFormatOpts()));
           }
         }
         return;
       }
 
-      var mapChar = {
-        '0': '0', '1': '1', '2': '2', '3': '3', '4': '4',
-        '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
-        '.': '.', '+': '+', '-': '-', '(-)': '-', '*': '*', '/': '/',
-        '(': '(', ')': ')', 'PI': 'pi', 'SQRT': 'sqrt('
-      };
-      if (mapChar[key]) {
-        st.promptInput += mapChar[key];
+      var ch = mapKeyToCellChar(key);
+      if (ch) {
+        st.promptInput += ch;
       }
     },
 
@@ -531,54 +581,111 @@
       var exprText = CalcEditor.toEvalText(st.editor);
       if (!exprText.replace(/\s+/g, '')) return;
 
-      // Tiền xử lý cú pháp độ-phút-giây kiểu 12°30°0° -> dms(12,30,0)
+      // Tiền xử lý độ-phút-giây kiểu 12°30°0° -> dms(12,30,0)
       var normText = exprText.replace(/(\d+(?:\.\d+)?)°(\d+(?:\.\d+)?)°(\d+(?:\.\d+)?)°?/g, 'dms($1,$2,$3)')
-        .replace(/(\d+(?:\.\d+)?)°(\d+(?:\.\d+)?)°/g, 'dms($1,$2,0)')
-        .replace(/(\d+(?:\.\d+)?)°/g, '$1');
+        .replace(/(\d+(?:\.\d+)?)°(\d+(?:\.\d+)?)°/g, 'dms($1,$2,0)');
 
-      var res = CalcEngine.evalText(normText, ctx.getEvalOpts());
+      // Chế độ Verify (trên máy 880 khi bật TOOLS > Verify ON)
+      if (ctx.verifyMode) {
+        var vRes = CalcEngine.verify(normText, ctx.getEvalOpts());
+        st.hasResult = true;
+        st.lastExprText = exprText;
+        if (!vRes.ok) {
+          st.lastResult = { ok: false, error: vRes.error || 'Syntax ERROR' };
+        } else {
+          var vStr = vRes.result ? 'True' : 'False';
+          st.lastResult = { ok: true, isVerify: true, verifyText: vStr, value: vRes.result ? 1 : 0 };
+          var parts = normText.split(/<=|>=|!=|≠|≤|≥|=|<|>/);
+          if (parts.length >= 2) {
+            st.lastVerifyRightExpr = parts[parts.length - 1].replace(/^\s+|\s+$/g, '');
+          }
+          ctx.notifyParentResult(exprText, vRes.result ? 1 : 0, vStr);
+        }
+        return;
+      }
+
+      // Kiểm tra đa câu lệnh ':' trên máy 580
+      var stmts = CalcEngine.splitMultiStatements(normText);
+      if (stmts.length > 1) {
+        st.multiQueue = stmts;
+        st.multiIdx = 0;
+        this.evalSingleStatementFromQueue(ctx);
+        return;
+      }
+
+      this.evalSingleStatement(ctx, normText, exprText, forceDecimal);
+    },
+
+    evalSingleStatementFromQueue: function (ctx) {
+      var st = ctx.calcState;
+      var stmt = st.multiQueue[st.multiIdx];
+      this.evalSingleStatement(ctx, stmt, stmt, false);
+    },
+
+    evalSingleStatement: function (ctx, normText, rawExprText, forceDecimal) {
+      var st = ctx.calcState;
+      var assignVar = null;
+      var evalPart = normText;
+      var mAssign = normText.match(/^([A-Fx-zM])\s*=\s*(.+)$/);
+      if (mAssign) {
+        assignVar = mAssign[1];
+        evalPart = mAssign[2];
+      }
+
+      var res = CalcEngine.evalText(evalPart, ctx.getEvalOpts());
       st.hasResult = true;
-      st.lastExprText = exprText;
+      st.lastExprText = rawExprText;
+      st.formatConverted = false;
+      st.engInteractive = false;
+
       if (res.ok) {
         res.recurring = CalcEngine.toRecurring(res.value);
         ctx.vars.PreAns = ctx.vars.Ans;
         ctx.vars.Ans = res.value;
+        if (assignVar) {
+          ctx.vars[assignVar] = res.value;
+        }
         ctx.saveState();
         st.displayStyle = forceDecimal ? 'decimal' : 'auto';
         st.engShift = 0;
 
-        // Lưu lịch sử (tối đa 30 phép)
         st.history.push({
           editorClone: CalcEditor.cloneState(st.editor),
-          exprText: exprText,
+          exprText: rawExprText,
           result: res
         });
         if (st.history.length > 30) st.history.shift();
         st.historyIdx = st.history.length - 1;
-
         st.lastResult = res;
 
         var shownStr = getPlainResultString(st, ctx);
-        ctx.notifyParentResult(exprText, res.value, shownStr);
+        ctx.notifyParentResult(rawExprText, res.value, shownStr);
+      } else {
+        st.lastResult = res;
       }
-      st.lastResult = res;
     },
 
     evaluateAndStore: function (ctx, varName) {
       var st = ctx.calcState;
-      if (!st.hasResult) {
+      if (!st.hasResult && !CalcEditor.isEmpty(st.editor)) {
+        this.executeEval(ctx, false);
+      } else if (!st.hasResult && CalcEditor.isEmpty(st.editor)) {
+        CalcEditor.insertToken(st.editor, 'Ans', 'Ans');
         this.executeEval(ctx, false);
       }
       if (st.lastResult && st.lastResult.ok) {
         ctx.vars[varName] = st.lastResult.value;
         ctx.saveState();
-        ctx.setStatusHint( varName + ' = ' + (st.lastResult.exact || st.lastResult.decimal));
+        ctx.setStatusHint(varName + ' = ' + (st.lastResult.exact || st.lastResult.decimal));
       }
     },
 
     handleMemoryAdd: function (ctx, sign) {
       var st = ctx.calcState;
       if (!st.hasResult) {
+        if (CalcEditor.isEmpty(st.editor)) {
+          CalcEditor.insertToken(st.editor, 'Ans', 'Ans');
+        }
         this.executeEval(ctx, false);
       }
       if (st.lastResult && st.lastResult.ok) {
@@ -596,14 +703,14 @@
       st.lastResult = item.result;
       st.hasResult = true;
       st.displayStyle = 'auto';
+      st.formatConverted = false;
     },
 
     cycleSD: function (st) {
       var r = st.lastResult;
       if (!r || !r.ok) return;
-      // Chu trình: exact (hoặc auto) -> decimal -> recurring (nếu có) -> exact
       var cur = st.displayStyle;
-      if (cur === 'auto' || cur === 'exact' || cur === 'mixed' || cur === 'dms' || cur === 'fact' || cur === 'eng') {
+      if (cur === 'auto' || cur === 'exact' || cur === 'improper' || cur === 'mixed' || cur === 'dms' || cur === 'fact' || cur === 'eng') {
         if (r.exact && r.exact !== r.decimal) {
           st.displayStyle = 'decimal';
         } else if (r.recurring) {
@@ -620,12 +727,30 @@
       } else {
         st.displayStyle = 'exact';
       }
+    },
+
+    applyFormatOption: function (ctx, optId) {
+      var st = ctx.calcState;
+      if (!st || !st.hasResult || !st.lastResult || !st.lastResult.ok) return;
+      st.formatConverted = true;
+      st.engInteractive = false;
+      if (optId === 'standard') st.displayStyle = 'exact';
+      else if (optId === 'decimal') st.displayStyle = 'decimal';
+      else if (optId === 'improper') st.displayStyle = 'improper';
+      else if (optId === 'mixed') st.displayStyle = 'mixed';
+      else if (optId === 'eng') {
+        st.displayStyle = 'eng';
+        st.engShift = 0;
+        st.engInteractive = true;
+      } else if (optId === 'sexagesimal') st.displayStyle = 'dms';
+      else if (optId === 'prime') st.displayStyle = 'fact';
     }
   });
 
   function getPlainResultString(st, ctx) {
     var r = st.lastResult;
     if (!r || !r.ok) return 'Lỗi';
+    if (r.isVerify) return r.verifyText;
     var style = st.displayStyle;
     var decStr = CalcEngine.format(r.value, ctx.getFormatOpts());
     if (style === 'decimal') return decStr;
@@ -633,10 +758,16 @@
     if (style === 'dms') return CalcEngine.toDMS(r.value);
     if (style === 'fact') return CalcEngine.factorize(r.value);
     if (style === 'eng') return CalcEngine.toEng(r.value, st.engShift);
+    if (style === 'improper') {
+      return r.exact || decStr;
+    }
     if (style === 'mixed' || (style === 'auto' && ctx.settings.fracMode === 'mixed')) {
       if (r.exact && r.exact.indexOf('/') !== -1 && r.exact.indexOf('√') === -1 && r.exact.indexOf('π') === -1) {
         return CalcEngine.toMixed(r.value);
       }
+    }
+    if (style === 'auto' && ctx.settings.ioMode === 'math_dec') {
+      return decStr;
     }
     return r.exact || decStr;
   }
@@ -644,8 +775,14 @@
   function formatCalcResultHTML(st, ctx) {
     var r = st.lastResult;
     var lineMode = (ctx.settings.ioMode === 'line');
-    // Nếu có extra (Pol, Rec, ÷R)
     if (r.extra && Array.isArray(r.extra)) {
+      if (st.lastExprText.indexOf('÷R') !== -1) {
+        return (
+          '<div class="lcd-extra-res">' +
+            escapeHtml(String(r.extra[0])) + ', R=' + escapeHtml(String(r.extra[1])) +
+          '</div>'
+        );
+      }
       var lbl1 = st.lastExprText.indexOf('Rec') !== -1 ? 'x=' : 'r=';
       var lbl2 = st.lastExprText.indexOf('Rec') !== -1 ? 'y=' : 'θ=';
       return (
@@ -659,81 +796,204 @@
     return CalcEditor.renderResultHTML(plain, lineMode);
   }
 
-  root.CalcApps = CalcApps;
+  // =========================================================================
+  // B (580). ỨNG DỤNG KIỂM CHỨNG ĐẲNG THỨC / BẤT ĐẲNG THỨC (verify — Máy 580)
+  // =========================================================================
+  var VERIFY_OPTN_ITEMS = [
+    { label: '1: =', text: '=', evalText: '=' },
+    { label: '2: ≠', text: '≠', evalText: '≠' },
+    { label: '3: >', text: '>', evalText: '>' },
+    { label: '4: <', text: '<', evalText: '<' },
+    { label: '5: ≥', text: '≥', evalText: '≥' },
+    { label: '6: ≤', text: '≤', evalText: '≤' }
+  ];
 
-  // Hàm tiện ích tạo ứng dụng Giai đoạn 2 ("Đang phát triển")
-  function registerStage2App(id, code, name, icon, onlyTypeB) {
-    CalcApps.register({
-      id: id,
-      code: code,
-      name: name,
-      icon: icon,
-      stage: 2,
-      onlyTypeB: !!onlyTypeB,
-      init: function () {},
-      render: function () {
-        return (
-          '<div class="lcd-dev-box">' +
-            '<div class="lcd-dev-icon">' + escapeHtml(icon) + '</div>' +
-            '<div class="lcd-dev-title">' + escapeHtml(code + ': ' + name) + '</div>' +
-            '<div class="lcd-dev-msg">Đang phát triển (Giai đoạn 2)</div>' +
-            '<div class="lcd-dev-sub">Bấm MENU hoặc HOME để chọn ứng dụng khác</div>' +
-          '</div>'
-        );
-      },
-      onKey: function (key, ctx) {
-        if (key === 'AC' || key === 'OK' || key === '=') {
-          ctx.openMenu();
+  CalcApps.register({
+    id: 'verify',
+    code: 'B',
+    name: 'Verify',
+    viName: 'Kiểm chứng',
+    icon: 'TRUE',
+    stage: 1,
+    init: function (ctx) {
+      if (!ctx.verifyAppState) {
+        ctx.verifyAppState = {
+          editor: CalcEditor.create(ctx.settings.ioMode === 'line'),
+          hasResult: false,
+          lastRes: null, // { ok, result, error }
+          lastRightExpr: '',
+          step: 'edit', // 'edit' | 'optn'
+          optnIdx: 0
+        };
+      }
+      ctx.verifyAppState.editor.lineMode = (ctx.settings.ioMode === 'line');
+      ctx.verifyAppState.step = 'edit';
+    },
+    openOptn: function (ctx) {
+      var st = ctx.verifyAppState;
+      st.step = (st.step === 'optn') ? 'edit' : 'optn';
+      st.optnIdx = 0;
+      return true;
+    },
+    render: function (ctx) {
+      var st = ctx.verifyAppState;
+      st.editor.lineMode = (ctx.settings.ioMode === 'line');
+
+      if (st.step === 'optn') {
+        var html = '<div class="lcd-menu-list">';
+        for (var i = 0; i < VERIFY_OPTN_ITEMS.length; i++) {
+          var cls = (i === st.optnIdx) ? 'lcd-list-item active' : 'lcd-list-item';
+          html += '<div class="' + cls + '" data-action="verify-optn" data-idx="' + i + '">' +
+                  escapeHtml(VERIFY_OPTN_ITEMS[i].label) + '</div>';
+        }
+        html += '</div>';
+        return html;
+      }
+
+      var exprHtml = CalcEditor.renderHTML(st.editor, !st.hasResult);
+      var resHtml = '';
+      if (st.hasResult && st.lastRes) {
+        if (!st.lastRes.ok) {
+          resHtml = '<div class="lcd-error">' + escapeHtml(st.lastRes.error || 'Syntax ERROR') + '</div>';
+        } else {
+          resHtml = '<div class="lcd-verify-res">' + (st.lastRes.result ? 'TRUE' : 'FALSE') + '</div>';
         }
       }
-    });
-  }
+      return (
+        '<div class="lcd-calc">' +
+          '<div class="lcd-expr-line">' + exprHtml + '</div>' +
+          '<div class="lcd-res-line">' + resHtml + '</div>' +
+        '</div>'
+      );
+    },
+    onKey: function (key, ctx) {
+      var st = ctx.verifyAppState;
+      var calcApp = CalcApps.byId.calc;
 
-  // Chuyển phím bấm thành ký tự cho ô nhập bảng (hỗ trợ số, phân số, căn, pi)
-  function mapKeyToCellChar(key) {
-    var m = {
-      '0': '0', '1': '1', '2': '2', '3': '3', '4': '4',
-      '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
-      '.': '.', '+': '+', '-': '-', '(-)': '-', '*': '*', '/': '/',
-      'FRAC': '/', 'SQRT': 'sqrt(', '(': '(', ')': ')', 'PI': 'pi'
-    };
-    return m[key] || null;
-  }
+      if (st.step === 'optn') {
+        if (key === 'AC' || key === 'BACK') { st.step = 'edit'; return; }
+        if (key === 'UP') { st.optnIdx = (st.optnIdx + 5) % 6; return; }
+        if (key === 'DOWN') { st.optnIdx = (st.optnIdx + 1) % 6; return; }
+        var nKey = parseInt(key, 10);
+        if (nKey >= 1 && nKey <= 6) {
+          this.pickVerifyOp(st, nKey - 1);
+          return;
+        }
+        if (key === '=' || key === 'OK') {
+          this.pickVerifyOp(st, st.optnIdx);
+          return;
+        }
+        return;
+      }
 
-  function evalCellInput(str, ctx, fallbackVal) {
-    str = String(str || '').replace(/^\s+|\s+$/g, '');
-    if (str === '') return fallbackVal !== undefined ? fallbackVal : 0;
-    var r = CalcEngine.evalText(str, ctx.getEvalOpts());
-    return r.ok ? r.value : NaN;
-  }
+      if (key === 'AC') {
+        CalcEditor.clear(st.editor);
+        st.hasResult = false;
+        st.lastRes = null;
+        return;
+      }
+      if (key === 'DEL') {
+        if (st.hasResult) { st.hasResult = false; return; }
+        CalcEditor.deleteBack(st.editor);
+        return;
+      }
+      if (key === 'LEFT') {
+        if (st.hasResult) {
+          st.hasResult = false;
+          st.editor.cursor = { list: st.editor.root, index: st.editor.root.length };
+          st.editor.stack = [];
+          return;
+        }
+        CalcEditor.moveLeft(st.editor);
+        return;
+      }
+      if (key === 'RIGHT') {
+        if (st.hasResult) {
+          st.hasResult = false;
+          st.editor.cursor = { list: st.editor.root, index: 0 };
+          st.editor.stack = [];
+          return;
+        }
+        CalcEditor.moveRight(st.editor);
+        return;
+      }
+      if (key === 'UP') { CalcEditor.moveUp(st.editor); return; }
+      if (key === 'DOWN') { CalcEditor.moveDown(st.editor); return; }
 
-  CalcApps.mapKeyToCellChar = mapKeyToCellChar;
-  CalcApps.evalCellInput = evalCellInput;
+      if (key === '=' || key === 'OK') {
+        var exprText = CalcEditor.toEvalText(st.editor);
+        if (!exprText.replace(/\s+/g, '')) return;
+        var vRes = CalcEngine.verify(exprText, ctx.getEvalOpts());
+        st.hasResult = true;
+        st.lastRes = vRes;
+        if (vRes.ok) {
+          var parts = exprText.split(/<=|>=|!=|≠|≤|≥|=|<|>/);
+          if (parts.length >= 2) {
+            st.lastRightExpr = parts[parts.length - 1].replace(/^\s+|\s+$/g, '');
+          }
+          ctx.notifyParentResult(exprText, vRes.result ? 1 : 0, vRes.result ? 'TRUE' : 'FALSE');
+        }
+        return;
+      }
 
-  // Đăng ký các mục 2, 3, 4, 5 (Giai đoạn 2)
-  registerStage2App('complex', '2', 'Số phức', 'a+bi', false);
-  registerStage2App('baseN', '3', 'Cơ số N', '0110', false);
-  registerStage2App('matrix', '4', 'Ma trận', '[M]', false);
-  registerStage2App('vector', '5', 'Vectơ', '→V', false);
+      var isRelKey = (
+        key === 'EQUAL_SIGN' || key === 'REL_EQ' || key === 'REL_NEQ' ||
+        key === 'REL_GT' || key === 'REL_LT' || key === 'REL_GE' || key === 'REL_LE'
+      );
+      if (st.hasResult) {
+        CalcEditor.clear(st.editor);
+        st.hasResult = false;
+        if (isRelKey && st.lastRightExpr) {
+          CalcEditor.insertTextString(st.editor, st.lastRightExpr);
+        }
+      }
+      calcApp.insertByKey(st.editor, key);
+    },
+    pickVerifyOp: function (st, idx) {
+      var item = VERIFY_OPTN_ITEMS[idx];
+      st.step = 'edit';
+      if (!item) return;
+      if (st.hasResult) {
+        CalcEditor.clear(st.editor);
+        st.hasResult = false;
+        if (st.lastRightExpr) {
+          CalcEditor.insertTextString(st.editor, st.lastRightExpr);
+        }
+      }
+      CalcEditor.insertToken(st.editor, item.text, item.evalText);
+    }
+  });
 
   // =========================================================================
-  // 6. ỨNG DỤNG THỐNG KÊ (stat)
+  // 6. ỨNG DỤNG THỐNG KÊ (stat — Statistics)
   // =========================================================================
-  var STAT_TYPES = [
-    { key: '1var', label: '1. Thống kê 1 biến (1-Variable)' },
-    { key: 'lin', label: '2. y = a + bx (Tuyến tính)' },
-    { key: 'quad', label: '3. y = a + bx + cx² (Bậc hai)' },
-    { key: 'log', label: '4. y = a + b·ln(x) (Logarit)' },
-    { key: 'exp', label: '5. y = a·e^(bx) (Mũ e)' },
-    { key: 'abexp', label: '6. y = a·b^x (Mũ tổng quát)' },
-    { key: 'pow', label: '7. y = a·x^b (Lũy thừa)' },
-    { key: 'inv', label: '8. y = a + b/x (Nghịch đảo)' }
+  var STAT_TYPES_580 = [
+    { key: '1var', label: '1:1-Variable' },
+    { key: 'lin', label: '2:y=a+bx' },
+    { key: 'quad', label: '3:y=a+bx+cx²' },
+    { key: 'log', label: '4:y=a+b·ln(x)' },
+    { key: 'exp', label: '5:y=a·e^(bx)' },
+    { key: 'abexp', label: '6:y=a·b^x' },
+    { key: 'pow', label: '7:y=a·x^b' },
+    { key: 'inv', label: '8:y=a+b/x' }
+  ];
+
+  var STAT_TYPES_880 = [
+    { key: '1var', label: '1-Variable' },
+    { key: 'lin', label: '2-Variable (y=a+bx)' },
+    { key: 'quad', label: 'y=a+bx+cx²' },
+    { key: 'log', label: 'y=a+b·ln(x)' },
+    { key: 'exp', label: 'y=a·e^(bx)' },
+    { key: 'abexp', label: 'y=a·b^x' },
+    { key: 'pow', label: 'y=a·x^b' },
+    { key: 'inv', label: 'y=a+b/x' }
   ];
 
   CalcApps.register({
     id: 'stat',
     code: '6',
-    name: 'Thống kê',
+    name: 'Statistics',
+    viName: 'Thống kê',
     icon: '📊',
     stage: 1,
     init: function (ctx) {
@@ -753,7 +1013,7 @@
           optnIdx: 0,
           resultLines: [],
           resScroll: 0,
-          estTarget: 'y', // 'y' (tính y mũ từ x) | 'x' (tính x mũ từ y)
+          estTarget: 'y',
           estInput: '4',
           estOutput: null
         };
@@ -768,11 +1028,15 @@
     },
     render: function (ctx) {
       var st = ctx.statState;
+      var is880 = (ctx.machineId === '880');
+      var typeList = is880 ? STAT_TYPES_880 : STAT_TYPES_580;
+
       if (st.step === 'type') {
-        var html = '<div class="lcd-menu-list"><div class="lcd-list-title">Chọn loại thống kê:</div>';
-        for (var i = 0; i < STAT_TYPES.length; i++) {
+        var html = '<div class="lcd-menu-list"><div class="lcd-list-title">' +
+                   (is880 ? 'Statistics — Select Type' : 'Select Type') + '</div>';
+        for (var i = 0; i < typeList.length; i++) {
           var cls = (i === st.typeIdx) ? 'lcd-list-item active' : 'lcd-list-item';
-          html += '<div class="' + cls + '" data-action="stat-type" data-idx="' + i + '">' + escapeHtml(STAT_TYPES[i].label) + '</div>';
+          html += '<div class="' + cls + '" data-action="stat-type" data-idx="' + i + '">' + escapeHtml(typeList[i].label) + '</div>';
         }
         html += '</div>';
         return html;
@@ -782,18 +1046,18 @@
         var is1Var = (st.statType === '1var');
         var opts = is1Var
           ? [
-              '1. Tính các đặc trưng 1 biến',
-              '2. Bảng dữ liệu',
-              '3. Đổi loại thống kê',
-              '4. Xóa toàn bộ dữ liệu'
+              is880 ? '1-Var Results' : '1:1-Variable Calc',
+              is880 ? 'Data' : '2:Data',
+              is880 ? 'Select Type' : '3:Select Type',
+              is880 ? 'Delete All' : '4:Delete All'
             ]
           : [
-              '1. Tính toán hồi quy & 2 biến',
-              '2. Ước lượng giá trị (ŷ, x̂)',
-              '3. Bảng dữ liệu',
-              '4. Đổi loại thống kê'
+              is880 ? '2-Var / Reg Results' : '1:2-Variable / Reg Calc',
+              is880 ? 'Estimate (ŷ, x̂)' : '2:Regression Estimate (ŷ, x̂)',
+              is880 ? 'Data' : '3:Data',
+              is880 ? 'Select Type' : '4:Select Type'
             ];
-        var oHtml = '<div class="lcd-menu-list"><div class="lcd-list-title">OPTN — Thống kê:</div>';
+        var oHtml = '<div class="lcd-menu-list"><div class="lcd-list-title">Statistics Menu</div>';
         for (var j = 0; j < opts.length; j++) {
           var oCls = (j === st.optnIdx) ? 'lcd-list-item active' : 'lcd-list-item';
           oHtml += '<div class="' + oCls + '" data-action="stat-optn" data-idx="' + j + '">' + escapeHtml(opts[j]) + '</div>';
@@ -803,7 +1067,8 @@
       }
 
       if (st.step === 'result') {
-        var rHtml = '<div class="lcd-menu-list"><div class="lcd-list-title">Kết quả thống kê (▲▼ cuộn, AC quay lại):</div>';
+        var rHtml = '<div class="lcd-menu-list"><div class="lcd-list-title">' +
+                    (st.statType === '1var' ? '1-Var Results' : '2-Var / Reg Results') + '</div>';
         for (var k = 0; k < st.resultLines.length; k++) {
           var rCls = (k === st.resScroll) ? 'lcd-list-item active' : 'lcd-list-item';
           rHtml += '<div class="' + rCls + '">' + escapeHtml(st.resultLines[k]) + '</div>';
@@ -815,9 +1080,9 @@
       if (st.step === 'estimate') {
         return (
           '<div class="lcd-calc">' +
-            '<div class="lcd-list-title">Ước lượng hồi quy (' + escapeHtml(st.statType) + ') — Bấm ◀▶ đổi ŷ/x̂:</div>' +
+            '<div class="lcd-list-title">Regression (' + escapeHtml(st.statType) + ') — ◀▶ ŷ/x̂</div>' +
             '<div class="lcd-prompt-box">' +
-              '<div>Chế độ: <b>' + (st.estTarget === 'y' ? 'Tìm ŷ từ x' : 'Tìm x̂ từ y') + '</b></div>' +
+              '<div><b>' + (st.estTarget === 'y' ? 'Find ŷ from x' : 'Find x̂ from y') + '</b></div>' +
               '<div class="lcd-prompt-input">' +
                 (st.estTarget === 'y' ? 'x = ' : 'y = ') +
                 escapeHtml(st.estInput) + '<span class="m-cursor"></span>' +
@@ -830,18 +1095,17 @@
         );
       }
 
-      // Màn hình bảng dữ liệu
       var hasY = (st.statType !== '1var');
       var hasFreq = !!ctx.settings.statFreq;
       var tHtml = '<div class="lcd-table-wrap">';
-      tHtml += '<div class="lcd-table-bar"><span>Bảng dữ liệu (' + escapeHtml(st.statType) + ')</span>' +
-               '<span class="lcd-inline-btn" data-action="stat-calc-btn">[OPTN / Tính]</span></div>';
+      tHtml += '<div class="lcd-table-bar"><span>' + escapeHtml(st.statType === '1var' ? '1-Variable' : '2-Variable') + '</span>' +
+               '<span class="lcd-inline-btn" data-action="stat-calc-btn">' + (is880 ? '[EXE: Calc]' : '[OPTN: Calc]') + '</span></div>';
       tHtml += '<table class="lcd-grid"><thead><tr><th>#</th><th>x</th>';
       if (hasY) tHtml += '<th>y</th>';
-      if (hasFreq) tHtml += '<th>Tần số</th>';
+      if (hasFreq) tHtml += '<th>Freq</th>';
       tHtml += '</tr></thead><tbody>';
 
-      var totalRows = st.rows.length + 1; // +1 dòng trống để thêm mới
+      var totalRows = st.rows.length + 1;
       for (var r = 0; r < totalRows; r++) {
         var rowObj = st.rows[r];
         tHtml += '<tr><td class="lcd-grid-idx">' + (r + 1) + '</td>';
@@ -871,25 +1135,25 @@
         else if (hasY && st.colIdx === 1) curCellVal = String(ro.y);
         else curCellVal = String(ro.f);
       }
-      tHtml += '<div class="lcd-cell-edit">Nhập: <b>' + escapeHtml(curCellVal) + '</b><span class="m-cursor"></span> (Bấm = để lưu, OPTN để tính)</div>';
+      tHtml += '<div class="lcd-cell-edit"><b>' + escapeHtml(curCellVal) + '</b><span class="m-cursor"></span></div>';
       tHtml += '</div>';
       return tHtml;
     },
     onKey: function (key, ctx) {
       var st = ctx.statState;
       if (st.step === 'type') {
-        if (key === 'UP') { st.typeIdx = (st.typeIdx + STAT_TYPES.length - 1) % STAT_TYPES.length; return; }
-        if (key === 'DOWN') { st.typeIdx = (st.typeIdx + 1) % STAT_TYPES.length; return; }
+        if (key === 'UP') { st.typeIdx = (st.typeIdx + STAT_TYPES_580.length - 1) % STAT_TYPES_580.length; return; }
+        if (key === 'DOWN') { st.typeIdx = (st.typeIdx + 1) % STAT_TYPES_580.length; return; }
         var numIdx = parseInt(key, 10);
-        if (numIdx >= 1 && numIdx <= STAT_TYPES.length) {
+        if (ctx.machineId === '580' && numIdx >= 1 && numIdx <= STAT_TYPES_580.length) {
           st.typeIdx = numIdx - 1;
-          st.statType = STAT_TYPES[st.typeIdx].key;
+          st.statType = STAT_TYPES_580[st.typeIdx].key;
           st.step = 'table';
           st.rowIdx = 0; st.colIdx = 0; st.editingStr = '';
           return;
         }
         if (key === '=' || key === 'OK') {
-          st.statType = STAT_TYPES[st.typeIdx].key;
+          st.statType = STAT_TYPES_580[st.typeIdx].key;
           st.step = 'table';
           st.rowIdx = 0; st.colIdx = 0; st.editingStr = '';
           return;
@@ -898,12 +1162,12 @@
       }
 
       if (st.step === 'optn') {
-        var maxOpt = (st.statType === '1var') ? 4 : 4;
+        var maxOpt = 4;
         if (key === 'UP') { st.optnIdx = (st.optnIdx + maxOpt - 1) % maxOpt; return; }
         if (key === 'DOWN') { st.optnIdx = (st.optnIdx + 1) % maxOpt; return; }
-        if (key === 'AC') { st.step = 'table'; return; }
+        if (key === 'AC' || key === 'BACK') { st.step = 'table'; return; }
         var oNum = parseInt(key, 10);
-        if (oNum >= 1 && oNum <= maxOpt) {
+        if (ctx.machineId === '580' && oNum >= 1 && oNum <= maxOpt) {
           st.optnIdx = oNum - 1;
           this.execOptnChoice(ctx);
           return;
@@ -918,12 +1182,12 @@
       if (st.step === 'result') {
         if (key === 'UP' && st.resScroll > 0) { st.resScroll--; return; }
         if (key === 'DOWN' && st.resScroll < st.resultLines.length - 1) { st.resScroll++; return; }
-        if (key === 'AC' || key === '=' || key === 'OK') { st.step = 'table'; return; }
+        if (key === 'AC' || key === 'BACK' || key === '=' || key === 'OK') { st.step = 'table'; return; }
         return;
       }
 
       if (st.step === 'estimate') {
-        if (key === 'AC') { st.step = 'table'; return; }
+        if (key === 'AC' || key === 'BACK') { st.step = 'table'; return; }
         if (key === 'LEFT' || key === 'RIGHT') {
           st.estTarget = (st.estTarget === 'y') ? 'x' : 'y';
           st.estOutput = null;
@@ -938,13 +1202,10 @@
           return;
         }
         var chEst = mapKeyToCellChar(key);
-        if (chEst) {
-          st.estInput += chEst;
-        }
+        if (chEst) st.estInput += chEst;
         return;
       }
 
-      // Đang ở bảng dữ liệu
       var hasY = (st.statType !== '1var');
       var hasFreq = !!ctx.settings.statFreq;
       var colCount = 1 + (hasY ? 1 : 0) + (hasFreq ? 1 : 0);
@@ -969,6 +1230,10 @@
         if (st.colIdx < colCount - 1) st.colIdx++;
         return;
       }
+      if (key === 'BACK') {
+        st.step = 'type';
+        return;
+      }
       if (key === 'AC') {
         if (st.editingStr !== '') {
           st.editingStr = '';
@@ -987,6 +1252,11 @@
         return;
       }
       if (key === '=' || key === 'OK') {
+        if (st.editingStr === '' && ctx.machineId === '880' && key === '=') {
+          st.step = 'optn';
+          st.optnIdx = 0;
+          return;
+        }
         this.commitStatCell(ctx);
         if (st.colIdx < colCount - 1) {
           st.colIdx++;
@@ -1049,18 +1319,17 @@
           st.resultLines = [r1.error];
         } else {
           st.resultLines = [
-            'n = ' + r1.n,
-            'x̄ (Trung bình) = ' + (CalcEngine.toExact(r1.mean) || CalcEngine.format(r1.mean, fmt)),
+            'x̄ = ' + CalcEngine.format(r1.mean, fmt),
             'Σx = ' + CalcEngine.format(r1.sumx, fmt),
             'Σx² = ' + CalcEngine.format(r1.sumx2, fmt),
-            'σx = ' + (CalcEngine.toExact(r1.sigma) || CalcEngine.format(r1.sigma, fmt)) + ' (≈ ' + CalcEngine.format(r1.sigma, fmt) + ')',
+            'σx = ' + CalcEngine.format(r1.sigma, fmt),
             'sx = ' + CalcEngine.format(r1.s, fmt),
+            'n = ' + r1.n,
             'min(x) = ' + CalcEngine.format(r1.min, fmt),
             'Q1 = ' + CalcEngine.format(r1.q1, fmt),
-            'Med (Trung vị) = ' + CalcEngine.format(r1.med, fmt),
+            'Med = ' + CalcEngine.format(r1.med, fmt),
             'Q3 = ' + CalcEngine.format(r1.q3, fmt),
-            'max(x) = ' + CalcEngine.format(r1.max, fmt),
-            'Mode (Mốt) = ' + CalcEngine.format(r1.mode, fmt)
+            'max(x) = ' + CalcEngine.format(r1.max, fmt)
           ];
         }
       } else {
@@ -1074,16 +1343,16 @@
           ];
           if (r2.c !== undefined) st.resultLines.push('c = ' + CalcEngine.format(r2.c, fmt));
           if (r2.r !== undefined) st.resultLines.push('r = ' + CalcEngine.format(r2.r, fmt));
-          st.resultLines.push('n = ' + r2.n);
           st.resultLines.push('x̄ = ' + CalcEngine.format(r2.meanx, fmt));
-          st.resultLines.push('ȳ = ' + CalcEngine.format(r2.meany, fmt));
           st.resultLines.push('Σx = ' + CalcEngine.format(r2.sumx, fmt));
-          st.resultLines.push('Σy = ' + CalcEngine.format(r2.sumy, fmt));
-          st.resultLines.push('Σxy = ' + CalcEngine.format(r2.sumxy, fmt));
           st.resultLines.push('σx = ' + CalcEngine.format(r2.sigmax, fmt));
           st.resultLines.push('sx = ' + CalcEngine.format(r2.sx, fmt));
+          st.resultLines.push('ȳ = ' + CalcEngine.format(r2.meany, fmt));
+          st.resultLines.push('Σy = ' + CalcEngine.format(r2.sumy, fmt));
           st.resultLines.push('σy = ' + CalcEngine.format(r2.sigmay, fmt));
           st.resultLines.push('sy = ' + CalcEngine.format(r2.sy, fmt));
+          st.resultLines.push('Σxy = ' + CalcEngine.format(r2.sumxy, fmt));
+          st.resultLines.push('n = ' + r2.n);
         }
       }
       st.resScroll = 0;
@@ -1104,7 +1373,7 @@
       }
       var inVal = evalCellInput(st.estInput, ctx, NaN);
       if (isNaN(inVal)) {
-        st.estOutput = 'Lỗi cú pháp';
+        st.estOutput = 'Syntax ERROR';
         return;
       }
       var outVal = (st.estTarget === 'y') ? r2.estY(inVal) : r2.estX(inVal);
@@ -1112,17 +1381,14 @@
     }
   });
 
-  // Đăng ký mục 7, 8 (Giai đoạn 2)
-  registerStage2App('dist', '7', 'Phân phối', '🔔', false);
-  registerStage2App('sheet', '8', 'Bảng tính', '▦', false);
-
   // =========================================================================
-  // 9. ỨNG DỤNG BẢNG GIÁ TRỊ (table)
+  // 8/9. ỨNG DỤNG BẢNG GIÁ TRỊ HÀM SỐ (table — Table)
   // =========================================================================
   CalcApps.register({
     id: 'table',
-    code: '9',
-    name: 'Bảng giá trị',
+    code: '8',
+    name: 'Table',
+    viName: 'Bảng giá trị',
     icon: 'f(x)',
     stage: 1,
     init: function (ctx) {
@@ -1138,13 +1404,16 @@
           startStr: '1',
           endStr: '5',
           stepStr: '1',
-          rangeIdx: 0, // 0: start, 1: end, 2: step
+          rangeIdx: 0, // 0: start, 1: end, 2: step, 3: Execute (880)
           rows: [],
           selRow: 0,
           selCol: 0,
           editXStr: '',
           errorMsg: null
         };
+        if (CalcEngine.defineFunc) {
+          CalcEngine.defineFunc('f', 'x²');
+        }
       }
     },
     render: function (ctx) {
@@ -1156,34 +1425,35 @@
       if (st.step === 'f') {
         return (
           '<div class="lcd-calc">' +
-            '<div class="lcd-list-title">Nhập hàm số f(x):</div>' +
+            '<div class="lcd-list-title">Define f(x)</div>' +
             '<div class="lcd-expr-line"><b>f(x) = </b>' + CalcEditor.renderHTML(st.fEditor, true) + '</div>' +
-            '<div class="lcd-sub-hint">Bấm = để tiếp tục</div>' +
           '</div>'
         );
       }
       if (st.step === 'g') {
         return (
           '<div class="lcd-calc">' +
-            '<div class="lcd-list-title">Nhập hàm số g(x) (để trống nếu chỉ tính f(x)):</div>' +
+            '<div class="lcd-list-title">Define g(x)</div>' +
             '<div class="lcd-expr-line"><b>g(x) = </b>' + CalcEditor.renderHTML(st.gEditor, true) + '</div>' +
-            '<div class="lcd-sub-hint">Bấm = để tiếp tục</div>' +
           '</div>'
         );
       }
       if (st.step === 'range') {
         var fields = [
-          ['Bắt đầu (Start):', st.startStr],
-          ['Kết thúc (End):', st.endStr],
-          ['Bước nhảy (Step):', st.stepStr]
+          ['Start :', st.startStr],
+          ['End   :', st.endStr],
+          ['Step  :', st.stepStr]
         ];
-        var rHtml = '<div class="lcd-menu-list"><div class="lcd-list-title">Phạm vi bảng giá trị (tối đa 45 dòng):</div>';
+        var rHtml = '<div class="lcd-menu-list"><div class="lcd-list-title">Table Range</div>';
         for (var i = 0; i < 3; i++) {
           var cls = (i === st.rangeIdx) ? 'lcd-list-item active' : 'lcd-list-item';
           rHtml += '<div class="' + cls + '" data-action="tbl-range" data-idx="' + i + '">' +
-            escapeHtml(fields[i][0]) + ' <b>' + escapeHtml(fields[i][1]) + '</b>' +
-            (i === st.rangeIdx ? '<span class="m-cursor"></span>' : '') +
-          '</div>';
+            '<span>' + escapeHtml(fields[i][0]) + '</span><b>' + escapeHtml(fields[i][1]) +
+            (i === st.rangeIdx ? '▏' : '') + '</b></div>';
+        }
+        if (ctx.machineId === '880') {
+          var exCls = (st.rangeIdx === 3) ? 'lcd-list-item active' : 'lcd-list-item';
+          rHtml += '<div class="' + exCls + '" data-action="tbl-exec"><span>Execute</span><b>▶</b></div>';
         }
         if (st.errorMsg) {
           rHtml += '<div class="lcd-error">' + escapeHtml(st.errorMsg) + '</div>';
@@ -1196,6 +1466,10 @@
       var hasG = ctx.settings.tableTwoFuncs && !CalcEditor.isEmpty(st.gEditor);
       var fmt = ctx.getFormatOpts();
       var html = '<div class="lcd-table-wrap">';
+      if (ctx.machineId === '880') {
+        html += '<div class="lcd-table-bar"><span>Table</span>' +
+                '<span class="lcd-inline-btn" data-action="tbl-open-range">[Range]</span></div>';
+      }
       html += '<table class="lcd-grid"><thead><tr><th>#</th><th>x</th><th>f(x)</th>';
       if (hasG) html += '<th>g(x)</th>';
       html += '</tr></thead><tbody>';
@@ -1227,7 +1501,7 @@
           fullVal = String(rawV);
         }
       }
-      html += '<div class="lcd-cell-edit">Giá trị: <b>' + escapeHtml(fullVal) + '</b> (Gõ số để đổi x, AC sửa hàm)</div>';
+      html += '<div class="lcd-cell-edit"><b>' + escapeHtml(fullVal) + '</b></div>';
       html += '</div>';
       return html;
     },
@@ -1238,6 +1512,11 @@
       if (st.step === 'f' || st.step === 'g') {
         var ed = (st.step === 'f') ? st.fEditor : st.gEditor;
         if (key === 'AC') { CalcEditor.clear(ed); return; }
+        if (key === 'BACK') {
+          if (st.rows.length > 0) st.step = 'view';
+          else if (st.step === 'g') st.step = 'f';
+          return;
+        }
         if (key === 'DEL') { CalcEditor.deleteBack(ed); return; }
         if (key === 'LEFT') { CalcEditor.moveLeft(ed); return; }
         if (key === 'RIGHT') { CalcEditor.moveRight(ed); return; }
@@ -1245,11 +1524,15 @@
         if (key === 'DOWN') { CalcEditor.moveDown(ed); return; }
         if (key === '=' || key === 'OK') {
           if (st.step === 'f') {
-            if (CalcEditor.isEmpty(st.fEditor)) return;
+            var fTxt = CalcEditor.toEvalText(st.fEditor);
+            if (!fTxt.replace(/\s+/g, '')) return;
+            if (CalcEngine.defineFunc) CalcEngine.defineFunc('f', fTxt);
             st.step = ctx.settings.tableTwoFuncs ? 'g' : 'range';
             st.rangeIdx = 0;
             st.errorMsg = null;
           } else {
+            var gTxt = CalcEditor.toEvalText(st.gEditor);
+            if (CalcEngine.defineFunc) CalcEngine.defineFunc('g', gTxt);
             st.step = 'range';
             st.rangeIdx = 0;
             st.errorMsg = null;
@@ -1262,32 +1545,34 @@
 
       if (st.step === 'range') {
         st.errorMsg = null;
+        var maxIdx = ctx.machineId === '880' ? 3 : 2;
         var props = ['startStr', 'endStr', 'stepStr'];
         var curProp = props[st.rangeIdx];
-        if (key === 'AC') { st.step = 'f'; return; }
+        if (key === 'AC' || key === 'BACK') { st.step = 'f'; return; }
         if (key === 'UP' && st.rangeIdx > 0) { st.rangeIdx--; return; }
-        if (key === 'DOWN' && st.rangeIdx < 2) { st.rangeIdx++; return; }
-        if (key === 'DEL') {
+        if (key === 'DOWN' && st.rangeIdx < maxIdx) { st.rangeIdx++; return; }
+        if (key === 'DEL' && curProp) {
           st[curProp] = st[curProp].slice(0, -1);
           return;
         }
         if (key === '=' || key === 'OK') {
           if (st.rangeIdx < 2) {
             st.rangeIdx++;
+          } else if (ctx.machineId === '880' && st.rangeIdx === 2) {
+            st.rangeIdx = 3;
           } else {
             this.buildTable(ctx);
           }
           return;
         }
         var ch = mapKeyToCellChar(key);
-        if (ch) st[curProp] += ch;
+        if (ch && curProp) st[curProp] += ch;
         return;
       }
 
-      // Đang ở chế độ xem bảng
       var hasG = ctx.settings.tableTwoFuncs && !CalcEditor.isEmpty(st.gEditor);
       var maxCol = hasG ? 2 : 1;
-      if (key === 'AC') {
+      if (key === 'AC' || key === 'BACK') {
         if (st.editXStr !== '') st.editXStr = '';
         else st.step = 'f';
         return;
@@ -1313,10 +1598,19 @@
         return;
       }
       if (key === 'DEL') {
-        st.editXStr = st.editXStr.slice(0, -1);
+        if (st.editXStr !== '') {
+          st.editXStr = st.editXStr.slice(0, -1);
+        } else if (st.rows.length > 1) {
+          st.rows.splice(st.selRow, 1);
+          if (st.selRow >= st.rows.length) st.selRow = st.rows.length - 1;
+        }
         return;
       }
       if (key === '=' || key === 'OK') {
+        if (st.rows.length === 0) {
+          st.step = 'range';
+          return;
+        }
         this.commitCustomX(ctx);
         if (st.selRow < st.rows.length - 1) st.selRow++;
         return;
@@ -1334,6 +1628,10 @@
       var stepVal = evalCellInput(st.stepStr, ctx, 1);
       var fStr = CalcEditor.toEvalText(st.fEditor);
       var gStr = ctx.settings.tableTwoFuncs ? CalcEditor.toEvalText(st.gEditor) : null;
+      if (CalcEngine.defineFunc) {
+        CalcEngine.defineFunc('f', fStr);
+        if (gStr) CalcEngine.defineFunc('g', gStr);
+      }
       var tbl = CalcEngine.table(fStr, gStr, sVal, eVal, stepVal, ctx.getEvalOpts());
       if (tbl.error) {
         st.errorMsg = tbl.error;
@@ -1350,30 +1648,42 @@
       if (st.editXStr === '') return;
       var newX = evalCellInput(st.editXStr, ctx, NaN);
       st.editXStr = '';
-      if (isNaN(newX) || !st.rows[st.selRow]) return;
+      if (isNaN(newX)) return;
       var fStr = CalcEditor.toEvalText(st.fEditor);
       var gStr = ctx.settings.tableTwoFuncs ? CalcEditor.toEvalText(st.gEditor) : null;
       var single = CalcEngine.table(fStr, gStr, newX, newX, 1, ctx.getEvalOpts());
       if (Array.isArray(single) && single[0]) {
-        st.rows[st.selRow] = single[0];
+        if (st.rows[st.selRow]) st.rows[st.selRow] = single[0];
+        else st.rows.push(single[0]);
       }
     }
   });
 
   // =========================================================================
-  // A. ỨNG DỤNG PHƯƠNG TRÌNH / HỆ PHƯƠNG TRÌNH (eq)
+  // 9 / A. ỨNG DỤNG PHƯƠNG TRÌNH / HỆ PHƯƠNG TRÌNH / SOLVER (eq — Equation)
   // =========================================================================
+  var SOLVER_VARS = ['x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F'];
+
   CalcApps.register({
     id: 'eq',
-    code: 'A',
-    name: 'Phương trình/Hệ',
+    code: '9',
+    name: 'Equation',
+    viName: 'Phương trình',
     icon: 'x=?',
     stage: 1,
     init: function (ctx) {
       if (!ctx.eqState) {
+        var sEd = CalcEditor.create(false);
+        CalcEditor.insertToken(sEd, '2', '2');
+        CalcEditor.insertToken(sEd, 'x', 'x');
+        CalcEditor.insertToken(sEd, '+', '+');
+        CalcEditor.insertToken(sEd, '1', '1');
+        CalcEditor.insertToken(sEd, '=', '=');
+        CalcEditor.insertToken(sEd, '5', '5');
         ctx.eqState = {
-          step: 'main', // 'main' | 'size' | 'coeffs' | 'result'
-          mode: 'poly', // 'sys' | 'poly'
+          step: 'main', // 'main'|'size'|'coeffs'|'result'|'solver_eq'|'solver_target'|'solver_init'|'solver_res'
+          mainIdx: 0, // 0: Simul Equation, 1: Polynomial, 2: Solver (880 only)
+          mode: 'sys', // 'sys' | 'poly' | 'solver'
           size: 2, // 2, 3, 4
           polyCoeffs: [1, -3, 2, 0, 0],
           sysCoeffs: [
@@ -1385,34 +1695,119 @@
           rIdx: 0,
           cIdx: 0,
           editStr: '',
-          resItems: [], // [{ label, exact, decimal }]
+          resItems: [],
           resIdx: 0,
-          showDecimal: false
+          showDecimal: false,
+          solverEditor: sEd,
+          solverTargetIdx: 0,
+          solverTargetVar: 'x',
+          solverInitStr: '0',
+          solverFocus: 0, // 0: giá trị đầu, 1: Execute
+          solverResult: null // { x, lr, error }
         };
       }
     },
     render: function (ctx) {
       var st = ctx.eqState;
+      var is880 = (ctx.machineId === '880');
+
       if (st.step === 'main') {
+        if (is880) {
+          var items880 = [
+            { m: 'sys', lbl: 'Simul Equation' },
+            { m: 'poly', lbl: 'Polynomial' },
+            { m: 'solver', lbl: 'Solver' }
+          ];
+          var h880 = '<div class="lcd-menu-list">';
+          for (var i = 0; i < items880.length; i++) {
+            var cls = (st.mainIdx === i) ? 'lcd-list-item active' : 'lcd-list-item';
+            h880 += '<div class="' + cls + '" data-action="eq-mode" data-mode="' + items880[i].m + '">' +
+                    escapeHtml(items880[i].lbl) + '</div>';
+          }
+          h880 += '</div>';
+          return h880;
+        }
         return (
           '<div class="lcd-menu-list">' +
-            '<div class="lcd-list-title">Chọn loại phương trình:</div>' +
-            '<div class="lcd-list-item ' + (st.mode === 'sys' ? 'active' : '') + '" data-action="eq-mode" data-mode="sys">1. Hệ phương trình tuyến tính</div>' +
-            '<div class="lcd-list-item ' + (st.mode === 'poly' ? 'active' : '') + '" data-action="eq-mode" data-mode="poly">2. Phương trình đa thức</div>' +
+            '<div class="lcd-list-item ' + (st.mode === 'sys' ? 'active' : '') + '" data-action="eq-mode" data-mode="sys">1:Simul Equation</div>' +
+            '<div class="lcd-list-item ' + (st.mode === 'poly' ? 'active' : '') + '" data-action="eq-mode" data-mode="poly">2:Polynomial</div>' +
           '</div>'
         );
       }
 
       if (st.step === 'size') {
-        var title = st.mode === 'sys' ? 'Chọn số ẩn (2–4):' : 'Chọn bậc đa thức (2–4):';
-        var sHtml = '<div class="lcd-menu-list"><div class="lcd-list-title">' + title + '</div>';
-        for (var n = 2; n <= 4; n++) {
-          var cls = (st.size === n) ? 'lcd-list-item active' : 'lcd-list-item';
-          var desc = st.mode === 'sys' ? (n + ' ẩn') : ('Bậc ' + n);
-          sHtml += '<div class="' + cls + '" data-action="eq-size" data-n="' + n + '">' + n + '. ' + desc + '</div>';
+        if (is880) {
+          var sHtml880 = '<div class="lcd-menu-list"><div class="lcd-list-title">' +
+                         (st.mode === 'sys' ? 'Simul Equation' : 'Polynomial') + '</div>';
+          var polyLbls = { 2: 'ax²+bx+c', 3: 'ax³+bx²+cx+d', 4: 'ax⁴+bx³+cx²+dx+e' };
+          for (var n = 2; n <= 4; n++) {
+            var cls880 = (st.size === n) ? 'lcd-list-item active' : 'lcd-list-item';
+            var desc880 = st.mode === 'sys' ? (n + ' Unknowns') : polyLbls[n];
+            sHtml880 += '<div class="' + cls880 + '" data-action="eq-size" data-n="' + n + '">' + escapeHtml(desc880) + '</div>';
+          }
+          sHtml880 += '</div>';
+          return sHtml880;
         }
-        sHtml += '</div>';
-        return sHtml;
+        var title580 = st.mode === 'sys' ? 'Number of Unknowns?' : 'Polynomial Degree?';
+        return (
+          '<div class="lcd-calc">' +
+            '<div class="lcd-list-title">' + title580 + '</div>' +
+            '<div class="lcd-prompt-box" style="text-align:center;padding:12px 0;font-weight:700;">Select 2~4</div>' +
+          '</div>'
+        );
+      }
+
+      // Các màn hình của Solver trên máy 880
+      if (st.step === 'solver_eq') {
+        st.solverEditor.lineMode = (ctx.settings.ioMode === 'line');
+        return (
+          '<div class="lcd-calc">' +
+            '<div class="lcd-list-title">Input Equation</div>' +
+            '<div class="lcd-expr-line">' + CalcEditor.renderHTML(st.solverEditor, true) + '</div>' +
+          '</div>'
+        );
+      }
+
+      if (st.step === 'solver_target') {
+        var tHtml = '<div class="lcd-menu-list"><div class="lcd-list-title">Solve Target</div>';
+        for (var vIdx = 0; vIdx < SOLVER_VARS.length; vIdx++) {
+          var vCls = (vIdx === st.solverTargetIdx) ? 'lcd-list-item active' : 'lcd-list-item';
+          tHtml += '<div class="' + vCls + '" data-action="eq-solver-var" data-idx="' + vIdx + '">' +
+                   '<span>' + SOLVER_VARS[vIdx] + '</span><b>▶</b></div>';
+        }
+        tHtml += '</div>';
+        return tHtml;
+      }
+
+      if (st.step === 'solver_init') {
+        return (
+          '<div class="lcd-menu-list">' +
+            '<div class="lcd-expr-small">' + CalcEditor.renderHTML(st.solverEditor, false) + '</div>' +
+            '<div class="lcd-list-item ' + (st.solverFocus === 0 ? 'active' : '') + '" data-action="eq-solver-focus" data-f="0">' +
+              '<span>' + escapeHtml(st.solverTargetVar) + ' =</span>' +
+              '<b>' + escapeHtml(st.solverInitStr) + (st.solverFocus === 0 ? '▏' : '') + '</b>' +
+            '</div>' +
+            '<div class="lcd-list-item ' + (st.solverFocus === 1 ? 'active' : '') + '" data-action="eq-solver-exec">' +
+              '<span>Execute</span><b>▶</b>' +
+            '</div>' +
+          '</div>'
+        );
+      }
+
+      if (st.step === 'solver_res') {
+        var sr = st.solverResult;
+        if (!sr || sr.error) {
+          return '<div class="lcd-error">' + escapeHtml((sr && sr.error) || 'Can Not Solve') + '</div>';
+        }
+        return (
+          '<div class="lcd-calc">' +
+            '<div class="lcd-expr-small">' + CalcEditor.renderHTML(st.solverEditor, false) + '</div>' +
+            '<div class="lcd-solve-res">' +
+              '<div><b>' + escapeHtml(st.solverTargetVar) + ' = </b>' + escapeHtml(CalcEngine.format(sr.x, ctx.getFormatOpts())) + '</div>' +
+              '<div><b>L − R = </b>' + escapeHtml(CalcEngine.format(sr.lr, ctx.getFormatOpts())) + '</div>' +
+            '</div>' +
+          '</div>'
+        );
       }
 
       if (st.step === 'result') {
@@ -1423,7 +1818,7 @@
         return (
           '<div class="lcd-calc">' +
             '<div class="lcd-list-title">' +
-              'Nghiệm (' + (st.resIdx + 1) + '/' + st.resItems.length + ') — Bấm = / ▲▼ xem tiếp, S⇔D đổi dạng:' +
+              '(' + (st.resIdx + 1) + '/' + st.resItems.length + ')' +
             '</div>' +
             '<div class="lcd-expr-line"><b>' + escapeHtml(item.label) + '</b></div>' +
             '<div class="lcd-res-line">' + valHtml + '</div>' +
@@ -1437,32 +1832,32 @@
         var deg = st.size;
         var labels = deg === 2 ? ['x²', 'x', 'c'] : (deg === 3 ? ['x³', 'x²', 'x', 'd'] : ['x⁴', 'x³', 'x²', 'x', 'e']);
         var pHtml = '<div class="lcd-table-wrap">';
-        pHtml += '<div class="lcd-table-bar"><span>Đa thức bậc ' + deg + ' (= 0)</span>' +
-                 '<span class="lcd-inline-btn" data-action="eq-solve-btn">[Giải =]</span></div>';
+        pHtml += '<div class="lcd-table-bar"><span>' +
+                 (deg === 2 ? 'ax²+bx+c=0' : (deg === 3 ? 'ax³+bx²+cx+d=0' : 'ax⁴+bx³+cx²+dx+e=0')) + '</span>' +
+                 '<span class="lcd-inline-btn" data-action="eq-solve-btn">[=]</span></div>';
         pHtml += '<table class="lcd-grid"><thead><tr>';
-        for (var i = 0; i <= deg; i++) pHtml += '<th>' + labels[i] + '</th>';
+        for (var j = 0; j <= deg; j++) pHtml += '<th>' + labels[j] + '</th>';
         pHtml += '</tr></thead><tbody><tr>';
-        for (var j = 0; j <= deg; j++) {
-          var sel = (j === st.cIdx);
-          pHtml += '<td class="' + (sel ? 'sel' : '') + '" data-action="eq-cell" data-r="0" data-c="' + j + '">' +
-                   escapeHtml(CalcEngine.format(st.polyCoeffs[j], fmt)) + '</td>';
+        for (var j2 = 0; j2 <= deg; j2++) {
+          var sel = (j2 === st.cIdx);
+          pHtml += '<td class="' + (sel ? 'sel' : '') + '" data-action="eq-cell" data-r="0" data-c="' + j2 + '">' +
+                   escapeHtml(CalcEngine.format(st.polyCoeffs[j2], fmt)) + '</td>';
         }
         pHtml += '</tr></tbody></table>';
         var curP = st.editStr !== '' ? st.editStr : String(st.polyCoeffs[st.cIdx]);
-        pHtml += '<div class="lcd-cell-edit">Hệ số ' + labels[st.cIdx] + ': <b>' + escapeHtml(curP) + '</b><span class="m-cursor"></span></div>';
+        pHtml += '<div class="lcd-cell-edit"><b>' + escapeHtml(curP) + '</b><span class="m-cursor"></span></div>';
         pHtml += '</div>';
         return pHtml;
       }
 
-      // Hệ phương trình n ẩn
       var nSys = st.size;
       var vNames = ['x', 'y', 'z', 't'];
       var hSys = '<div class="lcd-table-wrap">';
-      hSys += '<div class="lcd-table-bar"><span>Hệ ' + nSys + ' ẩn</span>' +
-              '<span class="lcd-inline-btn" data-action="eq-solve-btn">[Giải =]</span></div>';
+      hSys += '<div class="lcd-table-bar"><span>Simul (' + nSys + ' Unknowns)</span>' +
+              '<span class="lcd-inline-btn" data-action="eq-solve-btn">[=]</span></div>';
       hSys += '<table class="lcd-grid"><thead><tr>';
       for (var c = 0; c < nSys; c++) hSys += '<th>' + vNames[c] + '</th>';
-      hSys += '<th>= c</th></tr></thead><tbody>';
+      hSys += '<th>=</th></tr></thead><tbody>';
       for (var r = 0; r < nSys; r++) {
         hSys += '<tr>';
         for (var c2 = 0; c2 <= nSys; c2++) {
@@ -1476,24 +1871,45 @@
       hSys += '</tbody></table>';
       var curAct = (st.cIdx === nSys) ? 4 : st.cIdx;
       var curS = st.editStr !== '' ? st.editStr : String(st.sysCoeffs[st.rIdx][curAct]);
-      hSys += '<div class="lcd-cell-edit">Ô (' + (st.rIdx + 1) + ',' + (st.cIdx + 1) + '): <b>' + escapeHtml(curS) + '</b><span class="m-cursor"></span></div>';
+      hSys += '<div class="lcd-cell-edit"><b>' + escapeHtml(curS) + '</b><span class="m-cursor"></span></div>';
       hSys += '</div>';
       return hSys;
     },
     onKey: function (key, ctx) {
       var st = ctx.eqState;
+      var is880 = (ctx.machineId === '880');
+      var calcApp = CalcApps.byId.calc;
+
       if (st.step === 'main') {
-        if (key === 'UP' || key === 'DOWN') { st.mode = (st.mode === 'sys') ? 'poly' : 'sys'; return; }
-        if (key === '1') { st.mode = 'sys'; st.step = 'size'; return; }
-        if (key === '2') { st.mode = 'poly'; st.step = 'size'; return; }
-        if (key === '=' || key === 'OK') { st.step = 'size'; return; }
+        var maxMain = is880 ? 3 : 2;
+        if (key === 'UP') {
+          st.mainIdx = (st.mainIdx + maxMain - 1) % maxMain;
+          st.mode = st.mainIdx === 0 ? 'sys' : (st.mainIdx === 1 ? 'poly' : 'solver');
+          return;
+        }
+        if (key === 'DOWN') {
+          st.mainIdx = (st.mainIdx + 1) % maxMain;
+          st.mode = st.mainIdx === 0 ? 'sys' : (st.mainIdx === 1 ? 'poly' : 'solver');
+          return;
+        }
+        if (!is880 && key === '1') { st.mode = 'sys'; st.step = 'size'; return; }
+        if (!is880 && key === '2') { st.mode = 'poly'; st.step = 'size'; return; }
+        if (key === '=' || key === 'OK') {
+          if (is880 && st.mode === 'solver') {
+            st.step = 'solver_eq';
+          } else {
+            st.step = 'size';
+          }
+          return;
+        }
         return;
       }
+
       if (st.step === 'size') {
-        if (key === 'AC') { st.step = 'main'; return; }
+        if (key === 'AC' || key === 'BACK') { st.step = 'main'; return; }
         if (key === 'UP') { st.size = st.size > 2 ? st.size - 1 : 4; return; }
         if (key === 'DOWN') { st.size = st.size < 4 ? st.size + 1 : 2; return; }
-        if (key === '2' || key === '3' || key === '4') {
+        if (!is880 && (key === '2' || key === '3' || key === '4')) {
           st.size = parseInt(key, 10);
           st.step = 'coeffs';
           st.rIdx = 0; st.cIdx = 0; st.editStr = '';
@@ -1506,8 +1922,72 @@
         }
         return;
       }
+
+      if (st.step === 'solver_eq') {
+        var ed = st.solverEditor;
+        if (key === 'BACK') { st.step = 'main'; return; }
+        if (key === 'AC') { CalcEditor.clear(ed); return; }
+        if (key === 'DEL') { CalcEditor.deleteBack(ed); return; }
+        if (key === 'LEFT') { CalcEditor.moveLeft(ed); return; }
+        if (key === 'RIGHT') { CalcEditor.moveRight(ed); return; }
+        if (key === 'UP') { CalcEditor.moveUp(ed); return; }
+        if (key === 'DOWN') { CalcEditor.moveDown(ed); return; }
+        if (key === '=' || key === 'OK') {
+          if (CalcEditor.isEmpty(ed)) return;
+          st.step = 'solver_target';
+          st.solverTargetIdx = 0;
+          return;
+        }
+        calcApp.insertByKey(ed, key);
+        return;
+      }
+
+      if (st.step === 'solver_target') {
+        if (key === 'BACK' || key === 'AC') { st.step = 'solver_eq'; return; }
+        if (key === 'UP') { st.solverTargetIdx = (st.solverTargetIdx + SOLVER_VARS.length - 1) % SOLVER_VARS.length; return; }
+        if (key === 'DOWN') { st.solverTargetIdx = (st.solverTargetIdx + 1) % SOLVER_VARS.length; return; }
+        if (key === 'OK' || key === '=') {
+          st.solverTargetVar = SOLVER_VARS[st.solverTargetIdx];
+          st.solverInitStr = String(ctx.vars[st.solverTargetVar] || 0);
+          st.solverFocus = 0;
+          st.step = 'solver_init';
+          return;
+        }
+        return;
+      }
+
+      if (st.step === 'solver_init') {
+        if (key === 'BACK' || key === 'AC') { st.step = 'solver_eq'; return; }
+        if (key === 'UP' || key === 'DOWN') { st.solverFocus = st.solverFocus === 0 ? 1 : 0; return; }
+        if (st.solverFocus === 0 && key === 'DEL') {
+          st.solverInitStr = st.solverInitStr.slice(0, -1);
+          return;
+        }
+        if (key === '=' || key === 'OK') {
+          if (st.solverFocus === 0) {
+            st.solverFocus = 1;
+          } else {
+            this.runSolver880(ctx);
+          }
+          return;
+        }
+        var chS = mapKeyToCellChar(key);
+        if (chS && st.solverFocus === 0) {
+          st.solverInitStr += chS;
+        }
+        return;
+      }
+
+      if (st.step === 'solver_res') {
+        if (key === 'AC' || key === 'BACK' || key === 'OK' || key === '=') {
+          st.step = 'solver_init';
+          st.solverFocus = 0;
+        }
+        return;
+      }
+
       if (st.step === 'result') {
-        if (key === 'AC') { st.step = 'coeffs'; return; }
+        if (key === 'AC' || key === 'BACK') { st.step = 'coeffs'; return; }
         if (key === 'S_D') { st.showDecimal = !st.showDecimal; return; }
         if (key === 'UP') { st.resIdx = (st.resIdx + st.resItems.length - 1) % st.resItems.length; return; }
         if (key === 'DOWN' || key === '=' || key === 'OK') {
@@ -1517,9 +1997,13 @@
         return;
       }
 
-      // Đang ở màn nhập hệ số
+      // Nhập hệ số
       var maxR = st.mode === 'poly' ? 0 : st.size - 1;
       var maxC = st.size;
+      if (key === 'BACK') {
+        st.step = 'size';
+        return;
+      }
       if (key === 'AC') {
         if (st.editStr !== '') st.editStr = '';
         else st.step = 'main';
@@ -1567,6 +2051,21 @@
       var ch = mapKeyToCellChar(key);
       if (ch) st.editStr += ch;
     },
+    runSolver880: function (ctx) {
+      var st = ctx.eqState;
+      var initVal = evalCellInput(st.solverInitStr, ctx, 0);
+      var exprStr = CalcEditor.toEvalText(st.solverEditor);
+      var opts = ctx.getEvalOpts();
+      opts.targetVar = st.solverTargetVar;
+      var sol = CalcEngine.solveNumeric(exprStr, initVal, opts);
+      st.solverResult = sol;
+      if (!sol.error) {
+        ctx.vars[st.solverTargetVar] = sol.x;
+        ctx.vars.Ans = sol.x;
+        ctx.saveState();
+      }
+      st.step = 'solver_res';
+    },
     commitEqCell: function (ctx) {
       var st = ctx.eqState;
       if (st.editStr === '') return;
@@ -1592,25 +2091,31 @@
         var cfs = st.polyCoeffs.slice(0, st.size + 1);
         var pRes = CalcEngine.solvePoly(cfs);
         if (pRes.error) {
-          st.resItems.push({ label: 'Thông báo:', exact: null, decimal: pRes.error });
+          st.resItems.push({ label: 'Result:', exact: null, decimal: pRes.error });
         } else {
           for (var i = 0; i < pRes.roots.length; i++) {
             var rt = pRes.roots[i];
+            if (!ctx.settings.eqComplexRoots && Math.abs(rt.im) >= 1e-10) {
+              continue;
+            }
             var lbl = pRes.roots.length === 1 ? 'x =' : ('x' + (i + 1) + ' =');
             var dec = Math.abs(rt.im) < 1e-10
               ? CalcEngine.format(rt.re, fmt)
               : (CalcEngine.format(rt.re, fmt) + (rt.im >= 0 ? '+' : '') + CalcEngine.format(rt.im, fmt) + 'i');
             st.resItems.push({ label: lbl, exact: rt.exact, decimal: dec });
           }
+          if (st.resItems.length === 0) {
+            st.resItems.push({ label: 'Result:', exact: null, decimal: 'No Real Roots' });
+          }
           if (pRes.extremum) {
-            var minOrMax = cfs[0] > 0 ? 'Cực tiểu' : 'Cực đại';
+            var minOrMax = cfs[0] > 0 ? 'Minimum' : 'Maximum';
             st.resItems.push({
-              label: minOrMax + ' của hàm số: x =',
+              label: minOrMax + ' of y=f(x): x =',
               exact: pRes.extremum.xExact,
               decimal: CalcEngine.format(pRes.extremum.x, fmt)
             });
             st.resItems.push({
-              label: minOrMax + ' của hàm số: y =',
+              label: minOrMax + ' of y=f(x): y =',
               exact: pRes.extremum.yExact,
               decimal: CalcEngine.format(pRes.extremum.y, fmt)
             });
@@ -1625,7 +2130,7 @@
         }
         var sRes = CalcEngine.solveLinear(A, b);
         if (sRes.error) {
-          st.resItems.push({ label: 'Kết quả:', exact: null, decimal: sRes.error });
+          st.resItems.push({ label: 'Result:', exact: null, decimal: sRes.error });
         } else {
           var vNames = ['x =', 'y =', 'z =', 't ='];
           for (var k = 0; k < n; k++) {
@@ -1642,15 +2147,16 @@
   });
 
   // =========================================================================
-  // B. ỨNG DỤNG BẤT PHƯƠNG TRÌNH (ineq)
+  // A / B. ỨNG DỤNG BẤT PHƯƠNG TRÌNH (ineq — Inequality)
   // =========================================================================
   var INEQ_OPS = ['>', '<', '>=', '<='];
   var INEQ_LABELS = ['> 0', '< 0', '≥ 0', '≤ 0'];
 
   CalcApps.register({
     id: 'ineq',
-    code: 'B',
-    name: 'Bất phương trình',
+    code: 'A',
+    name: 'Inequality',
+    viName: 'Bất phương trình',
     icon: 'x>0',
     stage: 1,
     init: function (ctx) {
@@ -1668,22 +2174,34 @@
     },
     render: function (ctx) {
       var st = ctx.ineqState;
+      var is880 = (ctx.machineId === '880');
       if (st.step === 'deg') {
-        var html = '<div class="lcd-menu-list"><div class="lcd-list-title">Chọn bậc bất phương trình (2–4):</div>';
-        for (var d = 2; d <= 4; d++) {
-          var cls = (st.deg === d) ? 'lcd-list-item active' : 'lcd-list-item';
-          html += '<div class="' + cls + '" data-action="ineq-deg" data-deg="' + d + '">' + (d - 1) + '. Đa thức bậc ' + d + '</div>';
+        if (is880) {
+          var polyLbls = { 2: 'ax²+bx+c', 3: 'ax³+bx²+cx+d', 4: 'ax⁴+bx³+cx²+dx+e' };
+          var html = '<div class="lcd-menu-list"><div class="lcd-list-title">Polynomial</div>';
+          for (var d = 2; d <= 4; d++) {
+            var cls = (st.deg === d) ? 'lcd-list-item active' : 'lcd-list-item';
+            html += '<div class="' + cls + '" data-action="ineq-deg" data-deg="' + d + '">' + escapeHtml(polyLbls[d]) + '</div>';
+          }
+          html += '</div>';
+          return html;
         }
-        html += '</div>';
-        return html;
+        return (
+          '<div class="lcd-calc">' +
+            '<div class="lcd-list-title">Polynomial Degree?</div>' +
+            '<div class="lcd-prompt-box" style="text-align:center;padding:12px 0;font-weight:700;">Select 2~4</div>' +
+          '</div>'
+        );
       }
 
       if (st.step === 'op') {
-        var polyStr = st.deg === 2 ? 'ax² + bx + c ' : (st.deg === 3 ? 'ax³ + bx² + cx + d ' : 'ax⁴ + bx³ + cx² + dx + e ');
-        var oHtml = '<div class="lcd-menu-list"><div class="lcd-list-title">Chọn chiều bất phương trình:</div>';
+        var polyStr = st.deg === 2 ? 'ax²+bx+c' : (st.deg === 3 ? 'ax³+bx²+cx+d' : 'ax⁴+bx³+cx²+dx+e');
+        var oHtml = '<div class="lcd-menu-list">';
         for (var i = 0; i < 4; i++) {
           var oCls = (st.opIdx === i) ? 'lcd-list-item active' : 'lcd-list-item';
-          oHtml += '<div class="' + oCls + '" data-action="ineq-op" data-idx="' + i + '">' + (i + 1) + '. ' + polyStr + INEQ_LABELS[i] + '</div>';
+          var prefix = is880 ? '' : ((i + 1) + ':');
+          oHtml += '<div class="' + oCls + '" data-action="ineq-op" data-idx="' + i + '">' +
+                   escapeHtml(prefix + polyStr + INEQ_LABELS[i]) + '</div>';
         }
         oHtml += '</div>';
         return oHtml;
@@ -1692,20 +2210,17 @@
       if (st.step === 'result') {
         return (
           '<div class="lcd-calc">' +
-            '<div class="lcd-list-title">Tập nghiệm bất phương trình:</div>' +
             '<div class="lcd-res-line">' + escapeHtml(st.resText) + '</div>' +
-            '<div class="lcd-sub-hint">Bấm = hoặc AC để quay lại sửa hệ số</div>' +
           '</div>'
         );
       }
 
-      // Nhập hệ số
       var deg = st.deg;
       var fmt = ctx.getFormatOpts();
-      var labels = deg === 2 ? ['a (x²)', 'b (x)', 'c'] : (deg === 3 ? ['a (x³)', 'b (x²)', 'c (x)', 'd'] : ['a (x⁴)', 'b (x³)', 'c (x²)', 'd (x)', 'e']);
+      var labels = deg === 2 ? ['x²', 'x', 'c'] : (deg === 3 ? ['x³', 'x²', 'x', 'd'] : ['x⁴', 'x³', 'x²', 'x', 'e']);
       var cHtml = '<div class="lcd-table-wrap">';
-      cHtml += '<div class="lcd-table-bar"><span>BPT bậc ' + deg + ' (' + INEQ_LABELS[st.opIdx] + ')</span>' +
-               '<span class="lcd-inline-btn" data-action="ineq-solve-btn">[Giải =]</span></div>';
+      cHtml += '<div class="lcd-table-bar"><span>' + (deg === 2 ? 'ax²+bx+c' : (deg === 3 ? 'ax³+bx²+cx+d' : 'ax⁴+bx³+cx²+dx+e')) + INEQ_LABELS[st.opIdx] + '</span>' +
+               '<span class="lcd-inline-btn" data-action="ineq-solve-btn">[=]</span></div>';
       cHtml += '<table class="lcd-grid"><thead><tr>';
       for (var j = 0; j <= deg; j++) cHtml += '<th>' + labels[j] + '</th>';
       cHtml += '</tr></thead><tbody><tr>';
@@ -1715,17 +2230,18 @@
       }
       cHtml += '</tr></tbody></table>';
       var curC = st.editStr !== '' ? st.editStr : String(st.coeffs[st.cIdx]);
-      cHtml += '<div class="lcd-cell-edit">Hệ số ' + labels[st.cIdx] + ': <b>' + escapeHtml(curC) + '</b><span class="m-cursor"></span></div>';
+      cHtml += '<div class="lcd-cell-edit"><b>' + escapeHtml(curC) + '</b><span class="m-cursor"></span></div>';
       cHtml += '</div>';
       return cHtml;
     },
     onKey: function (key, ctx) {
       var st = ctx.ineqState;
+      var is880 = (ctx.machineId === '880');
       if (st.step === 'deg') {
         if (key === 'UP') { st.deg = st.deg > 2 ? st.deg - 1 : 4; return; }
         if (key === 'DOWN') { st.deg = st.deg < 4 ? st.deg + 1 : 2; return; }
-        if (key === '1' || key === '2' || key === '3') {
-          st.deg = parseInt(key, 10) + 1;
+        if (!is880 && (key === '2' || key === '3' || key === '4')) {
+          st.deg = parseInt(key, 10);
           st.step = 'op';
           return;
         }
@@ -1733,11 +2249,11 @@
         return;
       }
       if (st.step === 'op') {
-        if (key === 'AC') { st.step = 'deg'; return; }
+        if (key === 'AC' || key === 'BACK') { st.step = 'deg'; return; }
         if (key === 'UP') { st.opIdx = (st.opIdx + 3) % 4; return; }
         if (key === 'DOWN') { st.opIdx = (st.opIdx + 1) % 4; return; }
         var nOp = parseInt(key, 10);
-        if (nOp >= 1 && nOp <= 4) {
+        if (!is880 && nOp >= 1 && nOp <= 4) {
           st.opIdx = nOp - 1;
           st.step = 'coeffs';
           st.cIdx = 0; st.editStr = '';
@@ -1751,12 +2267,13 @@
         return;
       }
       if (st.step === 'result') {
-        if (key === 'AC' || key === '=' || key === 'OK') {
+        if (key === 'AC' || key === 'BACK' || key === '=' || key === 'OK') {
           st.step = 'coeffs';
         }
         return;
       }
 
+      if (key === 'BACK') { st.step = 'op'; return; }
       if (key === 'AC') {
         if (st.editStr !== '') st.editStr = '';
         else st.step = 'op';
@@ -1807,12 +2324,13 @@
   });
 
   // =========================================================================
-  // C. ỨNG DỤNG TỈ LỆ THỨC (ratio)
+  // C. ỨNG DỤNG TỈ LỆ THỨC (ratio — Ratio)
   // =========================================================================
   CalcApps.register({
     id: 'ratio',
     code: 'C',
-    name: 'Tỉ lệ thức',
+    name: 'Ratio',
+    viName: 'Tỉ lệ thức',
     icon: 'A:B',
     stage: 1,
     init: function (ctx) {
@@ -1830,12 +2348,12 @@
     },
     render: function (ctx) {
       var st = ctx.ratioState;
+      var is880 = (ctx.machineId === '880');
       if (st.step === 'type') {
         return (
           '<div class="lcd-menu-list">' +
-            '<div class="lcd-list-title">Chọn dạng tỉ lệ thức:</div>' +
-            '<div class="lcd-list-item ' + (st.type === 1 ? 'active' : '') + '" data-action="ratio-type" data-type="1">1. A : B = X : D (Tìm X)</div>' +
-            '<div class="lcd-list-item ' + (st.type === 2 ? 'active' : '') + '" data-action="ratio-type" data-type="2">2. A : B = C : X (Tìm X)</div>' +
+            '<div class="lcd-list-item ' + (st.type === 1 ? 'active' : '') + '" data-action="ratio-type" data-type="1">' + (is880 ? 'A:B=X:D' : '1:A:B=X:D') + '</div>' +
+            '<div class="lcd-list-item ' + (st.type === 2 ? 'active' : '') + '" data-action="ratio-type" data-type="2">' + (is880 ? 'A:B=C:X' : '2:A:B=C:X') + '</div>' +
           '</div>'
         );
       }
@@ -1847,7 +2365,6 @@
         var vHtml = (!st.showDecimal && ex) ? CalcEditor.renderResultHTML(ex, ctx.settings.ioMode === 'line') : escapeHtml(dec);
         return (
           '<div class="lcd-calc">' +
-            '<div class="lcd-list-title">' + (st.type === 1 ? 'A : B = X : D' : 'A : B = C : X') + ' — Kết quả (S⇔D đổi dạng):</div>' +
             '<div class="lcd-expr-line"><b>X =</b></div>' +
             '<div class="lcd-res-line">' + vHtml + '</div>' +
           '</div>'
@@ -1856,8 +2373,8 @@
 
       var names = st.type === 1 ? ['A', 'B', 'D'] : ['A', 'B', 'C'];
       var html = '<div class="lcd-table-wrap">';
-      html += '<div class="lcd-table-bar"><span>' + (st.type === 1 ? 'A : B = X : D' : 'A : B = C : X') + '</span>' +
-              '<span class="lcd-inline-btn" data-action="ratio-solve-btn">[Tính X =]</span></div>';
+      html += '<div class="lcd-table-bar"><span>' + (st.type === 1 ? 'A:B=X:D' : 'A:B=C:X') + '</span>' +
+              '<span class="lcd-inline-btn" data-action="ratio-solve-btn">[=]</span></div>';
       html += '<table class="lcd-grid"><thead><tr>';
       for (var i = 0; i < 3; i++) html += '<th>' + names[i] + '</th>';
       html += '</tr></thead><tbody><tr>';
@@ -1867,7 +2384,7 @@
       }
       html += '</tr></tbody></table>';
       var cur = st.editStr !== '' ? st.editStr : String(st.vals[st.idx]);
-      html += '<div class="lcd-cell-edit">' + names[st.idx] + ' = <b>' + escapeHtml(cur) + '</b><span class="m-cursor"></span></div>';
+      html += '<div class="lcd-cell-edit"><b>' + escapeHtml(cur) + '</b><span class="m-cursor"></span></div>';
       html += '</div>';
       return html;
     },
@@ -1875,16 +2392,17 @@
       var st = ctx.ratioState;
       if (st.step === 'type') {
         if (key === 'UP' || key === 'DOWN') { st.type = st.type === 1 ? 2 : 1; return; }
-        if (key === '1' || key === '2') { st.type = parseInt(key, 10); st.step = 'input'; st.idx = 0; st.editStr = ''; return; }
+        if (ctx.machineId === '580' && (key === '1' || key === '2')) { st.type = parseInt(key, 10); st.step = 'input'; st.idx = 0; st.editStr = ''; return; }
         if (key === '=' || key === 'OK') { st.step = 'input'; st.idx = 0; st.editStr = ''; return; }
         return;
       }
       if (st.step === 'result') {
         if (key === 'S_D') { st.showDecimal = !st.showDecimal; return; }
-        if (key === 'AC' || key === '=' || key === 'OK') { st.step = 'input'; return; }
+        if (key === 'AC' || key === 'BACK' || key === '=' || key === 'OK') { st.step = 'input'; return; }
         return;
       }
 
+      if (key === 'BACK') { st.step = 'type'; return; }
       if (key === 'AC') {
         if (st.editStr !== '') st.editStr = '';
         else st.step = 'type';
@@ -1922,8 +2440,5 @@
     }
   });
 
-  // Đăng ký mục D, E (Chỉ có ở Kiểu B, Giai đoạn 2)
-  registerStage2App('mathbox', 'D', 'Hộp toán học', '🎲', true);
-  registerStage2App('algo', 'E', 'Thuật toán', '{}', true);
-
-})(this);
+  root.CalcApps = CalcApps;
+})(typeof window !== 'undefined' ? window : (typeof global !== 'undefined' ? global : this));

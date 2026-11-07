@@ -1,12 +1,13 @@
-/* Giao diện, bàn phím ảo, nhật ký phím và kết nối iframe cho Máy tính Thầy Minh (ES5) */
+/* Giao diện, bàn phím ảo, thực đơn và nhật ký phím cho Máy tính Thầy Minh (ES5 thuần — Máy 880 & Máy 580) */
 (function (root) {
   'use strict';
 
   var CalcEngine = root.CalcEngine;
   var CalcEditor = root.CalcEditor;
   var CalcApps = root.CalcApps;
+  var CalcMachines = root.CalcMachines || {};
 
-  var STORAGE_KEY = 'ttm_may_tinh_state_v1';
+  var STORAGE_KEY = 'ttm_may_tinh_state_v3';
 
   function escapeHtml(s) {
     return String(s === undefined || s === null ? '' : s)
@@ -14,6 +15,10 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function stripHtmlTags(s) {
+    return String(s || '').replace(/<[^>]*>/g, '');
   }
 
   function parseQueryParams() {
@@ -38,119 +43,84 @@
     }
   }
 
-  // Định nghĩa các phím của bàn phím ảo
-  var TOP_KEYS = [
-    { id: 'SHIFT', label: 'SHIFT', cls: 'btn-shift' },
-    { id: 'ALPHA', label: 'ALPHA', cls: 'btn-alpha' },
-    { id: 'HOME', label: 'HOME', shiftLbl: 'CÀI ĐẶT', cls: 'btn-ctrl' },
-    { id: 'MENU', label: 'MENU', shiftLbl: 'SETUP', cls: 'btn-ctrl' },
-    { id: 'ON_AC', label: 'ON', shiftLbl: 'OFF', cls: 'btn-ctrl btn-on' }
-  ];
-
-  var FUNC_BAR_KEYS = [
-    { id: 'OPTN', label: 'OPTN', shiftLbl: 'TOOLS', alphaLbl: '' },
-    { id: 'CALC_BTN', label: 'CALC', shiftLbl: 'SOLVE', alphaLbl: '=' },
-    { id: 'VAR_BTN', label: 'BIẾN', shiftLbl: 'RCL', alphaLbl: '' },
-    { id: 'CATALOG_BTN', label: 'DANH MỤC', shiftLbl: 'HẰNG', alphaLbl: '' }
-  ];
-
-  // Lưới 24 phím hàm khoa học (6 cột x 4 hàng)
-  var SCI_KEYS = [
-    // Hàng 1
-    { id: 'KEY_X', label: '<i>x</i>', shiftLbl: '|<i>x</i>|', alphaLbl: '<i>x</i>', normalAct: 'x', shiftAct: 'ABS', alphaAct: 'VAR_x' },
-    { id: 'KEY_FRAC', label: '■/□', shiftLbl: '□■/□', alphaLbl: '÷R', normalAct: 'FRAC', shiftAct: 'MIXED', alphaAct: 'DIV_R' },
-    { id: 'KEY_SQRT', label: '√■', shiftLbl: '∛■', alphaLbl: 'Pol', normalAct: 'SQRT', shiftAct: 'CBRT', alphaAct: 'POL' },
-    { id: 'KEY_SQ', label: '<i>x</i>²', shiftLbl: '<i>x</i>³', alphaLbl: 'Rec', baseLbl: 'DEC', normalAct: 'SQ', shiftAct: 'CUBE', alphaAct: 'REC' },
-    { id: 'KEY_POW', label: '<i>x</i>^■', shiftLbl: 'ⁿ√■', alphaLbl: 'GCD', baseLbl: 'HEX', normalAct: 'POW', shiftAct: 'ROOT', alphaAct: 'GCD_FN' },
-    { id: 'KEY_LOG', label: 'log', shiftLbl: '10^■', alphaLbl: 'LCM', baseLbl: 'BIN', normalAct: 'log', shiftAct: 'POW10', alphaAct: 'LCM_FN' },
-    // Hàng 2
-    { id: 'KEY_LN', label: 'ln', shiftLbl: '<i>e</i>^■', alphaLbl: '<i>e</i>', baseLbl: 'OCT', normalAct: 'ln', shiftAct: 'POWE', alphaAct: 'E_CONST' },
-    { id: 'KEY_NEG', label: '(−)', shiftLbl: 'log■□', alphaLbl: 'A', normalAct: '(-)', shiftAct: 'LOG2', alphaAct: 'VAR_A' },
-    { id: 'KEY_DMS', label: '°\'"', shiftLbl: 'FACT', alphaLbl: 'B', normalAct: 'DMS', shiftAct: 'FACT', alphaAct: 'VAR_B' },
-    { id: 'KEY_INV', label: '<i>x</i>⁻¹', shiftLbl: '<i>x</i>!', alphaLbl: 'C', normalAct: 'INV', shiftAct: 'FACTORIAL', alphaAct: 'VAR_C' },
-    { id: 'KEY_SIN', label: 'sin', shiftLbl: 'sin⁻¹', alphaLbl: 'D', normalAct: 'sin', shiftAct: 'asin', alphaAct: 'VAR_D' },
-    { id: 'KEY_COS', label: 'cos', shiftLbl: 'cos⁻¹', alphaLbl: 'E', normalAct: 'cos', shiftAct: 'acos', alphaAct: 'VAR_E' },
-    // Hàng 3
-    { id: 'KEY_TAN', label: 'tan', shiftLbl: 'tan⁻¹', alphaLbl: 'F', normalAct: 'tan', shiftAct: 'atan', alphaAct: 'VAR_F' },
-    { id: 'KEY_STO', label: 'STO', shiftLbl: 'RCL', alphaLbl: '<i>x</i>', normalAct: 'STO', shiftAct: 'RCL', alphaAct: 'VAR_x' },
-    { id: 'KEY_ENG', label: 'ENG', shiftLbl: '←ENG', alphaLbl: '<i>i</i>', normalAct: 'ENG', shiftAct: 'ENG_BACK', alphaAct: 'COMPLEX_I' },
-    { id: 'KEY_LPAREN', label: '(', shiftLbl: '%', alphaLbl: '(', normalAct: '(', shiftAct: 'PERCENT', alphaAct: '(' },
-    { id: 'KEY_RPAREN', label: ')', shiftLbl: ',', alphaLbl: '<i>x</i>', normalAct: ')', shiftAct: ',', alphaAct: 'VAR_x' },
-    { id: 'KEY_SD', label: 'S⇔D', shiftLbl: 'a b/c', alphaLbl: '<i>y</i>', normalAct: 'S_D', shiftAct: 'MIXED_SD', alphaAct: 'VAR_y' },
-    // Hàng 4
-    { id: 'KEY_MPLUS', label: 'M+', shiftLbl: 'M−', alphaLbl: 'M', normalAct: 'M+', shiftAct: 'M-', alphaAct: 'VAR_M' },
-    { id: 'KEY_INTEG', label: '∫d<i>x</i>', shiftLbl: 'd/d<i>x</i>', alphaLbl: ':', normalAct: 'INTEG', shiftAct: 'DERIV', alphaAct: ',' },
-    { id: 'KEY_SUM', label: '∑', shiftLbl: '∏', alphaLbl: '', normalAct: 'SUM', shiftAct: 'PROD', alphaAct: 'PROD' },
-    { id: 'KEY_LOG2', label: 'log■□', shiftLbl: '|<i>x</i>|', alphaLbl: '', normalAct: 'LOG2', shiftAct: 'ABS', alphaAct: 'ABS' },
-    { id: 'KEY_NCR', label: 'nCr', shiftLbl: 'nPr', alphaLbl: '', normalAct: 'NCR', shiftAct: 'NPR', alphaAct: 'NPR' },
-    { id: 'KEY_FACT', label: 'FACT', shiftLbl: '÷R', alphaLbl: '∠', normalAct: 'FACT', shiftAct: 'DIV_R', alphaAct: 'ANGLE_SYM' }
-  ];
-
-  // Lưới 20 phím số và phép tính chính (5 cột x 4 hàng)
-  var NUM_KEYS = [
-    { id: 'KEY_7', label: '7', shiftLbl: '', alphaLbl: '', normalAct: '7', shiftAct: '7', alphaAct: '7', cls: 'btn-num' },
-    { id: 'KEY_8', label: '8', shiftLbl: '', alphaLbl: '', normalAct: '8', shiftAct: '8', alphaAct: '8', cls: 'btn-num' },
-    { id: 'KEY_9', label: '9', shiftLbl: '', alphaLbl: '', normalAct: '9', shiftAct: '9', alphaAct: '9', cls: 'btn-num' },
-    { id: 'KEY_DEL', label: 'DEL', shiftLbl: 'INS', alphaLbl: '', normalAct: 'DEL', shiftAct: 'INS', alphaAct: 'DEL', cls: 'btn-accent' },
-    { id: 'KEY_AC', label: 'AC', shiftLbl: 'OFF', alphaLbl: '', normalAct: 'AC', shiftAct: 'OFF', alphaAct: 'AC', cls: 'btn-accent' },
-
-    { id: 'KEY_4', label: '4', shiftLbl: '', alphaLbl: '', normalAct: '4', shiftAct: '4', alphaAct: '4', cls: 'btn-num' },
-    { id: 'KEY_5', label: '5', shiftLbl: '', alphaLbl: '', normalAct: '5', shiftAct: '5', alphaAct: '5', cls: 'btn-num' },
-    { id: 'KEY_6', label: '6', shiftLbl: '', alphaLbl: '', normalAct: '6', shiftAct: '6', alphaAct: '6', cls: 'btn-num' },
-    { id: 'KEY_MUL', label: '×', shiftLbl: 'nPr', alphaLbl: 'GCD', normalAct: '*', shiftAct: 'NPR', alphaAct: 'GCD_FN', cls: 'btn-op' },
-    { id: 'KEY_DIV', label: '÷', shiftLbl: 'nCr', alphaLbl: 'LCM', normalAct: '/', shiftAct: 'NCR', alphaAct: 'LCM_FN', cls: 'btn-op' },
-
-    { id: 'KEY_1', label: '1', shiftLbl: '', alphaLbl: '', normalAct: '1', shiftAct: '1', alphaAct: '1', cls: 'btn-num' },
-    { id: 'KEY_2', label: '2', shiftLbl: '', alphaLbl: '', normalAct: '2', shiftAct: '2', alphaAct: '2', cls: 'btn-num' },
-    { id: 'KEY_3', label: '3', shiftLbl: '', alphaLbl: '', normalAct: '3', shiftAct: '3', alphaAct: '3', cls: 'btn-num' },
-    { id: 'KEY_ADD', label: '+', shiftLbl: 'Pol', alphaLbl: 'Int', normalAct: '+', shiftAct: 'POL', alphaAct: 'INT_FN', cls: 'btn-op' },
-    { id: 'KEY_SUB', label: '−', shiftLbl: 'Rec', alphaLbl: 'Intg', normalAct: '-', shiftAct: 'REC', alphaAct: 'INTG_FN', cls: 'btn-op' },
-
-    { id: 'KEY_0', label: '0', shiftLbl: 'Rnd', alphaLbl: '', normalAct: '0', shiftAct: 'RND_FN', alphaAct: '0', cls: 'btn-num' },
-    { id: 'KEY_DOT', label: '.', shiftLbl: 'Ran#', alphaLbl: 'RanInt', normalAct: '.', shiftAct: 'RAN', alphaAct: 'RANINT', cls: 'btn-num' },
-    { id: 'KEY_EXP', label: '×10<sup>x</sup>', plainLbl: '×10^x', shiftLbl: 'π', alphaLbl: '<i>e</i>', normalAct: 'EXP10', shiftAct: 'PI', alphaAct: 'E_CONST', cls: 'btn-num' },
-    { id: 'KEY_ANS', label: 'Ans', shiftLbl: 'PreAns', alphaLbl: '', normalAct: 'ANS', shiftAct: 'PREANS', alphaAct: 'ANS', cls: 'btn-num' },
-    { id: 'KEY_EQ', label: '=', shiftLbl: '≈', alphaLbl: '', normalAct: '=', shiftAct: 'APPROX_EQ', alphaAct: '=', cls: 'btn-eq' }
-  ];
-
-  // Trạng thái toàn cục của ứng dụng máy tính
-  var AppContext = {
-    currentAppId: 'calc',
-    overlay: null, // null | 'menu' | 'setup' | 'optn' | 'optn_hyp' | 'catalog' | 'vars' | 'off'
-    menuIdx: 0,
-    setupIdx: 0,
-    setupSubMode: null, // null | 'fix' | 'sci'
-    optnIdx: 0,
-    catalogIdx: 0,
-    varIdx: 0,
-    shiftActive: false,
-    alphaActive: false,
-    statusHint: '',
-    keyLog: [], // [{ text, mod: ''|'shift'|'alpha' }]
-    keepKeyLog: false,
-    showKeyLog: true,
-    pendingNewCalcLogReset: false,
-    settings: {
+  function createDefaultSettings(mId) {
+    return {
       angle: 'deg', // 'deg' | 'rad' | 'gra'
       fmtMode: 'norm1', // 'norm1' | 'norm2' | 'fix' | 'sci'
       fmtDigits: 2,
-      ioMode: 'math', // 'math' | 'line'
+      ioMode: 'math', // 'math' | 'math_dec' | 'line' | 'line_dec'
       fracMode: 'improper', // 'improper' (d/c) | 'mixed' (a b/c)
       tableTwoFuncs: true,
       statFreq: false,
       complexForm: 'rect', // 'rect' (a+bi) | 'polar' (r∠θ)
-      modelType: 'a', // 'a' (580) | 'b' (880)
-      largeFont: false
-    },
-    vars: {
+      eqComplexRoots: true,
+      engSymbol: false,
+      decimalMark: 'dot', // 'dot' | 'comma'
+      digitSep: false,
+      autoPowerOff: '10',
+      contrast: 3,
+      fontSize: 'norm', // 'norm' | 'small' (trên 880: Normal / Small)
+      largeFont: false,
+      modelType: mId === '580' ? 'a' : 'b'
+    };
+  }
+
+  function createDefaultVars() {
+    return {
       A: 0, B: 0, C: 0, D: 0, E: 0, F: 0,
-      x: 0, y: 0, M: 0, Ans: 0, PreAns: 0
+      x: 0, y: 0, z: 0, M: 0, Ans: 0, PreAns: 0
+    };
+  }
+
+  // Trạng thái toàn cục của ứng dụng máy tính
+  var AppContext = {
+    machineId: '880', // '880' | '580'
+    currentAppId: 'calc',
+    overlay: null,
+    // Các giá trị overlay:
+    // null | 'home' | 'menu' | 'tree' | 'paged' | 'format' | 'vars880' | 'var880_act' | 'var880_edit' |
+    // 'func_def' | 'periodic_table' | 'recall580' | 'digit_prompt' | 'confirm_msg' | 'qr_msg' | 'off'
+    menuIdx: 0,
+    treeStack: [], // [{ title, items, idx }] cho SETTINGS, CATALOG, TOOLS, CONST, CONV...
+    pagedMenu: null, // { title, pages, pageIdx, itemIdx, kind } cho SETUP và OPTN trên 580
+    formatItems: [],
+    formatIdx: 0,
+    varIdx: 0,
+    varActIdx: 0,
+    varEditStr: '',
+    funcDefTarget: 'f', // 'f' | 'g'
+    funcDefEditor: null,
+    ptElementZ: 1, // Nguyên tố đang chọn trên bảng tuần hoàn (1..118)
+    digitPromptKind: null, // 'fix' | 'sci' | 'norm'
+    confirmMsg: null, // { title, sub, onYes }
+    verifyMode: false, // Chế độ Verify ON trên máy 880
+    shiftActive: false,
+    alphaActive: false,
+    statusHint: '',
+    keyLog: [],
+    keepKeyLog: false,
+    showKeyLog: true,
+    settings: createDefaultSettings('880'),
+    vars: createDefaultVars(),
+    perMachineStore: {
+      '880': {
+        settings: createDefaultSettings('880'),
+        vars: createDefaultVars(),
+        definedFuncs: { f: 'x²', g: '' }
+      },
+      '580': {
+        settings: createDefaultSettings('580'),
+        vars: createDefaultVars()
+      }
     },
 
     getFormatOpts: function () {
       return {
         mode: this.settings.fmtMode,
-        digits: this.settings.fmtDigits
+        digits: this.settings.fmtDigits,
+        decimalMark: this.settings.decimalMark,
+        digitSep: this.settings.digitSep,
+        engSymbol: this.settings.engSymbol
       };
     },
 
@@ -158,6 +128,7 @@
       return {
         angle: this.settings.angle,
         vars: this.vars,
+        funcs: CalcEngine.definedFuncs,
         fix: this.settings.fmtMode === 'fix' ? this.settings.fmtDigits : null,
         format: this.getFormatOpts()
       };
@@ -168,8 +139,9 @@
     },
 
     openMenu: function () {
-      this.overlay = 'menu';
-      var apps = CalcApps.getVisibleApps(this.settings.modelType);
+      var apps = CalcApps.getVisibleApps(this.machineId);
+      this.overlay = (this.machineId === '880') ? 'home' : 'menu';
+      this.menuIdx = 0;
       for (var i = 0; i < apps.length; i++) {
         if (apps[i].id === this.currentAppId) {
           this.menuIdx = i;
@@ -186,22 +158,76 @@
       this.overlay = null;
       this.shiftActive = false;
       this.alphaActive = false;
+      this.verifyMode = false;
       app.init(this);
       renderAll();
     },
 
-    onNewExpressionAfterEqual: function () {
-      if (!this.keepKeyLog) {
-        // Giữ lại viên phím vừa bấm nếu nó đã được ghi, hoặc đặt cờ xóa trước khi ghi phím mới
+    switchMachine: function (newMachineId) {
+      var target = (newMachineId === '580' || newMachineId === 'a') ? '580' : '880';
+      // Lưu cài đặt và biến của máy hiện tại vào kho riêng
+      this.perMachineStore[this.machineId] = {
+        settings: JSON.parse(JSON.stringify(this.settings)),
+        vars: JSON.parse(JSON.stringify(this.vars)),
+        definedFuncs: CalcEngine.definedFuncs ? JSON.parse(JSON.stringify(CalcEngine.definedFuncs)) : { f: '', g: '' }
+      };
+
+      this.machineId = target;
+      var slot = this.perMachineStore[target] || {
+        settings: createDefaultSettings(target),
+        vars: createDefaultVars(),
+        definedFuncs: { f: '', g: '' }
+      };
+      this.settings = slot.settings;
+      this.settings.modelType = (target === '580') ? 'a' : 'b';
+      this.vars = slot.vars;
+      if (slot.definedFuncs && CalcEngine.definedFuncs) {
+        CalcEngine.definedFuncs.f = slot.definedFuncs.f || '';
+        CalcEngine.definedFuncs.g = slot.definedFuncs.g || '';
       }
+
+      // Kiểm tra xem ứng dụng hiện tại có tồn tại trên máy mới không
+      var visible = CalcApps.getVisibleApps(target);
+      var found = false;
+      for (var i = 0; i < visible.length; i++) {
+        if (visible[i].id === this.currentAppId) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        this.currentAppId = 'calc';
+      }
+
+      this.overlay = null;
+      this.shiftActive = false;
+      this.alphaActive = false;
+      this.verifyMode = false;
+      this.keyLog = [];
+
+      this.saveState();
+      updateBrandAndSwitcherDOM();
+      buildKeypadDOM();
+      var curApp = CalcApps.byId[this.currentAppId] || CalcApps.byId.calc;
+      curApp.init(this);
+      renderAll();
+      renderKeyLog();
+      updateScale();
     },
+
+    onNewExpressionAfterEqual: function () {},
 
     saveState: function () {
       try {
+        this.perMachineStore[this.machineId] = {
+          settings: this.settings,
+          vars: this.vars,
+          definedFuncs: CalcEngine.definedFuncs || { f: '', g: '' }
+        };
         if (window.localStorage) {
           var data = JSON.stringify({
-            settings: this.settings,
-            vars: this.vars
+            activeMachine: this.machineId,
+            perMachineStore: this.perMachineStore
           });
           window.localStorage.setItem(STORAGE_KEY, data);
         }
@@ -214,42 +240,73 @@
           var raw = window.localStorage.getItem(STORAGE_KEY);
           if (raw) {
             var parsed = JSON.parse(raw);
-            if (parsed.settings) {
-              for (var k in parsed.settings) {
-                if (Object.prototype.hasOwnProperty.call(parsed.settings, k)) {
-                  this.settings[k] = parsed.settings[k];
-                }
+            if (parsed.perMachineStore) {
+              if (parsed.perMachineStore['880']) {
+                this.mergeMachineSlot('880', parsed.perMachineStore['880']);
+              }
+              if (parsed.perMachineStore['580']) {
+                this.mergeMachineSlot('580', parsed.perMachineStore['580']);
               }
             }
-            if (parsed.vars) {
-              for (var vk in parsed.vars) {
-                if (Object.prototype.hasOwnProperty.call(parsed.vars, vk) && typeof parsed.vars[vk] === 'number') {
-                  this.vars[vk] = parsed.vars[vk];
-                }
-              }
+            if (parsed.activeMachine === '880' || parsed.activeMachine === '580') {
+              this.machineId = parsed.activeMachine;
             }
           }
         }
       } catch (e) {}
+      var activeSlot = this.perMachineStore[this.machineId];
+      this.settings = activeSlot.settings;
+      this.vars = activeSlot.vars;
+      if (activeSlot.definedFuncs && CalcEngine.definedFuncs) {
+        CalcEngine.definedFuncs.f = activeSlot.definedFuncs.f || '';
+        CalcEngine.definedFuncs.g = activeSlot.definedFuncs.g || '';
+      }
     },
 
-    resetDefaults: function () {
-      this.settings = {
-        angle: 'deg',
-        fmtMode: 'norm1',
-        fmtDigits: 2,
-        ioMode: 'math',
-        fracMode: 'improper',
-        tableTwoFuncs: true,
-        statFreq: false,
-        complexForm: 'rect',
-        modelType: this.settings.modelType || 'a',
-        largeFont: false
-      };
-      this.saveState();
-      if (this.calcState) {
-        this.calcState.editor.lineMode = false;
+    mergeMachineSlot: function (mId, src) {
+      var dst = this.perMachineStore[mId];
+      if (src.settings) {
+        for (var k in src.settings) {
+          if (Object.prototype.hasOwnProperty.call(src.settings, k)) {
+            dst.settings[k] = src.settings[k];
+          }
+        }
       }
+      if (src.vars) {
+        for (var vk in src.vars) {
+          if (Object.prototype.hasOwnProperty.call(src.vars, vk) && typeof src.vars[vk] === 'number') {
+            dst.vars[vk] = src.vars[vk];
+          }
+        }
+      }
+      if (src.definedFuncs) {
+        dst.definedFuncs = {
+          f: String(src.definedFuncs.f || ''),
+          g: String(src.definedFuncs.g || '')
+        };
+      }
+    },
+
+    resetSetupData: function () {
+      this.settings = createDefaultSettings(this.machineId);
+      this.verifyMode = false;
+      if (this.calcState) this.calcState.editor.lineMode = false;
+      if (this.complexState) this.complexState.editor.lineMode = false;
+      this.saveState();
+    },
+
+    resetVariableMemory: function () {
+      this.vars = createDefaultVars();
+      if (CalcEngine.definedFuncs) {
+        CalcEngine.definedFuncs.f = '';
+        CalcEngine.definedFuncs.g = '';
+      }
+      this.saveState();
+    },
+
+    resetInitializeAll: function () {
+      this.resetSetupData();
+      this.resetVariableMemory();
     },
 
     notifyParentResult: function (exprStr, valNum, dispStr) {
@@ -267,13 +324,26 @@
     }
   };
 
-  // Ghi nhận phím bấm vào nhật ký phím
-  function recordKeyLog(label, modType, isStartingNewAfterEq) {
+  function updateBrandAndSwitcherDOM() {
+    var is880 = (AppContext.machineId === '880');
+    var subEl = document.getElementById('brand-sub');
+    if (subEl) {
+      subEl.innerHTML = is880 ? 'Kiểu 880' : 'Kiểu 580';
+    }
+    var btn880 = document.getElementById('btn-switch-880');
+    var btn580 = document.getElementById('btn-switch-580');
+    if (btn880) btn880.className = 'machine-switch-btn' + (is880 ? ' active' : '');
+    if (btn580) btn580.className = 'machine-switch-btn' + (!is880 ? ' active' : '');
+  }
+
+  // =========================================================================
+  // NHẬT KÝ PHÍM BẤM (Keylog)
+  // =========================================================================
+  function recordKeyLog(label, modType, isStartingNewAfterEq, extraNote) {
     if (isStartingNewAfterEq && !AppContext.keepKeyLog) {
       AppContext.keyLog = [];
     }
 
-    // Nếu phím là SHIFT hoặc ALPHA: nếu viên cuối đang là SHIFT/ALPHA cùng loại thì xóa (hủy), ngược lại thêm viên tạm
     if (label === 'SHIFT' || label === 'ALPHA') {
       var m = label === 'SHIFT' ? 'shift' : 'alpha';
       var last = AppContext.keyLog.length > 0 ? AppContext.keyLog[AppContext.keyLog.length - 1] : null;
@@ -290,16 +360,16 @@
       return;
     }
 
-    // Nếu viên cuối là SHIFT/ALPHA đang chờ gộp -> gộp thành "SHIFT sin" hoặc "ALPHA A"
+    var displayTxt = label + (extraNote ? (' (' + extraNote + ')') : '');
     var prev = AppContext.keyLog.length > 0 ? AppContext.keyLog[AppContext.keyLog.length - 1] : null;
     if (prev && prev.pendingMod) {
       var prefix = prev.pendingMod === 'shift' ? 'SHIFT ' : 'ALPHA ';
-      prev.text = prefix + label;
+      prev.text = prefix + displayTxt;
       prev.mod = prev.pendingMod;
       delete prev.pendingMod;
     } else {
       AppContext.keyLog.push({
-        text: (modType === 'shift' ? 'SHIFT ' : (modType === 'alpha' ? 'ALPHA ' : '')) + label,
+        text: (modType === 'shift' ? 'SHIFT ' : (modType === 'alpha' ? 'ALPHA ' : '')) + displayTxt,
         mod: modType || ''
       });
     }
@@ -335,324 +405,569 @@
     listEl.scrollLeft = listEl.scrollWidth;
   }
 
-  // Xây dựng khung bàn phím ảo một lần khi khởi động
+  // =========================================================================
+  // XÂY DỰNG BÀN PHÍM ẢO THEO HỒ SƠ MÁY (880 HOẶC 580)
+  // =========================================================================
+  var activeKeyLookup = {};
+
   function buildKeypadDOM() {
     var topEl = document.getElementById('calc-top-row');
     var sciEl = document.getElementById('calc-sci-grid');
     var numEl = document.getElementById('calc-num-grid');
     if (!topEl || !sciEl || !numEl) return;
 
-    // Cụm phím điều khiển + D-Pad
+    activeKeyLookup = {};
+    if (AppContext.machineId === '880') {
+      buildKeypad880(topEl, sciEl, numEl);
+    } else {
+      buildKeypad580(topEl, sciEl, numEl);
+    }
+  }
+
+  function registerKeyObj(k) {
+    if (k && k.id) {
+      activeKeyLookup[k.id] = k;
+    }
+  }
+
+  function buildKeypad880(topEl, sciEl, numEl) {
+    var prof = CalcMachines['880'];
+    if (!prof) return;
+    var kp = prof.keypad;
+
+    // 1. Khối điều hướng trên của Máy 880:
+    // Hàng trên: [ON, HOME] + [SETTINGS, BACK] ở bên trái | D-Pad chữ thập (có OK) ở giữa | Phím cuộn trang dọc [⇑ / ⇓] bên phải
+    // Hàng dưới: SHIFT, VARIABLE, FUNCTION | (dưới ▼ của D-Pad) | CATALOG, TOOLS
+    var topLeft = kp.topLeftCluster;
+    var navRow2 = kp.navRow2;
+    for (var r = 0; r < topLeft.length; r++) {
+      for (var c = 0; c < topLeft[r].length; c++) registerKeyObj(topLeft[r][c]);
+    }
+    registerKeyObj(kp.pageScroll.up);
+    registerKeyObj(kp.pageScroll.down);
+    for (var n = 0; n < navRow2.length; n++) registerKeyObj(navRow2[n]);
+
+    var topHtml =
+      '<div class="top880-wrap">' +
+        '<div class="top880-upper">' +
+          '<div class="top880-left-cluster">' +
+            '<div class="top880-pair">' +
+              renderKey880Top(topLeft[0][0]) +
+              renderKey880Top(topLeft[0][1]) +
+            '</div>' +
+            '<div class="top880-pair">' +
+              renderKey880Top(topLeft[1][0]) +
+              renderKey880Top(topLeft[1][1]) +
+            '</div>' +
+          '</div>' +
+          '<div class="dpad880-wrap">' +
+            '<button type="button" class="dpad-btn dpad-up" data-dpad="UP" title="Lên">▲</button>' +
+            '<button type="button" class="dpad-btn dpad-left" data-dpad="LEFT" title="Trái">◀</button>' +
+            '<button type="button" class="dpad-btn dpad-ok" data-dpad="OK" title="OK">OK</button>' +
+            '<button type="button" class="dpad-btn dpad-right" data-dpad="RIGHT" title="Phải">▶</button>' +
+            '<button type="button" class="dpad-btn dpad-down" data-dpad="DOWN" title="Xuống">▼</button>' +
+          '</div>' +
+          '<div class="top880-right-cluster">' +
+            '<div class="rocker880">' +
+              '<button type="button" class="rocker880-btn rocker-up" data-key-id="PAGE_UP" title="Cuộn trang lên">' + kp.pageScroll.up.label + '</button>' +
+              '<button type="button" class="rocker880-btn rocker-down" data-key-id="PAGE_DOWN" title="Cuộn trang xuống">' + kp.pageScroll.down.label + '</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="top880-lower">' +
+          renderKey880Nav(navRow2[0]) +
+          renderKey880Nav(navRow2[1]) +
+          renderKey880Nav(navRow2[2]) +
+          '<div class="top880-dpad-gap"></div>' +
+          renderKey880Nav(navRow2[3]) +
+          renderKey880Nav(navRow2[4]) +
+        '</div>' +
+      '</div>';
+    topEl.innerHTML = topHtml;
+
+    // 2. Lưới 12 phím hàm khoa học (2 hàng × 6 cột)
+    var sciHtml = '';
+    for (var sr = 0; sr < kp.sciRows.length; sr++) {
+      var row = kp.sciRows[sr];
+      for (var sc = 0; sc < row.length; sc++) {
+        var sk = row[sc];
+        registerKeyObj(sk);
+        sciHtml +=
+          '<div class="key-cell key-cell-880-sci">' +
+            '<div class="key-sub-row"><span class="sub-shift-880">' + (sk.shiftLbl || '') + '</span></div>' +
+            '<button type="button" class="calc-btn ' + (sk.cls || 'btn-880-sci') + '" data-key-id="' + sk.id + '">' + sk.label + '</button>' +
+          '</div>';
+      }
+    }
+    sciEl.innerHTML = sciHtml;
+
+    // 3. Lưới 20 phím số và phép toán (4 hàng × 5 cột)
+    var numHtml = '';
+    for (var nr = 0; nr < kp.numRows.length; nr++) {
+      var nRow = kp.numRows[nr];
+      for (var nc = 0; nc < nRow.length; nc++) {
+        var nk = nRow[nc];
+        registerKeyObj(nk);
+        var sCls = nk.isVarShift ? 'sub-shift-880 sub-var-880' : 'sub-shift-880';
+        numHtml +=
+          '<div class="key-cell key-cell-880-num">' +
+            '<div class="key-sub-row"><span class="' + sCls + '">' + (nk.shiftLbl || '') + '</span></div>' +
+            '<button type="button" class="calc-btn ' + (nk.cls || 'btn-880-num') + '" data-key-id="' + nk.id + '">' + nk.label + '</button>' +
+          '</div>';
+      }
+    }
+    numEl.innerHTML = numHtml;
+  }
+
+  function renderKey880Top(k) {
+    return (
+      '<div class="key-cell key-cell-880-top">' +
+        '<div class="key-sub-row"><span class="sub-top-880">' + (k.topText || '') + '</span></div>' +
+        '<button type="button" class="calc-btn ' + (k.cls || 'btn-880-ctrl') + '" data-key-id="' + k.id + '" title="' + escapeHtml(k.title || k.plainLbl) + '">' + k.label + '</button>' +
+      '</div>'
+    );
+  }
+
+  function renderKey880Nav(k) {
+    var topCls = k.id === 'SHIFT' ? 'sub-shift-880' : 'sub-top-880';
+    return (
+      '<div class="key-cell key-cell-880-nav">' +
+        '<div class="key-sub-row"><span class="' + topCls + '">' + (k.topText || '') + '</span></div>' +
+        '<button type="button" class="calc-btn ' + (k.cls || 'btn-880-nav') + '" data-key-id="' + k.id + '" title="' + escapeHtml(k.title || k.plainLbl) + '">' + k.label + '</button>' +
+      '</div>'
+    );
+  }
+
+  function buildKeypad580(topEl, sciEl, numEl) {
+    var prof = CalcMachines['580'];
+    if (!prof) return;
+    var kp = prof.keypad;
+
+    var tRow = kp.topRow;
+    var fRow = kp.flankRow;
+    for (var i = 0; i < tRow.length; i++) registerKeyObj(tRow[i]);
+    for (var j = 0; j < fRow.length; j++) registerKeyObj(fRow[j]);
+
+    // Cụm trên của Máy 580:
+    // Bên trái: Hàng 1 [SHIFT, ALPHA], Hàng 2 [OPTN, CALC]
+    // Ở giữa: Cụm con trỏ bầu dục ▲ ▼ ◀ ▶ (KHÔNG có nút OK ở giữa)
+    // Bên phải: Hàng 1 [MENU, ON], Hàng 2 [∫■, x]
     var topHtml =
       '<div class="top-side-col">' +
         '<div class="top-btn-pair">' +
-          renderTopBtn(TOP_KEYS[0]) +
-          renderTopBtn(TOP_KEYS[1]) +
+          renderKey580Top(tRow[0]) +
+          renderKey580Top(tRow[1]) +
         '</div>' +
         '<div class="top-btn-pair">' +
-          renderFuncBtn(FUNC_BAR_KEYS[0]) +
-          renderFuncBtn(FUNC_BAR_KEYS[1]) +
+          renderKey580Sci(fRow[0]) +
+          renderKey580Sci(fRow[1]) +
         '</div>' +
       '</div>' +
-      '<div class="dpad-wrap">' +
+      '<div class="dpad-wrap dpad-580-oval">' +
         '<button type="button" class="dpad-btn dpad-up" data-dpad="UP" title="Lên">▲</button>' +
         '<button type="button" class="dpad-btn dpad-left" data-dpad="LEFT" title="Trái">◀</button>' +
-        '<button type="button" class="dpad-btn dpad-ok" data-dpad="OK" title="Chọn / OK">OK</button>' +
+        '<div class="dpad-580-center"></div>' +
         '<button type="button" class="dpad-btn dpad-right" data-dpad="RIGHT" title="Phải">▶</button>' +
         '<button type="button" class="dpad-btn dpad-down" data-dpad="DOWN" title="Xuống">▼</button>' +
       '</div>' +
       '<div class="top-side-col">' +
         '<div class="top-btn-pair">' +
-          renderTopBtn(TOP_KEYS[2]) +
-          renderTopBtn(TOP_KEYS[3]) +
-          renderTopBtn(TOP_KEYS[4]) +
+          renderKey580Top(tRow[2]) +
+          renderKey580Top(tRow[3]) +
         '</div>' +
         '<div class="top-btn-pair">' +
-          renderFuncBtn(FUNC_BAR_KEYS[2]) +
-          renderFuncBtn(FUNC_BAR_KEYS[3]) +
+          renderKey580Sci(fRow[2]) +
+          renderKey580Sci(fRow[3]) +
         '</div>' +
       '</div>';
     topEl.innerHTML = topHtml;
 
-    // Lưới phím hàm khoa học
+    // Lưới 18 phím hàm khoa học (3 hàng × 6 cột)
     var sciHtml = '';
-    for (var i = 0; i < SCI_KEYS.length; i++) {
-      var k = SCI_KEYS[i];
-      sciHtml +=
-        '<div class="key-cell">' +
-          '<div class="key-sub-row">' +
-            '<span class="sub-shift">' + (k.shiftLbl || '') + '</span>' +
-            (k.baseLbl ? '<span class="sub-base">' + k.baseLbl + '</span>' : '') +
-            '<span class="sub-alpha">' + (k.alphaLbl || '') + '</span>' +
-          '</div>' +
-          '<button type="button" class="calc-btn btn-sci" data-sci-idx="' + i + '">' + k.label + '</button>' +
-        '</div>';
+    for (var sr = 0; sr < kp.sciRows.length; sr++) {
+      var sRow = kp.sciRows[sr];
+      for (var sc = 0; sc < sRow.length; sc++) {
+        sciHtml += renderKey580Sci(sRow[sc]);
+      }
     }
     sciEl.innerHTML = sciHtml;
 
-    // Lưới phím số và phép tính
+    // Lưới 20 phím số và phép toán (4 hàng × 5 cột)
     var numHtml = '';
-    for (var j = 0; j < NUM_KEYS.length; j++) {
-      var nk = NUM_KEYS[j];
-      numHtml +=
-        '<div class="key-cell">' +
-          '<div class="key-sub-row">' +
-            '<span class="sub-shift">' + (nk.shiftLbl || '') + '</span>' +
-            '<span class="sub-alpha">' + (nk.alphaLbl || '') + '</span>' +
-          '</div>' +
-          '<button type="button" class="calc-btn ' + (nk.cls || 'btn-num') + '" data-num-idx="' + j + '">' + nk.label + '</button>' +
-        '</div>';
+    for (var nr = 0; nr < kp.numRows.length; nr++) {
+      var nRow = kp.numRows[nr];
+      for (var nc = 0; nc < nRow.length; nc++) {
+        var nk = nRow[nc];
+        registerKeyObj(nk);
+        numHtml +=
+          '<div class="key-cell">' +
+            '<div class="key-sub-row">' +
+              '<span class="sub-shift">' + (nk.shiftLbl || '') + '</span>' +
+              '<span class="sub-alpha">' + (nk.alphaLbl || '') + '</span>' +
+            '</div>' +
+            '<button type="button" class="calc-btn ' + (nk.cls || 'btn-580-num') + '" data-key-id="' + nk.id + '">' + nk.label + '</button>' +
+          '</div>';
+      }
     }
     numEl.innerHTML = numHtml;
   }
 
-  function renderTopBtn(b) {
+  function renderKey580Top(k) {
+    var topSpan = '';
+    if (k.topText) {
+      var cls = k.id === 'SHIFT' ? 'sub-shift' : (k.id === 'ALPHA' ? 'sub-alpha' : 'sub-top-580');
+      topSpan = '<span class="' + cls + '">' + k.topText + '</span>';
+    } else if (k.shiftLbl) {
+      topSpan = '<span class="sub-shift">' + k.shiftLbl + '</span>';
+    }
     return (
       '<div class="key-cell">' +
-        '<div class="key-sub-row"><span class="sub-shift">' + (b.shiftLbl || '') + '</span></div>' +
-        '<button type="button" class="calc-btn ' + b.cls + '" data-top-id="' + b.id + '">' + b.label + '</button>' +
+        '<div class="key-sub-row">' + topSpan + '</div>' +
+        '<button type="button" class="calc-btn ' + (k.cls || 'btn-580-metal') + '" data-key-id="' + k.id + '">' + k.label + '</button>' +
       '</div>'
     );
   }
 
-  function renderFuncBtn(b) {
+  function renderKey580Sci(k) {
+    registerKeyObj(k);
+    var midSpan = '';
+    if (k.baseLbl) midSpan = '<span class="sub-base">' + k.baseLbl + '</span>';
+    else if (k.cplxLbl) midSpan = '<span class="sub-cplx">' + (k.shiftCplxLbl ? (k.shiftCplxLbl + '/' + k.cplxLbl) : k.cplxLbl) + '</span>';
     return (
       '<div class="key-cell">' +
         '<div class="key-sub-row">' +
-          '<span class="sub-shift">' + (b.shiftLbl || '') + '</span>' +
-          '<span class="sub-alpha">' + (b.alphaLbl || '') + '</span>' +
+          '<span class="sub-shift">' + (k.shiftLbl || '') + '</span>' +
+          midSpan +
+          '<span class="sub-alpha">' + (k.alphaLbl || '') + '</span>' +
         '</div>' +
-        '<button type="button" class="calc-btn btn-sci-sm" data-func-id="' + b.id + '">' + b.label + '</button>' +
+        '<button type="button" class="calc-btn ' + (k.cls || 'btn-580-sci') + '" data-key-id="' + k.id + '">' + k.label + '</button>' +
       '</div>'
     );
   }
 
-  // Vẽ màn hình LCD và thanh trạng thái
+  // =========================================================================
+  // VẼ MÀN HÌNH LCD, THANH TRẠNG THÁI VÀ CÁC THỰC ĐƠN (OVERLAYS)
+  // =========================================================================
   function renderAll() {
     var shell = document.getElementById('calc-shell');
     if (shell) {
-      shell.className = 'calc-shell model-' + AppContext.settings.modelType +
-                        (AppContext.settings.largeFont ? ' font-large' : '');
+      var fontCls = (AppContext.settings.fontSize === 'small') ? ' font-small' : (AppContext.settings.largeFont ? ' font-large' : '');
+      shell.className = 'calc-shell machine-' + AppContext.machineId + fontCls;
     }
 
     var statusEl = document.getElementById('lcd-status-bar');
     var bodyEl = document.getElementById('lcd-body');
     if (!statusEl || !bodyEl) return;
 
-    var curApp = CalcApps.byId[AppContext.currentAppId] || CalcApps.byId.calc;
-    var angBadge = AppContext.settings.angle === 'rad' ? 'R' : (AppContext.settings.angle === 'gra' ? 'G' : 'D');
-    var fmtBadge = '';
-    if (AppContext.settings.fmtMode === 'fix') fmtBadge = 'FIX';
-    else if (AppContext.settings.fmtMode === 'sci') fmtBadge = 'SCI';
-    var mathBadge = AppContext.settings.ioMode === 'math' ? 'Math' : 'Line';
-    var cplxBadge = '';
-    if (AppContext.currentAppId === 'complex') {
-      cplxBadge = AppContext.settings.complexForm === 'polar' ? '∠' : '<i>i</i>';
-    }
-
-    statusEl.innerHTML =
-      '<div class="st-left">' +
-        '<span class="st-badge st-s ' + (AppContext.shiftActive ? 'on' : '') + '">S</span>' +
-        '<span class="st-badge st-a ' + (AppContext.alphaActive ? 'on' : '') + '">A</span>' +
-        '<span class="st-badge on">' + angBadge + '</span>' +
-        '<span class="st-badge ' + (Math.abs(AppContext.vars.M) > 1e-15 ? 'on' : '') + '">M</span>' +
-        (cplxBadge ? '<span class="st-badge on">' + cplxBadge + '</span>' : '') +
-        (fmtBadge ? '<span class="st-badge on">' + fmtBadge + '</span>' : '') +
-        '<span class="st-badge on">' + mathBadge + '</span>' +
-      '</div>' +
-      '<div class="st-right">' +
-        escapeHtml(AppContext.statusHint || (curApp.code + ':' + curApp.name)) +
-      '</div>';
+    renderStatusBar(statusEl);
 
     if (AppContext.overlay === 'off') {
       bodyEl.innerHTML =
         '<div class="lcd-off-screen">' +
           '<div class="lcd-off-title">Máy tính Thầy Minh</div>' +
-          '<div class="lcd-off-sub">Đã tắt màn hình — Bấm ON hoặc AC để bật lại</div>' +
+          '<div class="lcd-off-sub">Đã tắt máy — Bấm ON để bật lại</div>' +
         '</div>';
       return;
     }
 
+    if (AppContext.overlay === 'qr_msg') {
+      bodyEl.innerHTML =
+        '<div class="lcd-dev-box">' +
+          '<div class="lcd-dev-title">QR Code</div>' +
+          '<div class="lcd-dev-msg">Chức năng QR không có trên bản web</div>' +
+          '<div class="lcd-dev-sub">Bấm BACK hoặc OK để quay lại</div>' +
+        '</div>';
+      return;
+    }
+
+    if (AppContext.overlay === 'confirm_msg' && AppContext.confirmMsg) {
+      bodyEl.innerHTML =
+        '<div class="lcd-dev-box">' +
+          '<div class="lcd-dev-title">' + escapeHtml(AppContext.confirmMsg.title) + '</div>' +
+          '<div class="lcd-dev-sub" style="margin-top:8px;font-weight:700;">' + escapeHtml(AppContext.confirmMsg.sub) + '</div>' +
+        '</div>';
+      return;
+    }
+
+    if (AppContext.overlay === 'digit_prompt') {
+      var dpTitle = AppContext.digitPromptKind === 'fix'
+        ? 'Fix: Select 0~9'
+        : (AppContext.digitPromptKind === 'sci' ? 'Sci: Select 0~9 (0:10)' : 'Norm: Select 1~2');
+      bodyEl.innerHTML =
+        '<div class="lcd-dev-box">' +
+          '<div class="lcd-dev-title">' + escapeHtml(dpTitle) + '</div>' +
+          '<div class="lcd-dev-sub">Hãy bấm phím số tương ứng</div>' +
+        '</div>';
+      return;
+    }
+
+    if (AppContext.overlay === 'home') {
+      bodyEl.innerHTML = renderHome880Overlay();
+      return;
+    }
+
     if (AppContext.overlay === 'menu') {
-      bodyEl.innerHTML = renderMenuOverlay();
+      bodyEl.innerHTML = renderMenu580Overlay();
       return;
     }
 
-    if (AppContext.overlay === 'setup') {
-      bodyEl.innerHTML = renderSetupOverlay();
+    if (AppContext.overlay === 'tree') {
+      bodyEl.innerHTML = renderTreeOverlay();
       return;
     }
 
-    if (AppContext.overlay === 'optn' || AppContext.overlay === 'optn_hyp') {
-      bodyEl.innerHTML = renderOptnOverlay();
+    if (AppContext.overlay === 'paged') {
+      bodyEl.innerHTML = renderPagedOverlay();
       return;
     }
 
-    if (AppContext.overlay === 'catalog') {
-      bodyEl.innerHTML = renderCatalogOverlay();
+    if (AppContext.overlay === 'format') {
+      bodyEl.innerHTML = renderFormatOverlay();
       return;
     }
 
-    if (AppContext.overlay === 'vars') {
-      bodyEl.innerHTML = renderVarsOverlay();
+    if (AppContext.overlay === 'vars880' || AppContext.overlay === 'var880_act' || AppContext.overlay === 'var880_edit') {
+      bodyEl.innerHTML = renderVars880Overlay();
       return;
     }
 
+    if (AppContext.overlay === 'func_def') {
+      bodyEl.innerHTML = renderFuncDefOverlay();
+      return;
+    }
+
+    if (AppContext.overlay === 'periodic_table') {
+      bodyEl.innerHTML = renderPeriodicTableOverlay();
+      return;
+    }
+
+    if (AppContext.overlay === 'recall580') {
+      bodyEl.innerHTML = renderRecall580Overlay();
+      return;
+    }
+
+    var curApp = CalcApps.byId[AppContext.currentAppId] || CalcApps.byId.calc;
     bodyEl.innerHTML = curApp.render(AppContext);
     if (curApp.afterRender) {
       curApp.afterRender(AppContext);
     }
   }
 
-  function renderMenuOverlay() {
-    var apps = CalcApps.getVisibleApps(AppContext.settings.modelType);
-    if (AppContext.menuIdx >= apps.length) AppContext.menuIdx = 0;
-    var selApp = apps[AppContext.menuIdx];
-    var html = '<div class="lcd-menu-wrap">';
-    html += '<div class="lcd-menu-header">MENU ỨNG DỤNG — Chọn: <b>' + escapeHtml(selApp.code + ': ' + selApp.name) + '</b></div>';
-    html += '<div class="lcd-menu-grid">';
-    for (var i = 0; i < apps.length; i++) {
-      var a = apps[i];
-      var cls = 'lcd-menu-cell' + (i === AppContext.menuIdx ? ' active' : '') + (a.stage === 2 ? ' stage2' : '');
-      html +=
-        '<div class="' + cls + '" data-action="menu-pick" data-id="' + a.id + '">' +
-          '<div class="menu-cell-code">' + escapeHtml(a.code) + '</div>' +
-          '<div class="menu-cell-icon">' + escapeHtml(a.icon) + '</div>' +
-          '<div class="menu-cell-name">' + escapeHtml(a.name) + '</div>' +
+  function renderStatusBar(statusEl) {
+    var angBadge = AppContext.settings.angle === 'rad' ? 'R' : (AppContext.settings.angle === 'gra' ? 'G' : 'D');
+    var fmtBadge = '';
+    if (AppContext.settings.fmtMode === 'fix') fmtBadge = 'FIX';
+    else if (AppContext.settings.fmtMode === 'sci') fmtBadge = 'SCI';
+    var mathBadge = (AppContext.settings.ioMode === 'math' || AppContext.settings.ioMode === 'math_dec') ? '√■' : '';
+    var cplxBadge = '';
+    if (AppContext.currentAppId === 'complex') {
+      cplxBadge = AppContext.settings.complexForm === 'polar' ? '∠' : '<i>i</i>';
+    }
+
+    if (AppContext.machineId === '880') {
+      statusEl.innerHTML =
+        '<div class="st-left">' +
+          '<span class="st-badge st-s ' + (AppContext.shiftActive ? 'on' : '') + '">⇧</span>' +
+          '<span class="st-badge on">' + angBadge + '</span>' +
+          (fmtBadge ? '<span class="st-badge on">' + fmtBadge + '</span>' : '') +
+          (cplxBadge ? '<span class="st-badge on">' + cplxBadge + '</span>' : '') +
+          (AppContext.verifyMode ? '<span class="st-badge st-verify on">✔</span>' : '') +
+          (mathBadge ? '<span class="st-badge on">' + mathBadge + '</span>' : '') +
+        '</div>' +
+        '<div class="st-right">' +
+          escapeHtml(AppContext.statusHint || '') +
+          '<span class="st-battery" title="Pin">▮</span>' +
+        '</div>';
+    } else {
+      var isSto = (AppContext.calcState && AppContext.calcState.promptMode === 'sto');
+      var isRcl = (AppContext.overlay === 'recall580');
+      var math580 = (AppContext.settings.ioMode === 'math' || AppContext.settings.ioMode === 'math_dec') ? 'Math' : '';
+      statusEl.innerHTML =
+        '<div class="st-left">' +
+          '<span class="st-badge st-s ' + (AppContext.shiftActive ? 'on' : '') + '">S</span>' +
+          '<span class="st-badge st-a ' + (AppContext.alphaActive ? 'on' : '') + '">A</span>' +
+          '<span class="st-badge ' + (isSto ? 'on' : '') + '">STO</span>' +
+          '<span class="st-badge ' + (isRcl ? 'on' : '') + '">RCL</span>' +
+          '<span class="st-badge ' + (Math.abs(AppContext.vars.M) > 1e-15 ? 'on' : '') + '">M</span>' +
+          '<span class="st-badge on">' + angBadge + '</span>' +
+          (cplxBadge ? '<span class="st-badge on">' + cplxBadge + '</span>' : '') +
+          (fmtBadge ? '<span class="st-badge on">' + fmtBadge + '</span>' : '') +
+          (math580 ? '<span class="st-badge on">' + math580 + '</span>' : '') +
+        '</div>' +
+        '<div class="st-right">' +
+          escapeHtml(AppContext.statusHint || '') +
         '</div>';
     }
-    html += '</div></div>';
+  }
+
+  // Màn hình HOME của Máy 880: Lưới 3 cột × 2 hàng mỗi trang (không đánh số, có thanh cuộn phải)
+  function renderHome880Overlay() {
+    var apps = CalcApps.getVisibleApps('880');
+    if (AppContext.menuIdx >= apps.length) AppContext.menuIdx = 0;
+    var page = Math.floor(AppContext.menuIdx / 6);
+    var totalPages = Math.ceil(apps.length / 6);
+    var startIdx = page * 6;
+    var endIdx = Math.min(apps.length, startIdx + 6);
+
+    var html = '<div class="home880-wrap"><div class="home880-grid">';
+    for (var i = startIdx; i < endIdx; i++) {
+      var a = apps[i];
+      var cls = 'home880-cell' + (i === AppContext.menuIdx ? ' active' : '');
+      html +=
+        '<div class="' + cls + '" data-action="menu-pick" data-id="' + a.id + '">' +
+          '<div class="home880-icon">' + (a.iconSvg || escapeHtml(a.name.slice(0, 3))) + '</div>' +
+          '<div class="home880-name">' + escapeHtml(a.name) + '</div>' +
+        '</div>';
+    }
+    html += '</div>';
+    // Thanh cuộn dọc bên phải
+    var thumbTop = Math.round((page / Math.max(1, totalPages)) * 100);
+    var thumbH = Math.round(100 / Math.max(1, totalPages));
+    html += '<div class="lcd-scrollbar"><div class="lcd-scroll-thumb" style="top:' + thumbTop + '%;height:' + thumbH + '%"></div></div>';
+    html += '</div>';
     return html;
   }
 
-  var SETUP_ITEMS = [
-    { key: 'angle', label: '1. Đơn vị góc (Độ / Rad / Grad)' },
-    { key: 'fmt', label: '2. Định dạng số (Norm / Fix / Sci)' },
-    { key: 'io', label: '3. Nhập/Xuất (Math I/O ↔ Line)' },
-    { key: 'frac', label: '4. Kết quả phân số (d/c ↔ a b/c)' },
-    { key: 'tbl', label: '5. Bảng giá trị (f(x) ↔ f(x),g(x))' },
-    { key: 'freq', label: '6. Tần số thống kê (Bật ↔ Tắt)' },
-    { key: 'model', label: '7. Kiểu máy (Kiểu A ↔ Kiểu B)' },
-    { key: 'font', label: '8. Cỡ chữ màn hình (Thường ↔ Lớn)' },
-    { key: 'cplx', label: '9. Kết quả phức (a+bi ↔ r∠θ)' },
-    { key: 'reset', label: '0. Khôi phục cài đặt mặc định' }
-  ];
+  // Màn hình MENU của Máy 580: Lưới 4 cột × 2 hàng mỗi trang, góc dưới phải có số/chữ, thanh dưới cùng hiện "1:Calculate"
+  function renderMenu580Overlay() {
+    var apps = CalcApps.getVisibleApps('580');
+    if (AppContext.menuIdx >= apps.length) AppContext.menuIdx = 0;
+    var selApp = apps[AppContext.menuIdx];
+    var page = Math.floor(AppContext.menuIdx / 8);
+    var startIdx = page * 8;
+    var endIdx = Math.min(apps.length, startIdx + 8);
 
-  function getSetupValueText(key) {
-    var s = AppContext.settings;
-    if (key === 'angle') return s.angle === 'deg' ? 'Độ (D)' : (s.angle === 'rad' ? 'Radian (R)' : 'Grad (G)');
-    if (key === 'fmt') {
-      if (s.fmtMode === 'fix') return 'Fix ' + s.fmtDigits;
-      if (s.fmtMode === 'sci') return 'Sci ' + s.fmtDigits;
-      return s.fmtMode === 'norm2' ? 'Norm 2' : 'Norm 1';
+    var html = '<div class="menu580-wrap"><div class="menu580-grid">';
+    for (var i = startIdx; i < endIdx; i++) {
+      var a = apps[i];
+      var cls = 'menu580-cell' + (i === AppContext.menuIdx ? ' active' : '');
+      html +=
+        '<div class="' + cls + '" data-action="menu-pick" data-id="' + a.id + '">' +
+          '<div class="menu580-icon">' + (a.iconSvg || escapeHtml(a.code)) + '</div>' +
+          '<div class="menu580-code">' + escapeHtml(a.code) + '</div>' +
+        '</div>';
     }
-    if (key === 'io') return s.ioMode === 'math' ? 'Tự nhiên (Math)' : 'Một dòng (Line)';
-    if (key === 'frac') return s.fracMode === 'mixed' ? 'a b/c (Hỗn số)' : 'd/c (Phân số)';
-    if (key === 'tbl') return s.tableTwoFuncs ? 'f(x), g(x)' : 'Chỉ f(x)';
-    if (key === 'freq') return s.statFreq ? 'Bật' : 'Tắt';
-    if (key === 'model') return s.modelType === 'b' ? 'Kiểu B (Xanh đậm)' : 'Kiểu A (Xám đen)';
-    if (key === 'font') return s.largeFont ? 'Lớn' : 'Bình thường';
-    if (key === 'cplx') return s.complexForm === 'polar' ? 'r∠θ (Cực)' : 'a+bi (Đại số)';
-    return 'Bấm OK/=';
+    html += '</div>';
+    html += '<div class="menu580-bottom-bar">' + escapeHtml(selApp.code + ':' + selApp.name) + '</div>';
+    html += '</div>';
+    return html;
   }
 
-  function renderSetupOverlay() {
-    if (AppContext.setupSubMode === 'fix' || AppContext.setupSubMode === 'sci') {
-      var isFix = AppContext.setupSubMode === 'fix';
+  // Thực đơn phân cấp (SETTINGS, CATALOG, TOOLS trên 880; CONST, CONV, RESET trên 580)
+  function renderTreeOverlay() {
+    if (AppContext.treeStack.length === 0) return '';
+    var level = AppContext.treeStack[AppContext.treeStack.length - 1];
+    var items = level.items || [];
+    if (level.idx >= items.length) level.idx = 0;
+
+    // Hiển thị 4 dòng quanh vị trí chọn
+    var pageSize = 4;
+    var start = Math.max(0, Math.min(level.idx - 1, items.length - pageSize));
+    var end = Math.min(items.length, start + pageSize);
+
+    var html = '<div class="lcd-menu-list">';
+    if (level.title) {
+      html += '<div class="lcd-list-title">' + escapeHtml(level.title) + '</div>';
+    }
+    for (var i = start; i < end; i++) {
+      var it = items[i];
+      var cls = (i === level.idx) ? 'lcd-list-item active' : 'lcd-list-item';
+      var leftPrefix = '';
+      if (it.radio) {
+        leftPrefix = (it.selected ? '◉ ' : '○ ');
+      }
+      var rightSuffix = '';
+      if (it.children) rightSuffix = '<b>▶</b>';
+      else if (it.rightText) rightSuffix = '<b>' + escapeHtml(it.rightText) + '</b>';
+      html +=
+        '<div class="' + cls + '" data-action="tree-item" data-idx="' + i + '">' +
+          '<span>' + escapeHtml(leftPrefix + it.label) + '</span>' +
+          rightSuffix +
+        '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // Thực đơn phân trang đánh số 1..9 (SETUP và OPTN trên Máy 580)
+  function renderPagedOverlay() {
+    var pm = AppContext.pagedMenu;
+    if (!pm || !pm.pages || pm.pages.length === 0) return '';
+    var curPage = pm.pages[pm.pageIdx] || pm.pages[0];
+    var html = '<div class="lcd-menu-list">';
+    if (pm.title) {
+      html += '<div class="lcd-list-title">' + escapeHtml(pm.title) +
+              ' (' + (pm.pageIdx + 1) + '/' + pm.pages.length + ' ▲▼)</div>';
+    }
+    for (var i = 0; i < curPage.length; i++) {
+      var it = curPage[i];
+      var cls = (i === pm.itemIdx) ? 'lcd-list-item active' : 'lcd-list-item';
+      html +=
+        '<div class="' + cls + '" data-action="paged-item" data-idx="' + i + '">' +
+          '<span>' + escapeHtml(it.num + ':' + it.label) + '</span>' +
+          (it.sub ? '<b>▶</b>' : '') +
+        '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderFormatOverlay() {
+    var list = AppContext.formatItems || [];
+    var html = '<div class="lcd-menu-list"><div class="lcd-list-title">FORMAT</div>';
+    for (var i = 0; i < list.length; i++) {
+      var cls = (i === AppContext.formatIdx) ? 'lcd-list-item active' : 'lcd-list-item';
+      html += '<div class="' + cls + '" data-action="format-pick" data-idx="' + i + '">' +
+              escapeHtml(list[i].label) + '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // Màn hình VARIABLE trên Máy 880 (A, B, C, D, E, F, x, y, z)
+  var VAR_LIST_880 = ['A', 'B', 'C', 'D', 'E', 'F', 'x', 'y', 'z'];
+  var VAR_ACTS_880 = [
+    { id: 'recall', label: 'Recall Value' },
+    { id: 'store', label: 'Store' },
+    { id: 'edit', label: 'Edit' }
+  ];
+
+  function renderVars880Overlay() {
+    var vn = VAR_LIST_880[AppContext.varIdx] || 'A';
+    var fmt = AppContext.getFormatOpts();
+
+    if (AppContext.overlay === 'var880_edit') {
       return (
         '<div class="lcd-calc">' +
-          '<div class="lcd-list-title">' + (isFix ? 'Chọn số chữ số thập phân Fix (0–9):' : 'Chọn số chữ số có nghĩa Sci (1–9, 0=10):') + '</div>' +
-          '<div class="lcd-sub-hint">Hãy bấm một phím số từ 0 đến 9</div>' +
+          '<div class="lcd-list-title">VARIABLE — Edit</div>' +
+          '<div class="lcd-prompt-input"><b>' + vn + ' = </b>' + escapeHtml(AppContext.varEditStr) + '<span class="m-cursor"></span></div>' +
         '</div>'
       );
     }
 
-    var html = '<div class="lcd-menu-list"><div class="lcd-list-title">CÀI ĐẶT (SETUP) — Bấm ▲▼ hoặc 0–9, OK để đổi:</div>';
-    for (var i = 0; i < SETUP_ITEMS.length; i++) {
-      var it = SETUP_ITEMS[i];
-      var cls = (i === AppContext.setupIdx) ? 'lcd-list-item active' : 'lcd-list-item';
-      html +=
-        '<div class="' + cls + '" data-action="setup-item" data-idx="' + i + '">' +
-          '<span>' + escapeHtml(it.label) + '</span>' +
-          '<b class="setup-val">' + escapeHtml(getSetupValueText(it.key)) + '</b>' +
-        '</div>';
-    }
-    html += '</div>';
-    return html;
-  }
-
-  function applySetupToggle(idx) {
-    var s = AppContext.settings;
-    var key = SETUP_ITEMS[idx].key;
-    if (key === 'angle') {
-      s.angle = s.angle === 'deg' ? 'rad' : (s.angle === 'rad' ? 'gra' : 'deg');
-    } else if (key === 'fmt') {
-      if (s.fmtMode === 'norm1') s.fmtMode = 'norm2';
-      else if (s.fmtMode === 'norm2') { AppContext.setupSubMode = 'fix'; return; }
-      else if (s.fmtMode === 'fix') { AppContext.setupSubMode = 'sci'; return; }
-      else s.fmtMode = 'norm1';
-    } else if (key === 'io') {
-      s.ioMode = s.ioMode === 'math' ? 'line' : 'math';
-      if (AppContext.calcState) AppContext.calcState.editor.lineMode = (s.ioMode === 'line');
-      if (AppContext.complexState) AppContext.complexState.editor.lineMode = (s.ioMode === 'line');
-    } else if (key === 'frac') {
-      s.fracMode = s.fracMode === 'improper' ? 'mixed' : 'improper';
-    } else if (key === 'tbl') {
-      s.tableTwoFuncs = !s.tableTwoFuncs;
-    } else if (key === 'freq') {
-      s.statFreq = !s.statFreq;
-    } else if (key === 'model') {
-      s.modelType = s.modelType === 'a' ? 'b' : 'a';
-    } else if (key === 'font') {
-      s.largeFont = !s.largeFont;
-    } else if (key === 'cplx') {
-      s.complexForm = s.complexForm === 'polar' ? 'rect' : 'polar';
-      if (AppContext.complexState && AppContext.complexState.hasResult && AppContext.complexState.lastResult && AppContext.complexState.lastResult.ok) {
-        AppContext.complexState.displayMode = s.complexForm === 'polar' ? 'polar_exact' : 'rect_exact';
+    if (AppContext.overlay === 'var880_act') {
+      var aHtml = '<div class="lcd-menu-list"><div class="lcd-list-title">' + vn + ' = ' +
+                  escapeHtml(CalcEngine.format(AppContext.vars[vn] || 0, fmt)) + '</div>';
+      for (var a = 0; a < VAR_ACTS_880.length; a++) {
+        var aCls = (a === AppContext.varActIdx) ? 'lcd-list-item active' : 'lcd-list-item';
+        aHtml += '<div class="' + aCls + '" data-action="var880-act" data-idx="' + a + '">' +
+                 escapeHtml(VAR_ACTS_880[a].label) + '</div>';
       }
-    } else if (key === 'reset') {
-      AppContext.resetDefaults();
-      AppContext.overlay = null;
-      return;
+      aHtml += '</div>';
+      return aHtml;
     }
-    AppContext.saveState();
-  }
 
-  function renderOptnOverlay() {
-    var list = AppContext.overlay === 'optn_hyp' ? CalcApps.HYP_ITEMS : CalcApps.CALC_OPTN_ITEMS;
-    var title = AppContext.overlay === 'optn_hyp' ? 'Hàm Hyperbol:' : 'TÙY CHỌN TOÁN HỌC (OPTN):';
-    var html = '<div class="lcd-menu-list"><div class="lcd-list-title">' + title + '</div>';
-    for (var i = 0; i < list.length; i++) {
-      var cls = (i === AppContext.optnIdx) ? 'lcd-list-item active' : 'lcd-list-item';
-      html += '<div class="' + cls + '" data-action="optn-pick" data-idx="' + i + '">' + escapeHtml(list[i].label) + '</div>';
-    }
-    html += '</div>';
-    return html;
-  }
-
-  function renderCatalogOverlay() {
-    var list = CalcApps.CATALOG_ITEMS;
-    var html = '<div class="lcd-menu-list"><div class="lcd-list-title">DANH MỤC HÀM (CATALOG) — ▲▼ + OK:</div>';
-    for (var i = 0; i < list.length; i++) {
-      var cls = (i === AppContext.catalogIdx) ? 'lcd-list-item active' : 'lcd-list-item';
-      html += '<div class="' + cls + '" data-action="cat-pick" data-idx="' + i + '">' + escapeHtml(list[i].label) + '</div>';
-    }
-    html += '</div>';
-    return html;
-  }
-
-  var VAR_LIST = ['A', 'B', 'C', 'D', 'E', 'F', 'x', 'y', 'M', 'Ans'];
-
-  function renderVarsOverlay() {
-    var fmt = AppContext.getFormatOpts();
-    var html = '<div class="lcd-menu-list"><div class="lcd-list-title">DANH SÁCH BIẾN NHỚ (Bấm OK để chèn vào biểu thức):</div>';
-    for (var i = 0; i < VAR_LIST.length; i++) {
-      var vn = VAR_LIST[i];
-      var val = AppContext.vars[vn] || 0;
+    var page = Math.floor(AppContext.varIdx / 3);
+    var start = page * 3;
+    var end = Math.min(VAR_LIST_880.length, start + 3);
+    var html = '<div class="lcd-menu-list"><div class="lcd-list-title">VARIABLE (' + (page + 1) + '/3)</div>';
+    for (var i = start; i < end; i++) {
+      var vName = VAR_LIST_880[i];
+      var val = AppContext.vars[vName] || 0;
       var cls = (i === AppContext.varIdx) ? 'lcd-list-item active' : 'lcd-list-item';
       html +=
-        '<div class="' + cls + '" data-action="var-pick" data-idx="' + i + '">' +
-          '<span>Biến <b>' + vn + '</b></span>' +
+        '<div class="' + cls + '" data-action="var880-pick" data-idx="' + i + '">' +
+          '<span><b>' + vName + ' =</b></span>' +
           '<b>' + escapeHtml(CalcEngine.toExact(val) || CalcEngine.format(val, fmt)) + '</b>' +
         '</div>';
     }
@@ -660,43 +975,418 @@
     return html;
   }
 
-  function insertCatalogOrOptnItem(item) {
+  // Màn hình RECALL (SHIFT STO) trên Máy 580
+  var VAR_LIST_580 = ['A', 'B', 'C', 'D', 'E', 'F', 'x', 'y', 'z', 'M'];
+
+  function renderRecall580Overlay() {
+    var fmt = AppContext.getFormatOpts();
+    var page = Math.floor(AppContext.varIdx / 4);
+    var start = page * 4;
+    var end = Math.min(VAR_LIST_580.length, start + 4);
+    var html = '<div class="lcd-menu-list"><div class="lcd-list-title">RECALL (▲▼ / Variable Key / =)</div>';
+    for (var i = start; i < end; i++) {
+      var vn = VAR_LIST_580[i];
+      var val = AppContext.vars[vn] || 0;
+      var cls = (i === AppContext.varIdx) ? 'lcd-list-item active' : 'lcd-list-item';
+      html +=
+        '<div class="' + cls + '" data-action="rcl580-pick" data-idx="' + i + '">' +
+          '<span><b>' + vn + ' =</b></span>' +
+          '<b>' + escapeHtml(CalcEngine.toExact(val) || CalcEngine.format(val, fmt)) + '</b>' +
+        '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  // Màn hình Define f(x) / Define g(x) từ nút FUNCTION trên Máy 880
+  function renderFuncDefOverlay() {
+    var fn = AppContext.funcDefTarget;
+    if (!AppContext.funcDefEditor) {
+      AppContext.funcDefEditor = CalcEditor.create(false);
+    }
+    return (
+      '<div class="lcd-calc">' +
+        '<div class="lcd-list-title">Define ' + fn + '(x)</div>' +
+        '<div class="lcd-expr-line"><b>' + fn + '(x) = </b>' + CalcEditor.renderHTML(AppContext.funcDefEditor, true) + '</div>' +
+      '</div>'
+    );
+  }
+
+  // Màn hình Bảng tuần hoàn tương tác (Periodic Table) trên Máy 880
+  function renderPeriodicTableOverlay() {
+    var z = AppContext.ptElementZ || 1;
+    var el = CalcEngine.getElement ? CalcEngine.getElement(z) : null;
+    if (!el) return '';
+    var wStr = el.bracket ? ('[' + el.weight + ']') : String(el.weight);
+
+    // Hiển thị các nguyên tố lân cận để dễ nhìn trên LCD
+    var html = '<div class="pt880-wrap">';
+    html += '<div class="pt880-header">' +
+              '<span class="pt880-z">#' + el.z + '</span> ' +
+              '<b class="pt880-sym">' + escapeHtml(el.symbol) + '</b> ' +
+              '<span class="pt880-name">(' + escapeHtml(el.name) + ')</span>' +
+              '<b class="pt880-wt">' + escapeHtml(wStr) + '</b>' +
+            '</div>';
+    html += '<div class="pt880-strip">';
+    var startZ = Math.max(1, Math.min(z - 3, 112));
+    for (var i = startZ; i <= Math.min(118, startZ + 6); i++) {
+      var item = CalcEngine.elements[i - 1];
+      var cls = (i === z) ? 'pt880-cell active' : 'pt880-cell';
+      html += '<div class="' + cls + '" data-action="pt-pick" data-z="' + i + '">' +
+                '<div class="pt-c-z">' + item.z + '</div>' +
+                '<div class="pt-c-s">' + escapeHtml(item.symbol) + '</div>' +
+              '</div>';
+    }
+    html += '</div>';
+    html += '<div class="lcd-sub-hint">◀▶ đổi nguyên tố (1–118), ▲▼ nhảy chu kỳ, OK chèn ' + escapeHtml(wStr) + '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  // =========================================================================
+  // CHÈN MỤC TỪ CATALOG / OPTN / FUNCTION / CONST / CONV VÀO BIỂU THỨC
+  // =========================================================================
+  function getActiveEditor() {
+    if (AppContext.overlay === 'func_def' && AppContext.funcDefEditor) {
+      return AppContext.funcDefEditor;
+    }
+    if (AppContext.currentAppId === 'complex' && AppContext.complexState) {
+      return AppContext.complexState.editor;
+    }
+    if (AppContext.currentAppId === 'verify' && AppContext.verifyAppState) {
+      return AppContext.verifyAppState.editor;
+    }
+    if (AppContext.currentAppId === 'table' && AppContext.tableState) {
+      if (AppContext.tableState.step === 'f') return AppContext.tableState.fEditor;
+      if (AppContext.tableState.step === 'g') return AppContext.tableState.gEditor;
+    }
+    if (AppContext.currentAppId === 'eq' && AppContext.eqState && AppContext.eqState.step === 'solver_eq') {
+      return AppContext.eqState.solverEditor;
+    }
+    if (AppContext.calcState) {
+      return AppContext.calcState.editor;
+    }
+    return null;
+  }
+
+  function insertIntoActiveContext(item) {
     AppContext.overlay = null;
-    if (AppContext.currentAppId === 'complex') {
-      var cst = AppContext.complexState;
-      if (cst.hasResult) {
-        CalcEditor.clear(cst.editor);
-        cst.hasResult = false;
+    AppContext.treeStack = [];
+    AppContext.pagedMenu = null;
+
+    // Nếu đang ở Base-N, Matrix, Vector, Spreadsheet (dùng chuỗi biểu thức riêng)
+    if (AppContext.currentAppId === 'baseN' && AppContext.baseNState && item.text) {
+      if (AppContext.baseNState.hasResult) {
+        AppContext.baseNState.expr = '';
+        AppContext.baseNState.hasResult = false;
       }
-      if (item.tpl) {
-        CalcEditor.insertTemplate(cst.editor, item.tpl);
-      } else if (item.text) {
-        CalcEditor.insertToken(cst.editor, item.text, item.evalText);
+      AppContext.baseNState.expr += item.text;
+      renderAll();
+      return;
+    }
+    if (AppContext.currentAppId === 'matrix' && AppContext.matrixState && item.text) {
+      AppContext.matrixState.step = 'calc';
+      AppContext.matrixState.calcExpr += item.text;
+      renderAll();
+      return;
+    }
+    if (AppContext.currentAppId === 'vector' && AppContext.vectorState && item.text) {
+      AppContext.vectorState.step = 'calc';
+      AppContext.vectorState.calcExpr += item.text;
+      renderAll();
+      return;
+    }
+    if (AppContext.currentAppId === 'sheet' && AppContext.sheetState && item.text) {
+      var sst = AppContext.sheetState;
+      if (!sst.isEditing) {
+        sst.isEditing = true;
+        sst.editStr = item.text === '=' ? '=' : ('=' + item.text);
+      } else {
+        sst.editStr += item.text;
       }
       renderAll();
       return;
     }
-    if (AppContext.currentAppId !== 'calc') {
+
+    var ed = getActiveEditor();
+    if (!ed) {
       AppContext.switchApp('calc');
+      ed = AppContext.calcState.editor;
     }
-    var st = AppContext.calcState;
-    if (st.hasResult) {
-      CalcEditor.clear(st.editor);
+
+    // Nếu vừa tính xong kết quả trong Calculate hoặc Complex
+    if (AppContext.currentAppId === 'calc' && AppContext.calcState && AppContext.calcState.hasResult) {
+      var st = AppContext.calcState;
+      var isPostConv = (item.evalText && item.evalText.indexOf('▸') !== -1);
+      var isRel = (item.evalText === '=' || item.evalText === '≠' || item.evalText === '>' || item.evalText === '<' || item.evalText === '≥' || item.evalText === '≤');
+      CalcEditor.clear(ed);
       st.hasResult = false;
+      if (isPostConv) {
+        CalcEditor.insertToken(ed, 'Ans', 'Ans');
+      } else if (AppContext.verifyMode && st.lastResult && st.lastResult.isVerify && isRel && st.lastVerifyRightExpr) {
+        CalcEditor.insertTextString(ed, st.lastVerifyRightExpr);
+      }
+    } else if (AppContext.currentAppId === 'complex' && AppContext.complexState && AppContext.complexState.hasResult) {
+      var cst = AppContext.complexState;
+      if (item.evalText === '▶r∠θ' || item.evalText === '▶a+bi') {
+        cst.displayMode = (item.evalText === '▶r∠θ') ? 'polar_exact' : 'rect_exact';
+        renderAll();
+        return;
+      }
+      CalcEditor.clear(ed);
+      cst.hasResult = false;
     }
+
     if (item.tpl) {
-      CalcEditor.insertTemplate(st.editor, item.tpl);
+      CalcEditor.insertTemplate(ed, item.tpl);
     } else if (item.text) {
-      CalcEditor.insertToken(st.editor, item.text, item.evalText);
+      CalcEditor.insertToken(ed, item.text, item.evalText || item.text);
     }
     renderAll();
   }
 
-  // Xử lý sự kiện bấm phím tổng quát (từ bàn phím ảo hoặc bàn phím cứng)
-  function dispatchAction(actionKey, logLabel, modType) {
+  // =========================================================================
+  // XỬ LÝ HÀNH ĐỘNG CỦA CÁC THỰC ĐƠN (SETTINGS, TOOLS, SETUP, RESET...)
+  // =========================================================================
+  function executeMenuAction(act, item) {
+    var s = AppContext.settings;
+    if (act === 'SET_IO_MATH') { s.ioMode = 'math'; syncEditorLineMode(); }
+    else if (act === 'SET_IO_MATH_DEC') { s.ioMode = 'math_dec'; syncEditorLineMode(); }
+    else if (act === 'SET_IO_LINE') { s.ioMode = 'line'; syncEditorLineMode(); }
+    else if (act === 'SET_IO_LINE_DEC') { s.ioMode = 'line_dec'; syncEditorLineMode(); }
+    else if (act === 'SET_ANG_DEG') { s.angle = 'deg'; }
+    else if (act === 'SET_ANG_RAD') { s.angle = 'rad'; }
+    else if (act === 'SET_ANG_GRA') { s.angle = 'gra'; }
+    else if (act === 'SET_FMT_NORM1') { s.fmtMode = 'norm1'; }
+    else if (act === 'SET_FMT_NORM2') { s.fmtMode = 'norm2'; }
+    else if (act === 'SET_FMT_FIX') { s.fmtMode = 'fix'; s.fmtDigits = item.value; }
+    else if (act === 'SET_FMT_SCI') { s.fmtMode = 'sci'; s.fmtDigits = item.value === 0 ? 10 : item.value; }
+    else if (act === 'PROMPT_FIX') { AppContext.overlay = 'digit_prompt'; AppContext.digitPromptKind = 'fix'; renderAll(); return; }
+    else if (act === 'PROMPT_SCI') { AppContext.overlay = 'digit_prompt'; AppContext.digitPromptKind = 'sci'; renderAll(); return; }
+    else if (act === 'PROMPT_NORM') { AppContext.overlay = 'digit_prompt'; AppContext.digitPromptKind = 'norm'; renderAll(); return; }
+    else if (act === 'SET_ENG_SYM') { s.engSymbol = !!item.value; }
+    else if (act === 'SET_FRAC_MIXED') { s.fracMode = 'mixed'; }
+    else if (act === 'SET_FRAC_IMPROPER') { s.fracMode = 'improper'; }
+    else if (act === 'SET_CPLX_RECT') { s.complexForm = 'rect'; }
+    else if (act === 'SET_CPLX_POLAR') { s.complexForm = 'polar'; }
+    else if (act === 'SET_STAT_FREQ') { s.statFreq = !!item.value; }
+    else if (act === 'SET_TBL_1') { s.tableTwoFuncs = false; }
+    else if (act === 'SET_TBL_2') { s.tableTwoFuncs = true; }
+    else if (act === 'SET_EQ_CPLX') { s.eqComplexRoots = !!item.value; }
+    else if (act === 'SET_DEC_DOT') { s.decimalMark = 'dot'; }
+    else if (act === 'SET_DEC_COMMA') { s.decimalMark = 'comma'; }
+    else if (act === 'SET_SEP') { s.digitSep = !!item.value; }
+    else if (act === 'SET_FONT_NORM') { s.fontSize = 'norm'; }
+    else if (act === 'SET_FONT_SMALL') { s.fontSize = 'small'; }
+    else if (act === 'SET_CONTRAST') { AppContext.overlay = null; }
+    else if (act === 'RESET_SETTINGS_DATA') {
+      AppContext.resetSetupData();
+      showConfirmComplete('Settings & Data Reset');
+      return;
+    } else if (act === 'RESET_VAR_MEM') {
+      AppContext.resetVariableMemory();
+      showConfirmComplete('Variable Memory Clear');
+      return;
+    } else if (act === 'RESET_ALL') {
+      AppContext.resetInitializeAll();
+      showConfirmComplete('Initialize All');
+      return;
+    } else if (act === 'OPEN_PERIODIC_TABLE') {
+      AppContext.overlay = 'periodic_table';
+      AppContext.ptElementZ = 1;
+      renderAll();
+      return;
+    } else if (act === 'TOGGLE_VERIFY') {
+      AppContext.verifyMode = !AppContext.verifyMode;
+      AppContext.overlay = null;
+      renderAll();
+      return;
+    } else if (act === 'UNDO') {
+      AppContext.overlay = null;
+      renderAll();
+      return;
+    } else if (act === 'BASE_DEC' || act === 'BASE_HEX' || act === 'BASE_BIN' || act === 'BASE_OCT') {
+      AppContext.overlay = null;
+      CalcApps.byId.baseN.onKey(act, AppContext);
+      renderAll();
+      return;
+    } else if (act === 'MAT_DIM') {
+      AppContext.overlay = null;
+      CalcApps.byId.matrix.init(AppContext);
+      AppContext.matrixState.selectIdx = item.mat === 'MatA' ? 0 : (item.mat === 'MatB' ? 1 : (item.mat === 'MatC' ? 2 : 3));
+      CalcApps.byId.matrix.confirmSelect(AppContext.matrixState);
+      renderAll();
+      return;
+    } else if (act === 'MAT_ANS_VIEW') {
+      insertIntoActiveContext({ text: 'MatAns', evalText: 'MatAns' });
+      return;
+    } else if (act === 'VCT_DIM') {
+      AppContext.overlay = null;
+      CalcApps.byId.vector.init(AppContext);
+      AppContext.vectorState.selectIdx = item.vct === 'VctA' ? 0 : (item.vct === 'VctB' ? 1 : (item.vct === 'VctC' ? 2 : 3));
+      CalcApps.byId.vector.confirmSelect(AppContext.vectorState);
+      renderAll();
+      return;
+    } else if (act === 'VCT_ANS_VIEW') {
+      insertIntoActiveContext({ text: 'VctAns', evalText: 'VctAns' });
+      return;
+    } else if (act === 'STAT_SORT_ASC' || act === 'STAT_SORT_DESC') {
+      AppContext.overlay = null;
+      if (AppContext.statState && AppContext.statState.rows) {
+        var dir = act === 'STAT_SORT_ASC' ? 1 : -1;
+        AppContext.statState.rows.sort(function (a, b) { return dir * (a.x - b.x); });
+      }
+      renderAll();
+      return;
+    } else if (act === 'STAT_DEL_ALL') {
+      AppContext.overlay = null;
+      if (AppContext.statState) {
+        AppContext.statState.rows = [{ x: 0, y: 0, f: 1 }];
+        AppContext.statState.rowIdx = 0;
+      }
+      renderAll();
+      return;
+    } else if (act === 'STAT_INS_ROW') {
+      AppContext.overlay = null;
+      if (AppContext.statState) {
+        AppContext.statState.rows.splice(AppContext.statState.rowIdx, 0, { x: 0, y: 0, f: 1 });
+      }
+      renderAll();
+      return;
+    } else if (act === 'SHEET_FILL_FORMULA') {
+      AppContext.overlay = null;
+      CalcApps.byId.sheet.execSheetOptn(AppContext.sheetState, 0);
+      renderAll();
+      return;
+    } else if (act === 'SHEET_FILL_VALUE') {
+      AppContext.overlay = null;
+      CalcApps.byId.sheet.execSheetOptn(AppContext.sheetState, 1);
+      renderAll();
+      return;
+    } else if (act === 'SHEET_EDIT_CELL') {
+      AppContext.overlay = null;
+      CalcApps.byId.sheet.execSheetOptn(AppContext.sheetState, 2);
+      renderAll();
+      return;
+    } else if (act === 'SHEET_DEL_ALL') {
+      AppContext.overlay = null;
+      CalcApps.byId.sheet.execSheetOptn(AppContext.sheetState, 3);
+      renderAll();
+      return;
+    } else if (act === 'SHEET_RECALC') {
+      AppContext.overlay = null;
+      CalcApps.byId.sheet.execSheetOptn(AppContext.sheetState, 4);
+      renderAll();
+      return;
+    } else if (act === 'TBL_RANGE') {
+      AppContext.overlay = null;
+      if (AppContext.tableState) {
+        AppContext.tableState.step = 'range';
+        AppContext.tableState.rangeIdx = 0;
+      }
+      renderAll();
+      return;
+    } else if (act === 'DEFINE_F' || act === 'DEFINE_G') {
+      openDefineFuncModal(act === 'DEFINE_F' ? 'f' : 'g');
+      return;
+    } else if (act === 'TBL_DEL_ROW') {
+      AppContext.overlay = null;
+      if (AppContext.tableState && AppContext.tableState.rows.length > 0) {
+        AppContext.tableState.rows.splice(AppContext.tableState.selRow, 1);
+      }
+      renderAll();
+      return;
+    } else if (act === 'TBL_INS_ROW') {
+      AppContext.overlay = null;
+      if (AppContext.tableState) {
+        AppContext.tableState.rows.splice(AppContext.tableState.selRow, 0, { x: 0, f: 0, g: 0 });
+      }
+      renderAll();
+      return;
+    } else if (act === 'TBL_DEL_ALL') {
+      AppContext.overlay = null;
+      if (AppContext.tableState) {
+        AppContext.tableState.rows = [];
+      }
+      renderAll();
+      return;
+    } else if (act === 'MB_VIEW_WIN') {
+      AppContext.overlay = null;
+      if (AppContext.mathboxState) {
+        AppContext.mathboxState.nlScale = (AppContext.mathboxState.nlScale === 1) ? 2 : (AppContext.mathboxState.nlScale === 2 ? 5 : 1);
+      }
+      renderAll();
+      return;
+    } else if (act === 'MB_VIEW_RESET') {
+      AppContext.overlay = null;
+      if (AppContext.mathboxState) {
+        AppContext.mathboxState.nlCenter = 0;
+        AppContext.mathboxState.nlScale = 1;
+      }
+      renderAll();
+      return;
+    }
+
+    AppContext.saveState();
+    // Nếu đang ở trong SETTINGS trên máy 880, làm mới lại cây để cập nhật nút radio ◉
+    if (AppContext.machineId === '880' && AppContext.overlay === 'tree' && AppContext.treeStack.length > 0 && AppContext.treeStack[0].title === 'SETTINGS') {
+      refreshSettingsTree880();
+    } else {
+      AppContext.overlay = null;
+      AppContext.treeStack = [];
+      AppContext.pagedMenu = null;
+    }
+    renderAll();
+  }
+
+  function syncEditorLineMode() {
+    var isLine = (AppContext.settings.ioMode === 'line' || AppContext.settings.ioMode === 'line_dec');
+    if (AppContext.calcState) AppContext.calcState.editor.lineMode = isLine;
+    if (AppContext.complexState) AppContext.complexState.editor.lineMode = isLine;
+  }
+
+  function showConfirmComplete(title) {
+    AppContext.confirmMsg = {
+      title: title,
+      sub: 'Complete — Press [OK] or [AC]'
+    };
+    AppContext.overlay = 'confirm_msg';
+    renderAll();
+  }
+
+  function refreshSettingsTree880() {
+    var prof = CalcMachines['880'];
+    if (!prof || !prof.getSettingsTree) return;
+    var rootItems = prof.getSettingsTree(AppContext);
+    AppContext.treeStack[0].items = rootItems;
+    for (var i = 1; i < AppContext.treeStack.length; i++) {
+      var parent = AppContext.treeStack[i - 1];
+      var pItem = parent.items[parent.idx];
+      if (pItem && pItem.children) {
+        AppContext.treeStack[i].items = pItem.children;
+      }
+    }
+  }
+
+  function openDefineFuncModal(fnName) {
+    AppContext.funcDefTarget = fnName;
+    var ed = CalcEditor.create(AppContext.settings.ioMode === 'line');
+    var curStr = (CalcEngine.getDefinedFunc && CalcEngine.getDefinedFunc(fnName)) || '';
+    if (curStr) {
+      CalcEditor.insertTextString(ed, curStr);
+    }
+    AppContext.funcDefEditor = ed;
+    AppContext.overlay = 'func_def';
+    renderAll();
+  }
+
+  // =========================================================================
+  // ĐIỀU PHỐI PHÍM BẤM TỔNG QUÁT (dispatchAction)
+  // =========================================================================
+  function dispatchAction(actionKey, logLabel, modType, logExtraNote) {
     AppContext.statusHint = '';
 
-    // Nếu màn hình đang tắt (OFF)
+    // 1. Khi màn hình đang tắt (OFF)
     if (AppContext.overlay === 'off') {
       if (actionKey === 'ON' || actionKey === 'AC') {
         AppContext.overlay = null;
@@ -715,16 +1405,16 @@
       return;
     }
 
-    // Kiểm tra xem có phải đang bắt đầu biểu thức mới sau dấu = không (để tự xóa nhật ký phím)
+    // 2. Xác định xem có phải bắt đầu phép tính mới sau dấu = không (để tự xóa nhật ký phím)
     var curApp = CalcApps.byId[AppContext.currentAppId];
     var isNewStart = false;
     var hasCalcRes = (AppContext.currentAppId === 'calc' && AppContext.calcState && AppContext.calcState.hasResult) ||
                      (AppContext.currentAppId === 'complex' && AppContext.complexState && AppContext.complexState.hasResult);
     if (!AppContext.overlay && hasCalcRes) {
       var nonResetKeys = {
-        '=': 1, 'OK': 1, 'APPROX_EQ': 1, 'S_D': 1, 'MIXED_SD': 1,
+        '=': 1, 'OK': 1, 'APPROX_EQ': 1, 'FORMAT': 1, 'S_D': 1, 'MIXED_SD': 1,
         'FACT': 1, 'DMS': 1, 'DMS_CONV': 1, 'ENG': 1, 'ENG_BACK': 1,
-        'LEFT': 1, 'RIGHT': 1, 'UP': 1, 'DOWN': 1,
+        'LEFT': 1, 'RIGHT': 1, 'UP': 1, 'DOWN': 1, 'PAGE_UP': 1, 'PAGE_DOWN': 1,
         '+': 1, '-': 1, '*': 1, '/': 1, 'POW': 1, 'SQ': 1, 'CUBE': 1, 'INV': 1,
         'FACTORIAL': 1, 'DIV_R': 1, 'NPR': 1, 'NCR': 1, 'STO': 1, 'M+': 1, 'M-': 1
       };
@@ -734,219 +1424,772 @@
     }
 
     if (logLabel) {
-      recordKeyLog(logLabel, modType, isNewStart);
+      recordKeyLog(logLabel, modType, isNewStart, logExtraNote);
     }
 
-    // Xử lý phím toàn cục: HOME, MENU, SETUP, OPTN, CATALOG, VARS
-    if (actionKey === 'HOME') {
-      AppContext.switchApp('calc');
+    // 3. Các phím hệ thống mở thực đơn toàn cục
+    if (actionKey === 'ON') {
+      AppContext.overlay = null;
+      dispatchAction('AC', '', '');
+      renderAll();
       return;
     }
+
+    if (actionKey === 'HOME') {
+      if (AppContext.overlay === 'home') AppContext.overlay = null;
+      else AppContext.openMenu();
+      renderAll();
+      return;
+    }
+
     if (actionKey === 'MENU') {
       if (AppContext.overlay === 'menu') AppContext.overlay = null;
       else AppContext.openMenu();
       renderAll();
       return;
     }
-    if (actionKey === 'SETUP') {
-      AppContext.overlay = (AppContext.overlay === 'setup') ? null : 'setup';
-      AppContext.setupSubMode = null;
-      renderAll();
-      return;
-    }
-    if (actionKey === 'OPTN') {
-      if (AppContext.overlay === 'optn' || AppContext.overlay === 'optn_hyp') {
+
+    if (actionKey === 'SETTINGS') {
+      if (AppContext.overlay === 'tree' && AppContext.treeStack.length > 0 && AppContext.treeStack[0].title === 'SETTINGS') {
         AppContext.overlay = null;
-      } else if (curApp && curApp.openOptn) {
-        AppContext.overlay = null;
-        curApp.openOptn(AppContext);
+        AppContext.treeStack = [];
       } else {
-        AppContext.overlay = 'optn';
-        AppContext.optnIdx = 0;
+        var prof880 = CalcMachines['880'];
+        AppContext.treeStack = [{ title: 'SETTINGS', items: prof880.getSettingsTree(AppContext), idx: 0 }];
+        AppContext.overlay = 'tree';
       }
       renderAll();
       return;
     }
+
     if (actionKey === 'CATALOG') {
-      AppContext.overlay = (AppContext.overlay === 'catalog') ? null : 'catalog';
-      AppContext.catalogIdx = 0;
+      if (AppContext.overlay === 'tree' && AppContext.treeStack.length > 0 && AppContext.treeStack[0].title === 'CATALOG') {
+        AppContext.overlay = null;
+        AppContext.treeStack = [];
+      } else {
+        var profCat = CalcMachines['880'];
+        AppContext.treeStack = [{ title: 'CATALOG', items: profCat.getCatalogTree(AppContext), idx: 0 }];
+        AppContext.overlay = 'tree';
+      }
       renderAll();
       return;
     }
-    if (actionKey === 'VARS' || actionKey === 'RCL') {
-      AppContext.overlay = (AppContext.overlay === 'vars') ? null : 'vars';
+
+    if (actionKey === 'TOOLS') {
+      if (AppContext.overlay === 'tree' && AppContext.treeStack.length > 0 && AppContext.treeStack[0].title === 'TOOLS') {
+        AppContext.overlay = null;
+        AppContext.treeStack = [];
+      } else {
+        var profTools = CalcMachines['880'];
+        AppContext.treeStack = [{ title: 'TOOLS', items: profTools.getToolsMenu(AppContext.currentAppId, AppContext), idx: 0 }];
+        AppContext.overlay = 'tree';
+      }
+      renderAll();
+      return;
+    }
+
+    if (actionKey === 'VARIABLE') {
+      if (AppContext.overlay === 'vars880' || AppContext.overlay === 'var880_act' || AppContext.overlay === 'var880_edit') {
+        AppContext.overlay = null;
+      } else {
+        AppContext.overlay = 'vars880';
+        AppContext.varIdx = 0;
+      }
+      renderAll();
+      return;
+    }
+
+    if (actionKey === 'FUNCTION') {
+      if (AppContext.overlay === 'tree' && AppContext.treeStack.length > 0 && AppContext.treeStack[0].title === 'FUNCTION') {
+        AppContext.overlay = null;
+        AppContext.treeStack = [];
+      } else {
+        var profFn = CalcMachines['880'];
+        AppContext.treeStack = [{ title: 'FUNCTION', items: profFn.getFunctionMenu(), idx: 0 }];
+        AppContext.overlay = 'tree';
+      }
+      renderAll();
+      return;
+    }
+
+    if (actionKey === 'FORMAT' || actionKey === 'FORMAT_MENU') {
+      if (AppContext.overlay === 'format') {
+        AppContext.overlay = null;
+        renderAll();
+        return;
+      }
+      var hasRes880 = (AppContext.currentAppId === 'calc' && AppContext.calcState && AppContext.calcState.hasResult && AppContext.calcState.lastResult && AppContext.calcState.lastResult.ok) ||
+                      (AppContext.currentAppId === 'complex' && AppContext.complexState && AppContext.complexState.hasResult && AppContext.complexState.lastResult && AppContext.complexState.lastResult.ok);
+      if (hasRes880) {
+        // Như máy thật: phím FORMAT luôn mở danh sách dạng kết quả, chọn bằng ▲▼ rồi EXE/OK
+        var profFmt = CalcMachines['880'];
+        AppContext.formatItems = profFmt.getFormatMenu(AppContext.currentAppId);
+        AppContext.formatIdx = 0;
+        AppContext.overlay = 'format';
+        renderAll();
+      }
+      return;
+    }
+
+    if (actionKey === 'QR') {
+      AppContext.overlay = 'qr_msg';
+      renderAll();
+      return;
+    }
+
+    if (actionKey === 'SETUP') {
+      if (AppContext.overlay === 'paged' && AppContext.pagedMenu && AppContext.pagedMenu.kind === 'setup') {
+        AppContext.overlay = null;
+      } else {
+        var prof580 = CalcMachines['580'];
+        AppContext.pagedMenu = {
+          title: 'SETUP',
+          pages: prof580.getSetupPages(AppContext),
+          pageIdx: 0,
+          itemIdx: 0,
+          kind: 'setup'
+        };
+        AppContext.overlay = 'paged';
+      }
+      renderAll();
+      return;
+    }
+
+    if (actionKey === 'OPTN') {
+      if (AppContext.currentAppId === 'verify') {
+        AppContext.overlay = null;
+        CalcApps.byId.verify.openOptn(AppContext);
+        renderAll();
+        return;
+      }
+      if (AppContext.currentAppId === 'stat' && AppContext.statState && AppContext.statState.step !== 'type') {
+        AppContext.overlay = null;
+        CalcApps.byId.stat.openOptn(AppContext);
+        renderAll();
+        return;
+      }
+      if (AppContext.overlay === 'paged' && AppContext.pagedMenu && AppContext.pagedMenu.kind === 'optn') {
+        AppContext.overlay = null;
+      } else {
+        var profOptn = CalcMachines['580'];
+        AppContext.pagedMenu = {
+          title: 'OPTN',
+          pages: profOptn.getOptnPages(AppContext.currentAppId, AppContext),
+          pageIdx: 0,
+          itemIdx: 0,
+          kind: 'optn'
+        };
+        AppContext.overlay = 'paged';
+      }
+      renderAll();
+      return;
+    }
+
+    if (actionKey === 'CONST_MENU') {
+      var profC = CalcMachines['580'];
+      var cTree = profC.buildSciConstPages();
+      AppContext.treeStack = [{ title: 'CONST (1~6)', items: cTree, idx: 0 }];
+      AppContext.overlay = 'tree';
+      renderAll();
+      return;
+    }
+
+    if (actionKey === 'CONV_MENU') {
+      var profV = CalcMachines['580'];
+      var vTree = profV.buildUnitConvPages();
+      AppContext.treeStack = [{ title: 'CONV (1~9)', items: vTree, idx: 0 }];
+      AppContext.overlay = 'tree';
+      renderAll();
+      return;
+    }
+
+    if (actionKey === 'RESET_MENU') {
+      var profR = CalcMachines['580'];
+      AppContext.treeStack = [{ title: 'RESET', items: profR.getResetMenu(), idx: 0 }];
+      AppContext.overlay = 'tree';
+      renderAll();
+      return;
+    }
+
+    if (actionKey === 'RCL') {
+      AppContext.overlay = (AppContext.overlay === 'recall580') ? null : 'recall580';
       AppContext.varIdx = 0;
       renderAll();
       return;
     }
 
-    // Nếu đang mở lớp phủ MENU
-    if (AppContext.overlay === 'menu') {
-      var apps = CalcApps.getVisibleApps(AppContext.settings.modelType);
-      if (actionKey === 'AC') { AppContext.overlay = null; renderAll(); return; }
-      if (actionKey === 'LEFT' && AppContext.menuIdx > 0) { AppContext.menuIdx--; renderAll(); return; }
-      if (actionKey === 'RIGHT' && AppContext.menuIdx < apps.length - 1) { AppContext.menuIdx++; renderAll(); return; }
-      if (actionKey === 'UP' && AppContext.menuIdx >= 4) { AppContext.menuIdx -= 4; renderAll(); return; }
-      if (actionKey === 'DOWN' && AppContext.menuIdx + 4 < apps.length) { AppContext.menuIdx += 4; renderAll(); return; }
-      if (actionKey === 'OK' || actionKey === '=') {
-        AppContext.switchApp(apps[AppContext.menuIdx].id);
-        return;
-      }
-      // Chọn nhanh bằng phím 1-9, A-F
-      var codeMap = {
-        '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
-        '(-)': 'A', 'VAR_A': 'A', 'DMS': 'B', 'VAR_B': 'B', 'INV': 'C', 'VAR_C': 'C',
-        'sin': 'D', 'VAR_D': 'D', 'cos': 'E', 'VAR_E': 'E', 'tan': 'F', 'VAR_F': 'F'
-      };
-      var pickedCode = codeMap[actionKey];
-      if (pickedCode) {
-        for (var mi = 0; mi < apps.length; mi++) {
-          if (apps[mi].code === pickedCode) {
-            AppContext.switchApp(apps[mi].id);
-            return;
-          }
-        }
-      }
+    // 4. Xử lý khi đang mở một lớp phủ (Overlay)
+    if (AppContext.overlay) {
+      handleOverlayKey(actionKey);
       return;
     }
 
-    // Nếu đang mở lớp phủ SETUP
-    if (AppContext.overlay === 'setup') {
-      if (AppContext.setupSubMode === 'fix' || AppContext.setupSubMode === 'sci') {
-        if (/^[0-9]$/.test(actionKey)) {
-          var dg = parseInt(actionKey, 10);
-          AppContext.settings.fmtMode = AppContext.setupSubMode;
-          AppContext.settings.fmtDigits = (AppContext.setupSubMode === 'sci' && dg === 0) ? 10 : dg;
-          AppContext.setupSubMode = null;
-          AppContext.saveState();
-          renderAll();
-        } else if (actionKey === 'AC') {
-          AppContext.setupSubMode = null;
-          renderAll();
-        }
-        return;
-      }
-      if (actionKey === 'AC') { AppContext.overlay = null; renderAll(); return; }
-      if (actionKey === 'UP') { AppContext.setupIdx = (AppContext.setupIdx + SETUP_ITEMS.length - 1) % SETUP_ITEMS.length; renderAll(); return; }
-      if (actionKey === 'DOWN') { AppContext.setupIdx = (AppContext.setupIdx + 1) % SETUP_ITEMS.length; renderAll(); return; }
-      if (/^[0-9]$/.test(actionKey)) {
-        var sIdx = actionKey === '0' ? 9 : (parseInt(actionKey, 10) - 1);
-        if (SETUP_ITEMS[sIdx]) {
-          AppContext.setupIdx = sIdx;
-          applySetupToggle(AppContext.setupIdx);
-          renderAll();
-        }
-        return;
-      }
-      if (actionKey === 'OK' || actionKey === '=') {
-        applySetupToggle(AppContext.setupIdx);
-        renderAll();
-        return;
-      }
-      return;
-    }
-
-    // Nếu đang mở lớp phủ OPTN
-    if (AppContext.overlay === 'optn' || AppContext.overlay === 'optn_hyp') {
-      var oList = AppContext.overlay === 'optn_hyp' ? CalcApps.HYP_ITEMS : CalcApps.CALC_OPTN_ITEMS;
-      if (actionKey === 'AC') { AppContext.overlay = null; renderAll(); return; }
-      if (actionKey === 'UP') { AppContext.optnIdx = (AppContext.optnIdx + oList.length - 1) % oList.length; renderAll(); return; }
-      if (actionKey === 'DOWN') { AppContext.optnIdx = (AppContext.optnIdx + 1) % oList.length; renderAll(); return; }
-      if (/^[1-9]$/.test(actionKey)) {
-        var oIdx = parseInt(actionKey, 10) - 1;
-        if (oList[oIdx]) {
-          if (oList[oIdx].group === 'hyp') {
-            AppContext.overlay = 'optn_hyp';
-            AppContext.optnIdx = 0;
-            renderAll();
-          } else {
-            insertCatalogOrOptnItem(oList[oIdx]);
-          }
-        }
-        return;
-      }
-      if (actionKey === 'OK' || actionKey === '=') {
-        var chosen = oList[AppContext.optnIdx];
-        if (chosen.group === 'hyp') {
-          AppContext.overlay = 'optn_hyp';
-          AppContext.optnIdx = 0;
-          renderAll();
-        } else {
-          insertCatalogOrOptnItem(chosen);
-        }
-        return;
-      }
-      return;
-    }
-
-    // Nếu đang mở lớp phủ CATALOG
-    if (AppContext.overlay === 'catalog') {
-      var cList = CalcApps.CATALOG_ITEMS;
-      if (actionKey === 'AC') { AppContext.overlay = null; renderAll(); return; }
-      if (actionKey === 'UP') { AppContext.catalogIdx = (AppContext.catalogIdx + cList.length - 1) % cList.length; renderAll(); return; }
-      if (actionKey === 'DOWN') { AppContext.catalogIdx = (AppContext.catalogIdx + 1) % cList.length; renderAll(); return; }
-      if (actionKey === 'OK' || actionKey === '=') {
-        insertCatalogOrOptnItem(cList[AppContext.catalogIdx]);
-      }
-      return;
-    }
-
-    // Nếu đang mở lớp phủ VARS
-    if (AppContext.overlay === 'vars') {
-      if (actionKey === 'AC') { AppContext.overlay = null; renderAll(); return; }
-      if (actionKey === 'UP') { AppContext.varIdx = (AppContext.varIdx + VAR_LIST.length - 1) % VAR_LIST.length; renderAll(); return; }
-      if (actionKey === 'DOWN') { AppContext.varIdx = (AppContext.varIdx + 1) % VAR_LIST.length; renderAll(); return; }
-      if (actionKey === 'OK' || actionKey === '=') {
-        var vn = VAR_LIST[AppContext.varIdx];
-        insertCatalogOrOptnItem({ text: vn, evalText: vn });
-      }
-      return;
-    }
-
-    // Các phím hàm tắt (GCD_FN, LCM_FN, INT_FN, INTG_FN, RND_FN)
-    var fnShortMap = {
-      'GCD_FN': { text: 'GCD(', evalText: 'gcd(' },
-      'LCM_FN': { text: 'LCM(', evalText: 'lcm(' },
-      'INT_FN': { text: 'Int(', evalText: 'int(' },
-      'INTG_FN': { text: 'Intg(', evalText: 'intg(' },
-      'RND_FN': { text: 'Rnd(', evalText: 'round(' }
-    };
-    if (fnShortMap[actionKey]) {
-      insertCatalogOrOptnItem(fnShortMap[actionKey]);
-      return;
-    }
-
-    // Chuyển phím cho ứng dụng đang hoạt động
+    // 5. Chuyển phím cho ứng dụng đang hoạt động
     if (curApp && curApp.onKey) {
       curApp.onKey(actionKey, AppContext);
       renderAll();
     }
   }
 
-  function stripHtmlTags(s) {
-    return String(s || '').replace(/<[^>]*>/g, '');
+  function handleOverlayKey(actionKey) {
+    // Thông báo QR hoặc xác nhận Reset
+    if (AppContext.overlay === 'qr_msg' || AppContext.overlay === 'confirm_msg') {
+      if (actionKey === 'BACK' || actionKey === 'AC' || actionKey === 'OK' || actionKey === '=') {
+        AppContext.overlay = null;
+        AppContext.confirmMsg = null;
+        renderAll();
+      }
+      return;
+    }
+
+    // Nhập chữ số cho Fix / Sci / Norm trên Máy 580
+    if (AppContext.overlay === 'digit_prompt') {
+      if (actionKey === 'AC' || actionKey === 'BACK') {
+        AppContext.overlay = null;
+        renderAll();
+        return;
+      }
+      if (/^[0-9]$/.test(actionKey)) {
+        var dg = parseInt(actionKey, 10);
+        if (AppContext.digitPromptKind === 'norm') {
+          if (dg === 1 || dg === 2) {
+            AppContext.settings.fmtMode = dg === 2 ? 'norm2' : 'norm1';
+            AppContext.overlay = null;
+            AppContext.saveState();
+          }
+        } else if (AppContext.digitPromptKind === 'fix') {
+          AppContext.settings.fmtMode = 'fix';
+          AppContext.settings.fmtDigits = dg;
+          AppContext.overlay = null;
+          AppContext.saveState();
+        } else if (AppContext.digitPromptKind === 'sci') {
+          AppContext.settings.fmtMode = 'sci';
+          AppContext.settings.fmtDigits = dg === 0 ? 10 : dg;
+          AppContext.overlay = null;
+          AppContext.saveState();
+        }
+        renderAll();
+      }
+      return;
+    }
+
+    // Màn hình HOME (880) hoặc MENU (580)
+    if (AppContext.overlay === 'home' || AppContext.overlay === 'menu') {
+      var apps = CalcApps.getVisibleApps(AppContext.machineId);
+      var cols = (AppContext.overlay === 'home') ? 3 : 4;
+      if (actionKey === 'AC' || actionKey === 'BACK') { AppContext.overlay = null; renderAll(); return; }
+      if (actionKey === 'LEFT' && AppContext.menuIdx > 0) { AppContext.menuIdx--; renderAll(); return; }
+      if (actionKey === 'RIGHT' && AppContext.menuIdx < apps.length - 1) { AppContext.menuIdx++; renderAll(); return; }
+      if (actionKey === 'UP' && AppContext.menuIdx >= cols) { AppContext.menuIdx -= cols; renderAll(); return; }
+      if (actionKey === 'DOWN' && AppContext.menuIdx + cols < apps.length) { AppContext.menuIdx += cols; renderAll(); return; }
+      // Hàng cuối thiếu ô: ▼ nhảy tới ô cuối cùng (vd Math Box) thay vì đứng yên
+      if (actionKey === 'DOWN' && Math.floor(AppContext.menuIdx / cols) < Math.floor((apps.length - 1) / cols)) { AppContext.menuIdx = apps.length - 1; renderAll(); return; }
+      if (actionKey === 'PAGE_UP') { AppContext.menuIdx = Math.max(0, AppContext.menuIdx - 6); renderAll(); return; }
+      if (actionKey === 'PAGE_DOWN') { AppContext.menuIdx = Math.min(apps.length - 1, AppContext.menuIdx + 6); renderAll(); return; }
+      if (actionKey === 'OK' || actionKey === '=') {
+        var chosenApp = apps[AppContext.menuIdx];
+        // Ghi chú tên ứng dụng vào viên phím cuối trong nhật ký phím
+        annotateLastKeyLog(chosenApp.name);
+        AppContext.switchApp(chosenApp.id);
+        return;
+      }
+      // Trên máy 580: chọn nhanh bằng phím 1..9, A((-)), B(°′″), C(x⁻¹)
+      if (AppContext.overlay === 'menu') {
+        var codeMap = {
+          '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7', '8': '8', '9': '9',
+          '(-)': 'A', 'VAR_A': 'A', 'DMS': 'B', 'VAR_B': 'B', 'INV': 'C', 'VAR_C': 'C'
+        };
+        var pickedCode = codeMap[actionKey];
+        if (pickedCode) {
+          for (var mi = 0; mi < apps.length; mi++) {
+            if (apps[mi].code === pickedCode) {
+              annotateLastKeyLog(apps[mi].name);
+              AppContext.switchApp(apps[mi].id);
+              return;
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    // Thực đơn cây (SETTINGS, CATALOG, TOOLS, FUNCTION trên 880; CONST, CONV, RESET trên 580)
+    if (AppContext.overlay === 'tree') {
+      var lvl = AppContext.treeStack[AppContext.treeStack.length - 1];
+      var items = lvl.items || [];
+      if (actionKey === 'AC') {
+        AppContext.overlay = null;
+        AppContext.treeStack = [];
+        renderAll();
+        return;
+      }
+      if (actionKey === 'BACK' || actionKey === 'LEFT') {
+        if (AppContext.treeStack.length > 1) {
+          AppContext.treeStack.pop();
+        } else {
+          AppContext.overlay = null;
+          AppContext.treeStack = [];
+        }
+        renderAll();
+        return;
+      }
+      if (actionKey === 'UP') {
+        lvl.idx = (lvl.idx + items.length - 1) % items.length;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'DOWN') {
+        lvl.idx = (lvl.idx + 1) % items.length;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'PAGE_UP') {
+        lvl.idx = Math.max(0, lvl.idx - 4);
+        renderAll();
+        return;
+      }
+      if (actionKey === 'PAGE_DOWN') {
+        lvl.idx = Math.min(items.length - 1, lvl.idx + 4);
+        renderAll();
+        return;
+      }
+      // Phím số 1..9 chọn nhanh mục trên Máy 580 (CONST, CONV, RESET)
+      if (AppContext.machineId === '580' && /^[1-9]$/.test(actionKey)) {
+        var nIdx = parseInt(actionKey, 10) - 1;
+        if (items[nIdx]) {
+          lvl.idx = nIdx;
+          activateTreeItem(items[nIdx]);
+          return;
+        }
+      }
+      if (actionKey === 'OK' || actionKey === '=' || actionKey === 'RIGHT') {
+        var selItem = items[lvl.idx];
+        if (actionKey === 'RIGHT' && (!selItem || !selItem.children)) return;
+        activateTreeItem(selItem);
+      }
+      return;
+    }
+
+    // Thực đơn phân trang đánh số (SETUP, OPTN trên Máy 580)
+    if (AppContext.overlay === 'paged') {
+      var pm = AppContext.pagedMenu;
+      var curPage = pm.pages[pm.pageIdx] || [];
+      if (actionKey === 'AC' || actionKey === 'BACK') {
+        AppContext.overlay = null;
+        AppContext.pagedMenu = null;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'UP') {
+        pm.pageIdx = (pm.pageIdx + pm.pages.length - 1) % pm.pages.length;
+        pm.itemIdx = 0;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'DOWN') {
+        pm.pageIdx = (pm.pageIdx + 1) % pm.pages.length;
+        pm.itemIdx = 0;
+        renderAll();
+        return;
+      }
+      if (/^[1-9]$/.test(actionKey)) {
+        for (var pi = 0; pi < curPage.length; pi++) {
+          if (curPage[pi].num === actionKey) {
+            activatePagedItem(curPage[pi]);
+            return;
+          }
+        }
+      }
+      if (actionKey === 'OK' || actionKey === '=') {
+        if (curPage[pm.itemIdx]) {
+          activatePagedItem(curPage[pm.itemIdx]);
+        }
+      }
+      return;
+    }
+
+    // Thực đơn FORMAT trên Máy 880
+    if (AppContext.overlay === 'format') {
+      var fList = AppContext.formatItems || [];
+      if (actionKey === 'AC' || actionKey === 'BACK') {
+        AppContext.overlay = null;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'UP') {
+        AppContext.formatIdx = (AppContext.formatIdx + fList.length - 1) % fList.length;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'DOWN') {
+        AppContext.formatIdx = (AppContext.formatIdx + 1) % fList.length;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'OK' || actionKey === '=') {
+        var fChosen = fList[AppContext.formatIdx];
+        AppContext.overlay = null;
+        if (fChosen) {
+          annotateLastKeyLog(fChosen.label);
+          if (AppContext.currentAppId === 'complex') {
+            CalcApps.byId.complex.applyFormatOption(AppContext, fChosen.id);
+          } else {
+            CalcApps.byId.calc.applyFormatOption(AppContext, fChosen.id);
+          }
+        }
+        renderAll();
+      }
+      return;
+    }
+
+    // Màn hình VARIABLE trên Máy 880
+    if (AppContext.overlay === 'vars880') {
+      if (actionKey === 'AC' || actionKey === 'BACK') {
+        AppContext.overlay = null;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'UP') {
+        AppContext.varIdx = (AppContext.varIdx + VAR_LIST_880.length - 1) % VAR_LIST_880.length;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'DOWN') {
+        AppContext.varIdx = (AppContext.varIdx + 1) % VAR_LIST_880.length;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'PAGE_UP') {
+        AppContext.varIdx = Math.max(0, AppContext.varIdx - 3);
+        renderAll();
+        return;
+      }
+      if (actionKey === 'PAGE_DOWN') {
+        AppContext.varIdx = Math.min(VAR_LIST_880.length - 1, AppContext.varIdx + 3);
+        renderAll();
+        return;
+      }
+      // Nếu bấm phím biến (A..F, x, y, z) trực tiếp trong màn hình VARIABLE -> mở Edit cho biến đó
+      var directVarMap = {
+        'VAR_A': 0, 'VAR_B': 1, 'VAR_C': 2, 'VAR_D': 3, 'VAR_E': 4, 'VAR_F': 5,
+        'VAR_x': 6, 'x': 6, 'VAR_y': 7, 'VAR_z': 8
+      };
+      if (directVarMap[actionKey] !== undefined) {
+        AppContext.varIdx = directVarMap[actionKey];
+        AppContext.varEditStr = '';
+        AppContext.overlay = 'var880_edit';
+        renderAll();
+        return;
+      }
+      if (actionKey === 'OK' || actionKey === '=' || actionKey === 'TOOLS') {
+        AppContext.varActIdx = 0;
+        AppContext.overlay = 'var880_act';
+        renderAll();
+      }
+      return;
+    }
+
+    if (AppContext.overlay === 'var880_act') {
+      if (actionKey === 'AC' || actionKey === 'BACK') {
+        AppContext.overlay = 'vars880';
+        renderAll();
+        return;
+      }
+      if (actionKey === 'UP') {
+        AppContext.varActIdx = (AppContext.varActIdx + 2) % 3;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'DOWN') {
+        AppContext.varActIdx = (AppContext.varActIdx + 1) % 3;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'OK' || actionKey === '=') {
+        execVar880Action(AppContext.varActIdx);
+      }
+      return;
+    }
+
+    if (AppContext.overlay === 'var880_edit') {
+      if (actionKey === 'AC' || actionKey === 'BACK') {
+        AppContext.overlay = 'vars880';
+        renderAll();
+        return;
+      }
+      if (actionKey === 'DEL') {
+        AppContext.varEditStr = AppContext.varEditStr.slice(0, -1);
+        renderAll();
+        return;
+      }
+      if (actionKey === 'OK' || actionKey === '=') {
+        var vn8 = VAR_LIST_880[AppContext.varIdx] || 'A';
+        if (AppContext.varEditStr.replace(/\s+/g, '') !== '') {
+          var ev = CalcEngine.evalText(AppContext.varEditStr, AppContext.getEvalOpts());
+          if (ev.ok) {
+            AppContext.vars[vn8] = ev.value;
+            AppContext.saveState();
+          }
+        }
+        AppContext.overlay = 'vars880';
+        renderAll();
+        return;
+      }
+      var chV = CalcApps.mapKeyToCellChar(actionKey);
+      if (chV) {
+        AppContext.varEditStr += chV;
+        renderAll();
+      }
+      return;
+    }
+
+    // Màn hình RECALL trên Máy 580
+    if (AppContext.overlay === 'recall580') {
+      if (actionKey === 'AC' || actionKey === 'BACK') {
+        AppContext.overlay = null;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'UP') {
+        AppContext.varIdx = (AppContext.varIdx + VAR_LIST_580.length - 1) % VAR_LIST_580.length;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'DOWN') {
+        AppContext.varIdx = (AppContext.varIdx + 1) % VAR_LIST_580.length;
+        renderAll();
+        return;
+      }
+      var rclKeyMap = {
+        'VAR_A': 'A', '(-)': 'A',
+        'VAR_B': 'B', 'DMS': 'B',
+        'VAR_C': 'C', 'INV': 'C',
+        'VAR_D': 'D', 'sin': 'D',
+        'VAR_E': 'E', 'cos': 'E',
+        'VAR_F': 'F', 'tan': 'F',
+        'VAR_x': 'x', '(': 'x', 'x': 'x',
+        'VAR_y': 'y', ')': 'y',
+        'VAR_z': 'z', 'S_D': 'z',
+        'VAR_M': 'M', 'M+': 'M'
+      };
+      if (rclKeyMap[actionKey]) {
+        var rVar = rclKeyMap[actionKey];
+        insertIntoActiveContext({ text: rVar, evalText: rVar });
+        return;
+      }
+      if (actionKey === '=' || actionKey === 'OK') {
+        var selV = VAR_LIST_580[AppContext.varIdx] || 'A';
+        insertIntoActiveContext({ text: selV, evalText: selV });
+      }
+      return;
+    }
+
+    // Màn hình Define f(x) / g(x) trên Máy 880
+    if (AppContext.overlay === 'func_def') {
+      var edF = AppContext.funcDefEditor;
+      if (actionKey === 'BACK') {
+        AppContext.overlay = null;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'AC') {
+        CalcEditor.clear(edF);
+        renderAll();
+        return;
+      }
+      if (actionKey === 'DEL') {
+        CalcEditor.deleteBack(edF);
+        renderAll();
+        return;
+      }
+      if (actionKey === 'LEFT') { CalcEditor.moveLeft(edF); renderAll(); return; }
+      if (actionKey === 'RIGHT') { CalcEditor.moveRight(edF); renderAll(); return; }
+      if (actionKey === 'UP') { CalcEditor.moveUp(edF); renderAll(); return; }
+      if (actionKey === 'DOWN') { CalcEditor.moveDown(edF); renderAll(); return; }
+      if (actionKey === '=' || actionKey === 'OK') {
+        var exprF = CalcEditor.toEvalText(edF);
+        if (CalcEngine.defineFunc) {
+          CalcEngine.defineFunc(AppContext.funcDefTarget, exprF);
+        }
+        // Đồng bộ với ứng dụng Table nếu đã khởi tạo
+        if (AppContext.tableState) {
+          var targetEd = AppContext.funcDefTarget === 'f' ? AppContext.tableState.fEditor : AppContext.tableState.gEditor;
+          CalcEditor.clear(targetEd);
+          CalcEditor.insertTextString(targetEd, exprF);
+        }
+        AppContext.saveState();
+        AppContext.overlay = null;
+        renderAll();
+        return;
+      }
+      CalcApps.byId.calc.insertByKey(edF, actionKey);
+      renderAll();
+      return;
+    }
+
+    // Bảng tuần hoàn nguyên tố hóa học (Periodic Table) trên Máy 880
+    if (AppContext.overlay === 'periodic_table') {
+      if (actionKey === 'AC' || actionKey === 'BACK') {
+        AppContext.overlay = null;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'LEFT') {
+        AppContext.ptElementZ = AppContext.ptElementZ > 1 ? AppContext.ptElementZ - 1 : 118;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'RIGHT') {
+        AppContext.ptElementZ = AppContext.ptElementZ < 118 ? AppContext.ptElementZ + 1 : 1;
+        renderAll();
+        return;
+      }
+      if (actionKey === 'UP') {
+        AppContext.ptElementZ = Math.max(1, AppContext.ptElementZ - 8);
+        renderAll();
+        return;
+      }
+      if (actionKey === 'DOWN') {
+        AppContext.ptElementZ = Math.min(118, AppContext.ptElementZ + 8);
+        renderAll();
+        return;
+      }
+      if (actionKey === 'OK' || actionKey === '=') {
+        var elChosen = CalcEngine.getElement(AppContext.ptElementZ);
+        if (elChosen) {
+          annotateLastKeyLog(elChosen.symbol + ':' + elChosen.weight);
+          insertIntoActiveContext({ text: String(elChosen.weight), evalText: String(elChosen.weight) });
+        }
+      }
+      return;
+    }
   }
 
+  function execVar880Action(actIdx) {
+    var vn = VAR_LIST_880[AppContext.varIdx] || 'A';
+    if (actIdx === 0) {
+      // Recall Value: chèn giá trị của biến vào biểu thức
+      var val = AppContext.vars[vn] || 0;
+      var strVal = CalcEngine.toExact(val) || String(val);
+      insertIntoActiveContext({ text: strVal, evalText: String(val) });
+    } else if (actIdx === 1) {
+      // Store: lưu kết quả Ans hoặc biểu thức hiện tại vào biến
+      AppContext.overlay = null;
+      if (AppContext.currentAppId === 'calc' && AppContext.calcState) {
+        CalcApps.byId.calc.evaluateAndStore(AppContext, vn);
+      } else {
+        AppContext.vars[vn] = AppContext.vars.Ans || 0;
+        AppContext.saveState();
+      }
+      renderAll();
+    } else if (actIdx === 2) {
+      // Edit: nhập giá trị mới cho biến
+      AppContext.varEditStr = '';
+      AppContext.overlay = 'var880_edit';
+      renderAll();
+    }
+  }
+
+  function activateTreeItem(item) {
+    if (!item) return;
+    annotateLastKeyLog(item.label);
+    if (item.children) {
+      AppContext.treeStack.push({
+        title: item.label,
+        items: item.children,
+        idx: 0
+      });
+      renderAll();
+      return;
+    }
+    if (item.action) {
+      executeMenuAction(item.action, item);
+      return;
+    }
+    if (item.tpl || item.text) {
+      insertIntoActiveContext(item);
+    }
+  }
+
+  function activatePagedItem(item) {
+    if (!item) return;
+    annotateLastKeyLog(item.label);
+    if (item.sub) {
+      AppContext.treeStack = [{
+        title: item.label,
+        items: item.sub,
+        idx: 0
+      }];
+      AppContext.overlay = 'tree';
+      renderAll();
+      return;
+    }
+    if (item.action) {
+      executeMenuAction(item.action, item);
+      return;
+    }
+    if (item.tpl || item.text) {
+      insertIntoActiveContext(item);
+    }
+  }
+
+  function annotateLastKeyLog(note) {
+    if (!note || AppContext.keyLog.length === 0) return;
+    var last = AppContext.keyLog[AppContext.keyLog.length - 1];
+    if (last && last.text.indexOf('(') === -1) {
+      last.text += ' (' + note + ')';
+      renderKeyLog();
+    }
+  }
+
+  // Xử lý khi bấm một nút trên bàn phím ảo (theo đối tượng phím kObj)
   function handleKeyObjectPress(kObj) {
+    if (!kObj) return;
+    var id = kObj.id;
+
+    // Phím SHIFT
+    if (id === 'SHIFT') {
+      AppContext.shiftActive = !AppContext.shiftActive;
+      if (AppContext.shiftActive) AppContext.alphaActive = false;
+      recordKeyLog('SHIFT', 'shift', false);
+      renderAll();
+      return;
+    }
+
+    // Phím ALPHA (chỉ có trên Máy 580)
+    if (id === 'ALPHA') {
+      AppContext.alphaActive = !AppContext.alphaActive;
+      if (AppContext.alphaActive) AppContext.shiftActive = false;
+      recordKeyLog('ALPHA', 'alpha', false);
+      renderAll();
+      return;
+    }
+
     var mod = '';
     var act = kObj.normalAct;
-    var lbl = kObj.plainLbl || stripHtmlTags(kObj.label);
+    var baseKeyLbl = kObj.plainLbl || stripHtmlTags(kObj.label);
+    var extraNote = '';
 
     if (AppContext.shiftActive) {
       mod = 'shift';
       act = kObj.shiftAct || kObj.normalAct;
-      lbl = stripHtmlTags(kObj.shiftLbl) || lbl;
+      var sLbl = stripHtmlTags(kObj.shiftLbl);
+      if (sLbl) extraNote = sLbl;
       AppContext.shiftActive = false;
     } else if (AppContext.alphaActive) {
       mod = 'alpha';
       act = kObj.alphaAct || kObj.normalAct;
-      lbl = stripHtmlTags(kObj.alphaLbl) || lbl;
+      var aLbl = stripHtmlTags(kObj.alphaLbl);
+      if (aLbl) extraNote = aLbl;
       AppContext.alphaActive = false;
     }
-    dispatchAction(act, lbl, mod);
+
+    dispatchAction(act, baseKeyLbl, mod, extraNote);
   }
 
-  // Gắn sự kiện chuột / cảm ứng (tránh nhân đôi sự kiện trên iPad)
+  // =========================================================================
+  // GẮN SỰ KIỆN CHUỘT / CẢM ỨNG / BÀN PHÍM
+  // =========================================================================
   function bindEvents() {
     var lastTouchTime = 0;
 
@@ -962,18 +2205,33 @@
       }, false);
     }
 
+    // Thanh chuyển máy: Máy 880 | Máy 580
+    var switcherBar = document.getElementById('machine-switcher-bar');
+    addFastPress(switcherBar, function (ev) {
+      var target = ev.target;
+      while (target && target !== switcherBar) {
+        var mTarget = target.getAttribute && target.getAttribute('data-switch-machine');
+        if (mTarget) {
+          ev.preventDefault();
+          AppContext.switchMachine(mTarget);
+          return;
+        }
+        target = target.parentNode;
+      }
+    });
+
     var shell = document.getElementById('calc-shell');
     addFastPress(shell, function (ev) {
       var target = ev.target;
       while (target && target !== shell) {
-        // Nút trên màn hình LCD (menu, setup, bảng...)
+        // Tương tác trên màn hình LCD
         var lcdAct = target.getAttribute && target.getAttribute('data-action');
         if (lcdAct) {
           ev.preventDefault();
           handleLcdTouch(lcdAct, target);
           return;
         }
-        // Phím D-Pad
+        // Phím điều hướng D-Pad
         var dpad = target.getAttribute && target.getAttribute('data-dpad');
         if (dpad) {
           ev.preventDefault();
@@ -983,32 +2241,11 @@
           dispatchAction(dpad, dLbl, '');
           return;
         }
-        // Phím hàng trên
-        var topId = target.getAttribute && target.getAttribute('data-top-id');
-        if (topId) {
+        // Phím bất kỳ theo data-key-id
+        var keyId = target.getAttribute && target.getAttribute('data-key-id');
+        if (keyId && activeKeyLookup[keyId]) {
           ev.preventDefault();
-          handleTopKey(topId);
-          return;
-        }
-        // Phím thanh chức năng
-        var funcId = target.getAttribute && target.getAttribute('data-func-id');
-        if (funcId) {
-          ev.preventDefault();
-          handleFuncBarKey(funcId);
-          return;
-        }
-        // Phím hàm khoa học
-        var sciIdx = target.getAttribute && target.getAttribute('data-sci-idx');
-        if (sciIdx !== null && sciIdx !== '') {
-          ev.preventDefault();
-          handleKeyObjectPress(SCI_KEYS[parseInt(sciIdx, 10)]);
-          return;
-        }
-        // Phím số
-        var numIdx = target.getAttribute && target.getAttribute('data-num-idx');
-        if (numIdx !== null && numIdx !== '') {
-          ev.preventDefault();
-          handleKeyObjectPress(NUM_KEYS[parseInt(numIdx, 10)]);
+          handleKeyObjectPress(activeKeyLookup[keyId]);
           return;
         }
         target = target.parentNode;
@@ -1036,24 +2273,26 @@
       updateScale();
     });
 
-    // Bàn phím máy tính
+    // Bàn phím cứng của máy tính
     window.addEventListener('keydown', function (ev) {
       if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
       var k = ev.key;
+      var eqLabel = AppContext.machineId === '880' ? 'EXE' : '=';
+      var delLabel = AppContext.machineId === '880' ? '⌫' : 'DEL';
       var map = {
         '0': ['0', '0'], '1': ['1', '1'], '2': ['2', '2'], '3': ['3', '3'], '4': ['4', '4'],
         '5': ['5', '5'], '6': ['6', '6'], '7': ['7', '7'], '8': ['8', '8'], '9': ['9', '9'],
         '.': ['.', '.'], ',': [',', ','],
         '+': ['+', '+'], '-': ['-', '−'], '*': ['*', '×'], '/': ['FRAC', '■/□'],
         '^': ['POW', 'x^■'], '(': ['(', '('], ')': [')', ')'],
-        'Enter': ['=', '='], '=': ['=', '='],
-        'Backspace': ['DEL', 'DEL'], 'Delete': ['DEL', 'DEL'],
+        'Enter': ['=', eqLabel], '=': ['=', eqLabel],
+        'Backspace': ['DEL', delLabel], 'Delete': ['DEL', delLabel],
         'Escape': ['AC', 'AC'],
         'ArrowLeft': ['LEFT', '◀'], 'ArrowRight': ['RIGHT', '▶'],
         'ArrowUp': ['UP', '▲'], 'ArrowDown': ['DOWN', '▼'],
         's': ['sin', 'sin'], 'c': ['cos', 'cos'], 't': ['tan', 'tan'],
         'l': ['ln', 'ln'], 'r': ['SQRT', '√■'], 'p': ['PI', 'π'],
-        'x': ['x', 'x'], 'y': ['VAR_y', 'y'], 'i': ['COMPLEX_I', 'i'],
+        'x': ['x', 'x'], 'y': ['VAR_y', 'y'], 'z': ['VAR_z', 'z'], 'i': ['COMPLEX_I', 'i'],
         '!': ['FACTORIAL', 'x!'], '%': ['PERCENT', '%']
       };
       if (map[k]) {
@@ -1064,7 +2303,7 @@
       }
     }, false);
 
-    // Lắng nghe postMessage từ ứng dụng bảng hình học
+    // Lắng nghe postMessage từ bảng hình học
     window.addEventListener('message', function (ev) {
       var d = ev && ev.data;
       if (!d || d.nguon !== 'bang-hinh-hoc') return;
@@ -1087,121 +2326,61 @@
     window.addEventListener('resize', updateScale, false);
   }
 
-  function handleTopKey(topId) {
-    if (topId === 'SHIFT') {
-      AppContext.shiftActive = !AppContext.shiftActive;
-      if (AppContext.shiftActive) AppContext.alphaActive = false;
-      recordKeyLog('SHIFT', 'shift', false);
-      renderAll();
-      return;
-    }
-    if (topId === 'ALPHA') {
-      AppContext.alphaActive = !AppContext.alphaActive;
-      if (AppContext.alphaActive) AppContext.shiftActive = false;
-      recordKeyLog('ALPHA', 'alpha', false);
-      renderAll();
-      return;
-    }
-    if (topId === 'HOME') {
-      if (AppContext.shiftActive) {
-        AppContext.shiftActive = false;
-        dispatchAction('SETUP', 'SETUP', 'shift');
-      } else {
-        AppContext.alphaActive = false;
-        dispatchAction('HOME', 'HOME', '');
-      }
-      return;
-    }
-    if (topId === 'MENU') {
-      if (AppContext.shiftActive) {
-        AppContext.shiftActive = false;
-        dispatchAction('SETUP', 'SETUP', 'shift');
-      } else {
-        AppContext.alphaActive = false;
-        dispatchAction('MENU', 'MENU', '');
-      }
-      return;
-    }
-    if (topId === 'ON_AC') {
-      if (AppContext.shiftActive) {
-        AppContext.shiftActive = false;
-        dispatchAction('OFF', 'OFF', 'shift');
-      } else {
-        AppContext.alphaActive = false;
-        AppContext.overlay = null;
-        dispatchAction('AC', 'ON', '');
-      }
-    }
-  }
-
-  function handleFuncBarKey(funcId) {
-    if (funcId === 'OPTN') {
-      AppContext.shiftActive = false;
-      AppContext.alphaActive = false;
-      dispatchAction('OPTN', 'OPTN', '');
-      return;
-    }
-    if (funcId === 'CALC_BTN') {
-      if (AppContext.shiftActive) {
-        AppContext.shiftActive = false;
-        dispatchAction('SOLVE', 'SOLVE', 'shift');
-      } else if (AppContext.alphaActive) {
-        AppContext.alphaActive = false;
-        dispatchAction('EQUAL_SIGN', '=', 'alpha');
-      } else {
-        dispatchAction('CALC', 'CALC', '');
-      }
-      return;
-    }
-    if (funcId === 'VAR_BTN') {
-      var m = AppContext.shiftActive ? 'shift' : '';
-      AppContext.shiftActive = false;
-      AppContext.alphaActive = false;
-      dispatchAction('VARS', m ? 'RCL' : 'BIẾN', m);
-      return;
-    }
-    if (funcId === 'CATALOG_BTN') {
-      AppContext.shiftActive = false;
-      AppContext.alphaActive = false;
-      dispatchAction('CATALOG', 'DANH MỤC', '');
-    }
-  }
-
   function handleLcdTouch(act, el) {
     if (act === 'menu-pick') {
       var appId = el.getAttribute('data-id');
       AppContext.switchApp(appId);
       return;
     }
-    if (act === 'setup-item') {
-      var idx = parseInt(el.getAttribute('data-idx'), 10);
-      AppContext.setupIdx = idx;
-      applySetupToggle(idx);
-      renderAll();
-      return;
-    }
-    if (act === 'optn-pick') {
-      var oIdx = parseInt(el.getAttribute('data-idx'), 10);
-      var oList = AppContext.overlay === 'optn_hyp' ? CalcApps.HYP_ITEMS : CalcApps.CALC_OPTN_ITEMS;
-      var item = oList[oIdx];
-      if (item.group === 'hyp') {
-        AppContext.overlay = 'optn_hyp';
-        AppContext.optnIdx = 0;
-        renderAll();
-      } else {
-        insertCatalogOrOptnItem(item);
+    if (act === 'tree-item') {
+      var tIdx = parseInt(el.getAttribute('data-idx'), 10);
+      var lvl = AppContext.treeStack[AppContext.treeStack.length - 1];
+      if (lvl && lvl.items[tIdx]) {
+        lvl.idx = tIdx;
+        activateTreeItem(lvl.items[tIdx]);
       }
       return;
     }
-    if (act === 'cat-pick') {
-      var cIdx = parseInt(el.getAttribute('data-idx'), 10);
-      insertCatalogOrOptnItem(CalcApps.CATALOG_ITEMS[cIdx]);
+    if (act === 'paged-item') {
+      var pIdx = parseInt(el.getAttribute('data-idx'), 10);
+      var pm = AppContext.pagedMenu;
+      if (pm && pm.pages[pm.pageIdx] && pm.pages[pm.pageIdx][pIdx]) {
+        pm.itemIdx = pIdx;
+        activatePagedItem(pm.pages[pm.pageIdx][pIdx]);
+      }
       return;
     }
-    if (act === 'var-pick') {
-      var vIdx = parseInt(el.getAttribute('data-idx'), 10);
-      var vn = VAR_LIST[vIdx];
-      insertCatalogOrOptnItem({ text: vn, evalText: vn });
+    if (act === 'format-pick') {
+      var fIdx = parseInt(el.getAttribute('data-idx'), 10);
+      AppContext.formatIdx = fIdx;
+      handleOverlayKey('OK');
+      return;
+    }
+    if (act === 'var880-pick') {
+      AppContext.varIdx = parseInt(el.getAttribute('data-idx'), 10);
+      AppContext.varActIdx = 0;
+      AppContext.overlay = 'var880_act';
+      renderAll();
+      return;
+    }
+    if (act === 'var880-act') {
+      execVar880Action(parseInt(el.getAttribute('data-idx'), 10));
+      return;
+    }
+    if (act === 'rcl580-pick') {
+      var rIdx = parseInt(el.getAttribute('data-idx'), 10);
+      var rVar = VAR_LIST_580[rIdx] || 'A';
+      insertIntoActiveContext({ text: rVar, evalText: rVar });
+      return;
+    }
+    if (act === 'pt-pick') {
+      AppContext.ptElementZ = parseInt(el.getAttribute('data-z'), 10);
+      handleOverlayKey('OK');
+      return;
+    }
+    if (act === 'verify-optn') {
+      CalcApps.byId.verify.pickVerifyOp(AppContext.verifyAppState, parseInt(el.getAttribute('data-idx'), 10));
+      renderAll();
       return;
     }
     if (act === 'stat-type') {
@@ -1236,6 +2415,17 @@
       renderAll();
       return;
     }
+    if (act === 'tbl-exec') {
+      CalcApps.byId.table.buildTable(AppContext);
+      renderAll();
+      return;
+    }
+    if (act === 'tbl-open-range') {
+      AppContext.tableState.step = 'range';
+      AppContext.tableState.rangeIdx = 0;
+      renderAll();
+      return;
+    }
     if (act === 'tbl-cell') {
       CalcApps.byId.table.commitCustomX(AppContext);
       AppContext.tableState.selRow = parseInt(el.getAttribute('data-r'), 10);
@@ -1244,8 +2434,9 @@
       return;
     }
     if (act === 'eq-mode') {
-      AppContext.eqState.mode = el.getAttribute('data-mode');
-      AppContext.eqState.step = 'size';
+      var mMode = el.getAttribute('data-mode');
+      AppContext.eqState.mode = mMode;
+      AppContext.eqState.step = (mMode === 'solver') ? 'solver_eq' : 'size';
       renderAll();
       return;
     }
@@ -1255,6 +2446,23 @@
       AppContext.eqState.rIdx = 0;
       AppContext.eqState.cIdx = 0;
       AppContext.eqState.editStr = '';
+      renderAll();
+      return;
+    }
+    if (act === 'eq-solver-var') {
+      var svIdx = parseInt(el.getAttribute('data-idx'), 10);
+      AppContext.eqState.solverTargetIdx = svIdx;
+      CalcApps.byId.eq.onKey('OK', AppContext);
+      renderAll();
+      return;
+    }
+    if (act === 'eq-solver-focus') {
+      AppContext.eqState.solverFocus = parseInt(el.getAttribute('data-f'), 10);
+      renderAll();
+      return;
+    }
+    if (act === 'eq-solver-exec') {
+      CalcApps.byId.eq.runSolver880(AppContext);
       renderAll();
       return;
     }
@@ -1314,7 +2522,6 @@
       renderAll();
       return;
     }
-    // Các thao tác chạm màn hình LCD cho ứng dụng Giai đoạn 2
     if (act === 'cplx-optn') {
       var coIdx = parseInt(el.getAttribute('data-idx'), 10);
       CalcApps.byId.complex.pickOptnItem(AppContext, coIdx);
@@ -1347,6 +2554,11 @@
     }
     if (act === 'mat-dim-focus') {
       AppContext.matrixState.dimFocus = parseInt(el.getAttribute('data-f'), 10);
+      renderAll();
+      return;
+    }
+    if (act === 'mat-dim-confirm') {
+      CalcApps.byId.matrix.applyMatrixDim(AppContext.matrixState);
       renderAll();
       return;
     }
@@ -1463,28 +2675,9 @@
       renderAll();
       return;
     }
-    if (act === 'sheet-ins-eq') {
-      if (!AppContext.sheetState.isEditing) {
-        AppContext.sheetState.isEditing = true;
-        AppContext.sheetState.editStr = '=';
-      } else {
-        AppContext.sheetState.editStr += '=';
-      }
-      renderAll();
-      return;
-    }
-    if (act === 'sheet-ins-colon') {
-      if (!AppContext.sheetState.isEditing) {
-        AppContext.sheetState.isEditing = true;
-        AppContext.sheetState.editStr = ':';
-      } else {
-        AppContext.sheetState.editStr += ':';
-      }
-      renderAll();
-      return;
-    }
-    if (act === 'sheet-open-optn') {
-      CalcApps.byId.sheet.openOptn(AppContext);
+    if (act === 'sheet-fill-exec') {
+      AppContext.sheetState.fillFocus = 2;
+      CalcApps.byId.sheet.onKey('OK', AppContext);
       renderAll();
       return;
     }
@@ -1495,15 +2688,35 @@
       renderAll();
       return;
     }
+    // Math Box touch actions
     if (act === 'mb-mode') {
-      AppContext.mathboxState.mode = el.getAttribute('data-m');
-      AppContext.mathboxState.focusIdx = 0;
-      AppContext.mathboxState.step = 'params';
+      CalcApps.byId.mathbox.selectMenuTool(AppContext.mathboxState, parseInt(el.getAttribute('data-idx'), 10));
       renderAll();
       return;
     }
     if (act === 'mb-focus') {
-      AppContext.mathboxState.focusIdx = parseInt(el.getAttribute('data-f'), 10);
+      var mf = parseInt(el.getAttribute('data-f'), 10);
+      if (AppContext.mathboxState.focusIdx === mf && (mf === 0 || mf === 2)) {
+        CalcApps.byId.mathbox.onKey('RIGHT', AppContext);
+      } else {
+        AppContext.mathboxState.focusIdx = mf;
+      }
+      renderAll();
+      return;
+    }
+    if (act === 'mb-exec') {
+      AppContext.mathboxState.step = 'res_type';
+      renderAll();
+      return;
+    }
+    if (act === 'mb-restype') {
+      AppContext.mathboxState.resTypeIdx = parseInt(el.getAttribute('data-idx'), 10);
+      CalcApps.byId.mathbox.runSimulation(AppContext.mathboxState);
+      renderAll();
+      return;
+    }
+    if (act === 'mb-toggle-view') {
+      AppContext.mathboxState.resTypeIdx = AppContext.mathboxState.resTypeIdx === 0 ? 1 : 0;
       renderAll();
       return;
     }
@@ -1512,54 +2725,48 @@
       renderAll();
       return;
     }
-    if (act === 'algo-pick-add') {
-      CalcApps.byId.algo.applyAddChoice(AppContext.algoState, parseInt(el.getAttribute('data-idx'), 10));
+    if (act === 'mb-nl-slot') {
+      AppContext.mathboxState.nlFocusIdx = parseInt(el.getAttribute('data-idx'), 10);
+      AppContext.mathboxState.nlTypeIdx = 0;
+      AppContext.mathboxState.step = 'nl_type';
       renderAll();
       return;
     }
-    if (act === 'algo-view-out') {
-      AppContext.algoState.step = 'output';
+    if (act === 'mb-nl-exec') {
+      AppContext.mathboxState.step = 'nl_graph';
       renderAll();
       return;
     }
-    if (act === 'algo-view-canvas') {
-      AppContext.algoState.step = 'canvas';
+    if (act === 'mb-nl-type') {
+      AppContext.mathboxState.nlTypeIdx = parseInt(el.getAttribute('data-idx'), 10);
+      CalcApps.byId.mathbox.onKey('OK', AppContext);
       renderAll();
       return;
     }
-    if (act === 'algo-back-ed') {
-      AppContext.algoState.step = 'editor';
+    if (act === 'mb-nl-vfocus') {
+      AppContext.mathboxState.nlValFocus = parseInt(el.getAttribute('data-f'), 10);
       renderAll();
       return;
     }
-    if (act === 'algo-open-add') {
-      CalcApps.byId.algo.openOptn(AppContext);
+    if (act === 'mb-nl-back') {
+      AppContext.mathboxState.step = 'nl_list';
       renderAll();
       return;
     }
-    if (act === 'algo-run-btn') {
-      CalcApps.byId.algo.runProgramNow(AppContext);
-      renderAll();
-      return;
-    }
-    if (act === 'algo-line') {
-      var lIdx = parseInt(el.getAttribute('data-idx'), 10);
-      if (AppContext.algoState.selLine === lIdx) {
-        CalcApps.byId.algo.openLineEdit(AppContext.algoState);
+    if (act === 'mb-cir-focus') {
+      var cf = parseInt(el.getAttribute('data-f'), 10);
+      if (cf === 0 && AppContext.mathboxState.cirFocus === 0) {
+        CalcApps.byId.mathbox.onKey('RIGHT', AppContext);
       } else {
-        AppContext.algoState.selLine = lIdx;
+        AppContext.mathboxState.cirFocus = cf;
       }
       renderAll();
       return;
     }
-    if (act === 'algo-cycle-var') {
-      CalcApps.byId.algo.onKey('DOWN', AppContext);
+    if (act === 'mb-cir-exec') {
+      CalcApps.byId.mathbox.executeCircle(AppContext);
       renderAll();
       return;
-    }
-    if (act === 'algo-ins') {
-      AppContext.algoState.editVal += (el.getAttribute('data-s') || '');
-      renderAll();
     }
   }
 
@@ -1580,7 +2787,7 @@
     var natH = unit.offsetHeight || 680;
 
     var availW = winW - (isCompact ? 8 : 24);
-    var availH = isCompact ? (winH - 8) : Math.max(natH, winH - 90);
+    var availH = isCompact ? (winH - 8) : Math.max(natH, winH - 110);
 
     var scaleW = availW / natW;
     var scaleH = availH / natH;
@@ -1595,14 +2802,30 @@
     scaleWrap.style.height = Math.ceil(natH * scale) + 'px';
   }
 
-  // Khởi tạo toàn bộ giao diện khi DOM sẵn sàng
   function initUI() {
     AppContext.loadState();
 
     var params = parseQueryParams();
-    if (params.kieu === 'a' || params.kieu === 'b') {
-      AppContext.settings.modelType = params.kieu;
+    // Hỗ trợ ?may=880|580 (mặc định 880) và tương thích ngược ?kieu=a|b (a->580, b->880)
+    if (params.may === '580' || params.may === '880') {
+      AppContext.machineId = params.may;
+    } else if (params.kieu === 'a') {
+      AppContext.machineId = '580';
+    } else if (params.kieu === 'b') {
+      AppContext.machineId = '880';
     }
+
+    var activeSlot = AppContext.perMachineStore[AppContext.machineId];
+    if (activeSlot) {
+      AppContext.settings = activeSlot.settings;
+      AppContext.settings.modelType = AppContext.machineId === '580' ? 'a' : 'b';
+      AppContext.vars = activeSlot.vars;
+      if (activeSlot.definedFuncs && CalcEngine.definedFuncs) {
+        CalcEngine.definedFuncs.f = activeSlot.definedFuncs.f || '';
+        CalcEngine.definedFuncs.g = activeSlot.definedFuncs.g || '';
+      }
+    }
+
     var compact = (params.gon === '1') || isInIframe();
     if (params.gon === '0') compact = false;
 
@@ -1614,6 +2837,7 @@
     if (params.nen === 'trong-suot') bodyCls.push('bg-transparent');
     document.body.className = bodyCls.join(' ');
 
+    updateBrandAndSwitcherDOM();
     buildKeypadDOM();
     CalcApps.byId.calc.init(AppContext);
     bindEvents();
@@ -1634,4 +2858,4 @@
     dispatchAction: dispatchAction,
     renderAll: renderAll
   };
-})(this);
+})(typeof window !== 'undefined' ? window : (typeof global !== 'undefined' ? global : this));

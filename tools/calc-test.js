@@ -470,6 +470,105 @@ var turtleProg = [
 var turtleRes = CalcEngine.algo.run(turtleProg);
 check('algo lệnh rùa vẽ hình vuông (4 đoạn)', turtleRes.ok && turtleRes.turtle.lines.length === 4 && approxEq(turtleRes.turtle.x, 0) && approxEq(turtleRes.turtle.y, 0), JSON.stringify(turtleRes.turtle));
 
+// =========================================================================
+// GIAI ĐOẠN 3: KIỂM TRA TÍNH NĂNG MÁY 880 & MÁY 580
+// =========================================================================
+console.log('\n--- Giai đoạn 3: Kiểm tra Verify, Bảng tuần hoàn, Hằng số, Đổi đơn vị, f(x)/g(x), Hồ sơ 880 & 580 ---');
+
+// 9. Verify (Kiểm chứng đẳng thức & bất đẳng thức)
+var vf1 = CalcEngine.verify('√(8)=2√(2)', { angle: 'deg' });
+check('verify("√(8)=2√(2)") -> TRUE', vf1.ok && vf1.result === true, JSON.stringify(vf1));
+
+var vf2 = CalcEngine.verify('4/3<1.3', { angle: 'deg' });
+check('verify("4/3<1.3") -> FALSE', vf2.ok && vf2.result === false, JSON.stringify(vf2));
+
+var vf3 = CalcEngine.verify('sin(30)²+cos(30)²=1', { angle: 'deg' });
+check('verify("sin(30)²+cos(30)²=1") -> TRUE', vf3.ok && vf3.result === true, JSON.stringify(vf3));
+
+var vf4 = CalcEngine.verify('1<2<3', { angle: 'deg' });
+check('verify("1<2<3") chuỗi bất đẳng thức cùng chiều -> TRUE', vf4.ok && vf4.result === true, JSON.stringify(vf4));
+
+var vf5 = CalcEngine.verify('1<3<2', { angle: 'deg' });
+check('verify("1<3<2") chuỗi bất đẳng thức sai -> FALSE', vf5.ok && vf5.result === false, JSON.stringify(vf5));
+
+var vf6 = CalcEngine.verify('(1+i)²=2i', { angle: 'deg' });
+check('verify("(1+i)²=2i") đẳng thức số phức -> TRUE', vf6.ok && vf6.result === true, JSON.stringify(vf6));
+
+// 10. Bảng tuần hoàn 118 nguyên tố IUPAC & Atomic Weight
+check('Bảng tuần hoàn đủ 118 nguyên tố', CalcEngine.elements && CalcEngine.elements.length === 118, 'len=' + (CalcEngine.elements && CalcEngine.elements.length));
+check('Nguyên tố H (Z=1) = 1.008', CalcEngine.atomicWeight('H') === 1.008 && CalcEngine.atomicWeight(1) === 1.008, String(CalcEngine.atomicWeight('H')));
+check('Nguyên tố C (Z=6) = 12.011', CalcEngine.atomicWeight('C') === 12.011 && CalcEngine.atomicWeight(6) === 12.011, String(CalcEngine.atomicWeight('C')));
+check('Nguyên tố O (Z=8) = 15.999', CalcEngine.atomicWeight('O') === 15.999, String(CalcEngine.atomicWeight('O')));
+check('Nguyên tố Na (Z=11) = 22.990', CalcEngine.atomicWeight('Na') === 22.990, String(CalcEngine.atomicWeight('Na')));
+check('Nguyên tố Fe (Z=26) = 55.845', CalcEngine.atomicWeight('Fe') === 55.845, String(CalcEngine.atomicWeight('Fe')));
+check('Nguyên tố Au (Z=79) = 196.97', CalcEngine.atomicWeight('Au') === 196.97, String(CalcEngine.atomicWeight('Au')));
+check('Nguyên tố Og (Z=118) = [294]', CalcEngine.getElement(118).weight === 294 && CalcEngine.getElement(118).bracket === true, JSON.stringify(CalcEngine.getElement(118)));
+
+var h2oRes = CalcEngine.evalText('2*AtWt(H)+AtWt(O)');
+check('Tính phân tử khối H2O: 2*AtWt(H)+AtWt(O) = 18.015', h2oRes.ok && approxEq(h2oRes.value, 18.015), JSON.stringify(h2oRes));
+
+// 11. Hằng số khoa học CODATA & Đổi đơn vị NIST
+var c0Res = CalcEngine.evalText('c0');
+check('Hằng số vận tốc ánh sáng c0 = 299792458', c0Res.ok && c0Res.value === 299792458, JSON.stringify(c0Res));
+
+var g0Res = CalcEngine.evalText('g0');
+check('Gia tốc trọng trường chuẩn g0 = 9.80665', g0Res.ok && approxEq(g0Res.value, 9.80665), JSON.stringify(g0Res));
+
+var convInCm = CalcEngine.evalText('10in▸cm');
+check('Đổi đơn vị 10in▸cm = 25.4', convInCm.ok && approxEq(convInCm.value, 25.4), JSON.stringify(convInCm));
+
+var convCF = CalcEngine.evalText('100°C▸°F');
+check('Đổi nhiệt độ 100°C▸°F = 212', convCF.ok && approxEq(convCF.value, 212), JSON.stringify(convCF));
+
+var convKmh = CalcEngine.evalText('36km/h▸m/s');
+check('Đổi vận tốc 36km/h▸m/s = 10', convKmh.ok && approxEq(convKmh.value, 10), JSON.stringify(convKmh));
+
+// 12. Nhập số thập phân tuần hoàn, hàm f(x)/g(x), đa câu lệnh ':' và Solver theo biến đích
+var recSum = CalcEngine.evalText('0.(3)+1.(6)');
+check('Số thập phân tuần hoàn 0.(3)+1.(6) = 2', recSum.ok && approxEq(recSum.value, 2), JSON.stringify(recSum));
+
+CalcEngine.defineFunc('f', 'x^2+1');
+CalcEngine.defineFunc('g', '2*f(x)-3');
+var fgRes = CalcEngine.evalText('g(3)');
+check('Hàm định nghĩa f(x)=x²+1, g(x)=2*f(x)-3 -> g(3)=17', fgRes.ok && approxEq(fgRes.value, 17), JSON.stringify(fgRes));
+
+var multiStmts = CalcEngine.splitMultiStatements('A=3:B=4:sqrt(A^2+B^2)');
+check('Tách đa câu lệnh ":" (3 lệnh)', multiStmts.length === 3 && multiStmts[2] === 'sqrt(A^2+B^2)', JSON.stringify(multiStmts));
+
+var solTarget = CalcEngine.solveNumeric('2*A+5=17', 0, { targetVar: 'A', vars: { A: 0 } });
+check('Solver giải theo biến đích A: 2*A+5=17 -> A=6', !solTarget.error && approxEq(solTarget.x, 6), JSON.stringify(solTarget));
+
+// 13. Math Box: Number Line & Circle
+var nlCheck = CalcEngine.mathBox.numberLine([
+  { type: 'lt', a: 2 },
+  { type: 'closed_open', a: -1, b: 3 }
+]);
+check('Math Box Number Line (2 trục)', nlCheck.ok && nlCheck.axes.length === 2, JSON.stringify(nlCheck));
+
+var cirUnit = CalcEngine.mathBox.circle('unit', 30, 0);
+check('Math Box Unit Circle 30° -> sin=0.5, cos=√3/2', cirUnit.ok && approxEq(cirUnit.sin, 0.5) && cirUnit.sinExact === '1/2' && cirUnit.cosExact === '√3/2', JSON.stringify(cirUnit));
+
+var cirClock = CalcEngine.mathBox.circle('clock', 3, 0);
+check('Math Box Clock 3:00 -> góc giữa 2 kim = 90°', cirClock.ok && approxEq(cirClock.diffAngle, 90), JSON.stringify(cirClock));
+
+// 14. Hồ sơ Máy 880 & Máy 580
+var CalcEditor = require('../may-tinh/editor.js');
+global.CalcEngine = CalcEngine;
+global.CalcEditor = CalcEditor;
+require('../may-tinh/may-880.js');
+require('../may-tinh/may-580.js');
+var m880 = global.CalcMachines && global.CalcMachines['880'];
+var m580 = global.CalcMachines && global.CalcMachines['580'];
+check('Hồ sơ Máy 880 có đúng 13 ứng dụng (không có Thuật toán)', !!(m880 && m880.apps && m880.apps.length === 13), 'len=' + (m880 && m880.apps && m880.apps.length));
+check('Hồ sơ Máy 580 có đúng 12 phương thức (1..9, A..C)', !!(m580 && m580.apps && m580.apps.length === 12 && m580.apps[10].id === 'verify' && m580.apps[10].code === 'B'), JSON.stringify(m580 && m580.apps && m580.apps[10]));
+
+var edRecur = CalcEditor.create(false);
+CalcEditor.insertToken(edRecur, '0', '0');
+CalcEditor.insertToken(edRecur, '.', '.');
+CalcEditor.insertTemplate(edRecur, 'recur');
+CalcEditor.insertToken(edRecur, '3', '3');
+check('CalcEditor mẫu số thập phân tuần hoàn 0.(3)', CalcEditor.toEvalText(edRecur) === '0.(3)', CalcEditor.toEvalText(edRecur));
+
 console.log('\nTổng kết: ' + passed + '/' + (passed + failed) + ' ca kiểm tra đạt (' + failed + ' trượt).');
 if (failed > 0) {
   process.exit(1);

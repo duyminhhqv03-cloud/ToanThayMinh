@@ -1,76 +1,64 @@
-# Hướng dẫn sử dụng & nhúng Máy tính Thầy Minh
+# Hướng dẫn sử dụng & nhúng Máy tính Thầy Minh (Máy 880 & Máy 580)
 
-## 1. Cách mở máy tính
-- **Mở trực tuyến (có mạng):**
-  Truy cập địa chỉ:
-  `https://duyminhhqv03-cloud.github.io/ToanThayMinh/may-tinh/`
-- **Mở ngoại tuyến (không cần mạng):**
-  Mở trực tiếp tệp `may-tinh/index.html` trên máy tính hoặc iPad (hỗ trợ giao thức `file://`, không phụ thuộc thư viện hay phông chữ trên mạng).
+## 1. Giới thiệu hai máy giả lập
+Ứng dụng **Máy tính Thầy Minh** giả lập tách biệt hai dòng máy tính khoa học học sinh phổ thông đang sử dụng, giúp giáo viên trình chiếu và học sinh nhìn màn hình + **Nhật ký phím** để bấm theo trên máy thật:
+
+1. **Máy 880 (`Kiểu 880` — mặc định)**:
+   - Bố cục phím tròn xám đậm, phím `SHIFT` màu vàng đồng, cụm phím con trỏ chữ thập có nút `OK` ở giữa, phím cuộn trang dọc `⇑` / `⇓` bên phải.
+   - Các phím hệ thống đặc trưng: `HOME`, `SETTINGS`, `BACK`, `VARIABLE`, `FUNCTION`, `CATALOG`, `TOOLS`, `FORMAT`, `⌫`, `EXE`.
+   - Màn hình `HOME` gồm 13 ứng dụng (lưới 3 cột × 2 hàng mỗi trang, có thanh cuộn dọc bên phải, không đánh số): `Calculate`, `Statistics`, `Distribution`, `Spreadsheet`, `Table`, `Equation`, `Inequality`, `Complex`, `Base-N`, `Matrix`, `Vector`, `Ratio`, `Math Box`.
+
+2. **Máy 580 (`Kiểu 580`)**:
+   - Bố cục thân đen vân carbon, phím số màu trắng, hai phím `DEL` và `AC` màu xanh dương, chữ `SHIFT` màu vàng, `ALPHA` màu đỏ/hồng, cụm con trỏ bầu dục (không có nút `OK` ở giữa).
+   - Các phím hệ thống đặc trưng: `SHIFT`, `ALPHA`, `MENU` (`SETUP`), `OPTN`, `CALC` (`SOLVE`), `STO` (`RECALL`), `ENG`, `S⇔D`, `M+`, `CONST`, `CONV`, `RESET`, `=`.
+   - Màn hình `MENU` gồm 12 phương thức (lưới 4 cột, đánh mã `1`–`9`, `A`–`C`): `1:Calculate`, `2:Complex`, `3:Base-N`, `4:Matrix`, `5:Vector`, `6:Statistics`, `7:Distribution`, `8:Table`, `9:Equation/Func`, `A:Inequality`, `B:Verify`, `C:Ratio`.
 
 ---
 
-## 2. Dùng trong app Bảng hình học
+## 2. Cách mở & Nhúng vào trang web / Bảng hình học
 
-App Bảng hình học (repo `bang-hinh-hoc`) đã có sẵn mục **Bảng chọn (☰) → Máy tính**: mở khung máy tính nổi,
-kéo thanh tiêu đề để di chuyển, nút ⤢ để phóng to/thu nhỏ, × để đóng. Máy tính được gói kèm trong app
-(file `may-tinh.html`), nên **chạy được cả khi không có mạng** trong bản APK.
+- **Mở trực tuyến:** `https://duyminhhqv03-cloud.github.io/ToanThayMinh/may-tinh/`
+- **Mở ngoại tuyến (`file://`):** Mở trực tiếp tệp `may-tinh/index.html` trên máy tính, điện thoại hoặc iPad (hoạt động hoàn toàn offline, không phụ thuộc mạng hay thư viện ngoài).
 
-**Khi sửa máy tính và muốn cập nhật vào Bảng hình học:**
-1. Trong repo ToanThayMinh chạy `node tools/build-may-tinh.js` → tạo `may-tinh/may-tinh-1-file.html`
-   (gộp toàn bộ máy tính thành một file).
-2. Chép file đó vào repo `bang-hinh-hoc` với tên `may-tinh.html` (GitHub: Add file → Upload files).
-   Đẩy vào `main` thì GitHub tự build APK mới.
-
-### Nhúng vào trang web khác (qua `iframe`)
-
-Dán đoạn mã HTML sau vào trang:
-
+### Nhúng qua `iframe`
 ```html
-<iframe src="https://duyminhhqv03-cloud.github.io/ToanThayMinh/may-tinh/?gon=1" width="380" height="720" style="border:0" title="Máy tính"></iframe>
+<iframe src="https://duyminhhqv03-cloud.github.io/ToanThayMinh/may-tinh/?may=880&gon=1" width="380" height="720" style="border:0" title="Máy tính Thầy Minh"></iframe>
 ```
+Khi đặt trong `iframe` (hoặc có `?gon=1`), máy tính tự động ẩn tiêu đề, thanh chuyển máy và chân trang, đồng thời tự co giãn (`transform: scale`) vừa khít khung chứa.
 
-Khi đặt trong `iframe`, máy tính tự động nhận biết (`window.self !== window.top`), ẩn tiêu đề/chân trang và tự co giãn (`transform: scale`) vừa khít khung chứa (kể cả khung nhỏ `320×560` hay lớn hơn) mà không sinh thanh cuộn ngang.
-
----
-
-## 3. Bảng tham số URL
-
-Có thể ghép các tham số sau vào địa chỉ URL (ví dụ `?kieu=b&gon=1&nhatky=1&nen=trong-suot`):
-
+### Bảng tham số URL
 | Tham số | Giá trị | Ý nghĩa |
 | :--- | :--- | :--- |
-| `kieu` | `a` hoặc `b` | Chọn giao diện **Kiểu A** (tông xám đen, 12 ứng dụng) hoặc **Kiểu B** (tông xanh đậm, có thêm Hộp toán học & Thuật toán). Mặc định: `a`. |
-| `gon` | `1` hoặc `0` | `1`: Ẩn tiêu đề và chân trang (tự động bật khi nhúng trong `iframe`). `0`: Luôn hiện đầy đủ. |
+| `may` | `880` hoặc `580` | Chọn **Máy 880** (`880`, mặc định) hoặc **Máy 580** (`580`). |
+| `kieu` | `a` hoặc `b` | Tham số tương thích ngược: `a` → Máy `580`, `b` → Máy `880`. |
+| `gon` | `1` hoặc `0` | `1`: Ẩn tiêu đề, thanh chuyển máy và chân trang (tự động bật khi nhúng trong `iframe`). `0`: Hiện đầy đủ. |
 | `nhatky` | `1` hoặc `0` | `1`: Hiện dải **Nhật ký phím** dưới màn hình (mặc định). `0`: Ẩn dải nhật ký phím. |
-| `nen` | `trong-suot` | Đặt nền trang trong suốt (`transparent`) để hòa vào nền của ứng dụng bảng hình học. |
+| `nen` | `trong-suot` | Đặt nền trang trong suốt (`transparent`) để hòa vào nền của Bảng hình học. |
 
 ---
 
-## 4. Giao tiếp hai chiều với trang cha (`postMessage`)
+## 3. Giao tiếp hai chiều với trang cha (`postMessage`)
 
 ### a) Nhận kết quả từ máy tính gửi lên trang cha
-Mỗi khi bấm `=` (hoặc giải xong `SOLVE`), máy tính gửi thông điệp lên `window.parent`:
-
+Mỗi khi bấm `EXE` / `=` (hoặc giải xong `SOLVE`), máy tính gửi thông điệp lên `window.parent`:
 ```javascript
 window.addEventListener('message', function (event) {
   var data = event.data;
   if (!data || data.nguon !== 'may-tinh-ttm') return;
 
   if (data.loai === 'ket-qua') {
-    console.log('Biểu thức:', data.bieuThuc); // Ví dụ: "frac((1),(2))+frac((1),(3))"
-    console.log('Giá trị số:', data.giaTri);  // Ví dụ: 0.8333333333333334
-    console.log('Hiển thị:', data.hienThi);   // Ví dụ: "5/6"
+    console.log('Biểu thức:', data.bieuThuc);
+    console.log('Giá trị số:', data.giaTri);
+    console.log('Hiển thị:', data.hienThi);
   }
 });
 ```
 
 ### b) Gửi lệnh từ Bảng hình học vào máy tính
-Trang cha có thể chèn số đo đoạn thẳng/góc vào máy tính hoặc xóa màn hình máy tính:
-
 ```javascript
 var iframeMayTinh = document.querySelector('iframe');
 
-// Chèn một số hoặc biểu thức vào vị trí con trỏ của máy tính
+// Chèn số hoặc biểu thức vào vị trí con trỏ của máy tính
 iframeMayTinh.contentWindow.postMessage({
   nguon: 'bang-hinh-hoc',
   lenh: 'nhap',
@@ -86,82 +74,46 @@ iframeMayTinh.contentWindow.postMessage({
 
 ---
 
-## 5. Bảng phím tắt trên bàn phím máy tính
+## 4. Hướng dẫn thao tác trên Máy 880 (`Kiểu 880`)
 
-Khi dùng trên máy tính để bàn/laptop, có thể gõ trực tiếp bàn phím cứng (các phím bấm vẫn được ghi vào **Nhật ký phím**):
-
-| Phím bàn phím cứng | Chức năng trên máy tính |
-| :--- | :--- |
-| `0` – `9`, `.`, `,` | Nhập chữ số, dấu chấm thập phân, dấu phẩy ngăn cách đối số |
-| `+`, `-`, `*`, `/` | Cộng, trừ, nhân (`×`), tạo phân số (`■/□`) |
-| `^` | Lũy thừa (`x^■`) |
-| `(`, `)` | Mở ngoặc, đóng ngoặc |
-| `Enter` hoặc `=` | Tính kết quả (`=`) |
-| `Backspace` / `Delete` | Xóa ký tự trước con trỏ (`DEL`) |
-| `Escape` (`Esc`) | Xóa toàn bộ (`AC`) |
-| `◀` `▶` `▲` `▼` (Mũi tên) | Di chuyển con trỏ giữa các ô tử/mẫu/mũ và duyệt lịch sử phép tính |
-| `s`, `c`, `t`, `l` | Chèn nhanh `sin(`, `cos(`, `tan(`, `ln(` |
-| `r`, `p` | Chèn nhanh căn bậc hai `√■`, hằng số `π` |
-| `x`, `y`, `i` | Chèn biến `x`, `y`, đơn vị ảo `i` |
-| `!`, `%` | Giai thừa (`!`), phần trăm (`%`) |
-
----
-
-## 6. Danh sách chức năng giai đoạn 1
-
-1. **Tính toán (Math I/O & Line I/O)**:
-   - Nhập biểu thức tự nhiên như sách giáo khoa: phân số, hỗn số, căn bậc hai, căn bậc $n$, lũy thừa, $\log_a b$, trị tuyệt đối $|x|$, tích phân $\int_a^b f(x)\,\mathrm{d}x$, đạo hàm $\frac{\mathrm{d}}{\mathrm{d}x}$, tổng $\sum$, tích $\prod$.
-   - Nhận dạng kết quả chính xác: phân số tối giản, hỗn số, căn thức $a\sqrt{b}/c$, dạng nghiệm bậc hai $p/q \pm a\sqrt{b}/c$, bội của $\pi$, số thập phân tuần hoàn $0.(3)$.
-   - Đổi dạng hiển thị qua lại bằng `S⇔D`, hỗn số `SHIFT + S⇔D`, độ-phút-giây `°'"`, phân tích thừa số nguyên tố `FACT`, ký hiệu kỹ thuật `ENG`.
-   - Biến nhớ `A`–`F`, `x`, `y`, `M`, `Ans`, `PreAns`; tính giá trị biểu thức theo biến `CALC`; tìm nghiệm số học `SOLVE`.
-   - Lưu lịch sử 30 phép tính gần nhất; dải **Nhật ký phím** tự gộp `SHIFT`/`ALPHA` phục vụ trình chiếu trên lớp.
-2. **Phương trình / Hệ phương trình (`9`)**:
-   - Hệ phương trình tuyến tính 2, 3, 4 ẩn (báo nghiệm chính xác, Vô nghiệm, Vô số nghiệm).
-   - Phương trình đa thức bậc 2, 3, 4 (kể cả nghiệm phức $a+bi$ và tọa độ đỉnh cực trị parabol bậc 2).
-3. **Bất phương trình (`A`)**:
-   - Bất phương trình đa thức bậc 2, 3, 4 với các dấu `>`, `<`, `≥`, `≤`.
-4. **Bảng giá trị (`B`)**:
-   - Lập bảng giá trị cho $f(x)$ và $g(x)$ (tối đa 45 dòng), cho phép sửa trực tiếp giá trị $x$ trên từng dòng.
-5. **Thống kê (`6`)**:
-   - Thống kê 1 biến ($\bar{x}, \sum x, \sum x^2, \sigma_x, s_x, \min, Q_1, \text{Med}, Q_3, \max, \text{Mode}$).
-   - Thống kê 2 biến và 7 mô hình hồi quy (tuyến tính, bậc hai, logarit, mũ $e$, mũ $a\cdot b^x$, lũy thừa, nghịch đảo) kèm ước lượng $\hat{x}, \hat{y}$.
-6. **Tỉ lệ thức (`C`)**:
-   - Giải nhanh $A:B = X:D$ và $A:B = C:X$.
-7. **Cài đặt (`SETUP`)**:
-   - Lưu tự động vào `localStorage`: đơn vị góc, định dạng số, chế độ nhập, dạng số phức (`a+bi` / `r∠θ`), kiểu máy A/B, cỡ chữ màn hình.
+1. **Chuyển ứng dụng (`HOME`)**:
+   - Bấm `HOME`, dùng `▲▼◀▶` di chuyển đến ứng dụng cần mở rồi bấm `OK` (hoặc `EXE`).
+2. **Đổi định dạng kết quả (`FORMAT`)**:
+   - Sau khi bấm `EXE` có kết quả: bấm `FORMAT` để đổi nhanh **Chuẩn ↔ Thập phân**; bấm `SHIFT` + `FORMAT` để mở thực đơn chọn: `Standard`, `Decimal`, `Recurring Decimal`, `Improper Fraction`, `Mixed Fraction`, `Sexagesimal`, `Prime Factor`, `ENG Notation` (trong `Complex`: `a+bi`, `r∠θ`).
+3. **Biến nhớ (`VARIABLE`)**:
+   - Cách nhanh: bấm `SHIFT` + phím số (`4`→`A`, `5`→`B`, `6`→`C`, `1`→`D`, `2`→`E`, `3`→`F`, `0`→`x`, `.`→`y`, `×10^■`→`z`).
+   - Màn hình quản lý biến: bấm `VARIABLE` → chọn biến `A`..`z` → bấm `OK` → chọn `Recall Value`, `Store` hoặc `Edit`.
+4. **Hàm số `f(x)`, `g(x)` (`FUNCTION`)**:
+   - Bấm `FUNCTION` → chọn `Define f(x)` hoặc `Define g(x)` để nhập biểu thức theo `x` (dùng chung với ứng dụng `Table`). Khi đang tính toán, bấm `FUNCTION` → `f(x)` để tính giá trị như `f(3)`.
+5. **Danh mục hàm, hằng số, đổi đơn vị & Bảng tuần hoàn (`CATALOG`)**:
+   - Bấm `CATALOG` để truy cập: `Func Analysis` (`d/dx`, `∫`, `Σ`, `Π`, `÷R`, `logab`), `Probability` (`%`, `!`, `P`, `C`, `Ran#`, `RanInt#`), `Numeric Calc` (`GCD`, `LCM`, `Abs`, `Recurring Decimal`, `Int`, `Intg`, `Rnd`), `Angle/Coord/Sexa`, `Hyperbolic/Trig`, `Engineer Symbol`, `Sci Constants` (47 hằng số khoa học), `Unit Conversions` (40 cặp đổi đơn vị), `Atomic Table` (**Bảng tuần hoàn 118 nguyên tố** `Periodic Table` & `Atomic Weight`).
+6. **Kiểm chứng đúng/sai (`TOOLS` → `Verify ON`)**:
+   - Trong `Calculate`, `Complex`, `Table` hoặc `Equation`, bấm `TOOLS` → `Verify ON` (trên thanh trạng thái hiện biểu tượng `✔`).
+   - Nhập đẳng thức/bất đẳng thức (dấu `=` lấy từ `SHIFT + (` hoặc các dấu `=, ≠, >, <, ≥, ≤` trong `CATALOG` → `Verify`), bấm `EXE` → màn hình hiện `True` hoặc `False`.
+7. **Giải phương trình tìm `x` (`Equation` → `Solver`)**:
+   - `HOME` → `Equation` → `Solver`: nhập phương trình (dùng `SHIFT + (` để gõ dấu `=`), chọn biến cần giải (`Solve Target`), nhập giá trị đầu rồi chọn `Execute` → hiện nghiệm và `L−R = 0`.
+8. **Hộp toán học (`Math Box`)**:
+   - Gồm 4 công cụ trực quan: `Dice Roll` (Tung xúc xắc), `Coin Toss` (Tung đồng xu), `Number Line` (Biểu diễn tới 3 bất phương trình trên trục số Canvas), `Circle` (`Unit Circle` đường tròn lượng giác, `Half Circle` nửa đường tròn, `Clock` góc kim đồng hồ hiển thị giá trị chính xác $\sin, \cos, \tan$).
 
 ---
 
-## 7. Các ứng dụng mới (Giai đoạn 2)
+## 5. Hướng dẫn thao tác trên Máy 580 (`Kiểu 580`)
 
-1. **Số phức (`MENU` → `2`)**:
-   - Tính toán biểu thức phức tự nhiên với đơn vị ảo `i` (bấm `ENG` hoặc `ALPHA + ENG`) và góc cực `∠` (`SHIFT + ENG` hoặc `ALPHA + FACT`). `OPTN` cung cấp: Đối số (`Arg`), Liên hợp (`Conjg`), Phần thực (`ReP`), Phần ảo (`ImP`), Mô-đun (`|z|`), đổi dạng `▶r∠θ` và `▶a+bi`.
-   - *Ví dụ bấm phím:* `MENU` → `2` → `(` `1` `+` `ENG` `)` `x²` `=` → Kết quả: `2i` (bấm `OPTN` → `8` `=` để đổi sang dạng cực `2∠90`).
-
-2. **Cơ số N (`MENU` → `3`)**:
-   - Tính toán số nguyên 32-bit bù 2 trong các hệ đếm `DEC` (phím `x²`), `HEX` (`x^■`), `BIN` (`log`), `OCT` (`ln`); nhập chữ số `A`–`F`, phép toán logic bit (`and, or, xor, xnor, not, neg`) và tiền tố `d, h, b, o` qua `OPTN`; kèm bảng đối chiếu 4 cơ số trực tiếp dưới màn hình.
-   - *Ví dụ bấm phím:* `MENU` → `3` → `x^■` (chọn HEX) → `tan` (`F`) `tan` (`F`) `+` `1` `=` → Kết quả: `100` (HEX), bảng đối chiếu hiện đồng thời `DEC: 256`, `BIN: 100000000`, `OCT: 400`.
-
-3. **Ma trận (`MENU` → `4`)**:
-   - Tạo và sửa 4 ma trận `MatA`–`MatD` (kích thước từ `1×1` đến `4×4`) và `MatAns`. Tính toán cộng, trừ, nhân, lũy thừa, nghịch đảo `MatA⁻¹`, định thức `det(`, chuyển vị `Trn(`, bậc thang `Ref(`, bậc thang rút gọn `Rref(`, ma trận đơn vị `Identity(`.
-   - *Ví dụ bấm phím:* `MENU` → `4` → `5` (vào màn tính toán, mặc định `MatA = [[1,2],[3,4]]`) → `AC` → `OPTN` → `6` (`det(`) → `OPTN` → `1` (`MatA`) → `)` `=` → Kết quả: `-2`.
-
-4. **Vectơ (`MENU` → `5`)**:
-   - Tạo và sửa 4 vectơ `VctA`–`VctD` (2D hoặc 3D) và `VctAns`. Tính cộng, trừ, nhân vô hướng `·` (`Dot`), tích có hướng `×`, độ dài `Abs(`, góc giữa hai vectơ `Angle(`, vectơ đơn vị `UnitV(`.
-   - *Ví dụ bấm phím:* `MENU` → `5` → `5` (màn tính toán với `VctA=[1,2,3], VctB=[4,5,6]`) → `=` (tính `VctA·VctB`) → Kết quả: `32`.
-
-5. **Phân phối xác suất (`MENU` → `7`)**:
-   - Gồm 7 hàm phân phối: Chuẩn PD (`Normal PD`), Chuẩn tích lũy CD (`Normal CD`), Nghịch đảo chuẩn (`Inverse Normal`), Nhị thức PD (`Binomial PD`), Nhị thức CD (`Binomial CD`), `Poisson PD`, `Poisson CD`; hỗ trợ tính theo một giá trị (**Biến**) hoặc bảng nhiều giá trị (**Danh sách**).
-   - *Ví dụ bấm phím:* `MENU` → `7` → `2` (Phân phối chuẩn CD) → nhập `Lower = -1` `=` `Upper = 1` `=` `σ = 1` `=` `μ = 0` `=` → Kết quả: `P = 0.6826894921`.
-
-6. **Bảng tính (`MENU` → `8`)**:
-   - Bảng tính 45 hàng × 5 cột (`A`–`E`), hỗ trợ công thức bắt đầu bằng `=` (`ALPHA + CALC` hoặc nút `[=]`), tham chiếu ô, dải ô `A1:A5`, các hàm `Sum(`, `Mean(`, `Min(`, `Max(`, **Điền công thức** (tự dịch địa chỉ tương đối), **Điền giá trị**, bật/tắt tự tính lại và phát hiện tham chiếu vòng.
-   - *Ví dụ bấm phím:* `MENU` → `8` (ô `A1=2`, `A2=3`, `B1==A1+A2` đang hiện `5`) → tại ô `A1` gõ `1` `0` `=` → ô `B1` tự động cập nhật thành `13`.
-
-7. **Hộp toán học (`MENU` → `D`, chỉ có ở Kiểu B)**:
-   - Mô phỏng **Tung xúc xắc** (1–3 con, 1–250 lần thử) và **Tung đồng xu** (1–3 đồng, 1–250 lần thử); thống kê bảng Tổng / Số mặt ngửa, Tần số, Tần suất tương đối kèm **biểu đồ cột trực quan bằng CSS** và nút **Thử lại**.
-   - *Ví dụ bấm phím:* Mở Kiểu B (`?kieu=b` hoặc đổi trong `SETUP` mục `7`) → `MENU` → `sin` (`D`) → `1` (Tung xúc xắc) → nhập `50` `=` `2` (2 con xúc xắc) → Xem bảng tần số và biểu đồ cột, bấm `=` để thử lại.
-
-8. **Thuật toán (`MENU` → `E`, chỉ có ở Kiểu B)**:
-   - Soạn chương trình bằng các khối lệnh tiếng Việt (`Nhập biến`, `Gán :=`, `In ra`, `Lặp lại n lần`, `Lặp khi`, `Nếu ... thì ...`) và các lệnh **Rùa vẽ hình trên Canvas** (`Đi tới`, `Quay trái`, `Đi đến (x,y)`, `Nhấc/Hạ bút`); có sẵn chương trình mẫu in bình phương và vẽ đa giác/ngôi sao.
-   - *Ví dụ bấm phím:* Ở Kiểu B → `MENU` → `cos` (`E`) → bấm `=` (hoặc `CALC`) để chạy chương trình mẫu in bình phương `1..5` → Kết quả in ra 5 dòng: `1, 4, 9, 16, 25` (hoặc bấm `OPTN` → `DMS` (`B`) → `=` để xem Rùa vẽ hình vuông trên Canvas).
+1. **Chọn phương thức (`MENU`)**:
+   - Bấm `MENU`, dùng phím mũi tên + `=` hoặc bấm trực tiếp phím số/chữ `1`–`9`, `A` (phím `(−)`), `B` (phím `°′″`), `C` (phím `x⁻¹`).
+2. **Cài đặt (`SHIFT` + `MENU` → `SETUP`)**:
+   - Thực đơn 4 trang đánh số (chọn nhanh bằng phím số `1`–`4`, chuyển trang bằng `▲▼`): `Input/Output`, `Angle Unit`, `Number Format`, `Engineer Symbol`, `Fraction Result`, `Complex`, `Statistics`, `Table`, `Equation/Func`, `Decimal Mark`, `Digit Separator`, `Contrast`.
+3. **Tùy chọn theo phương thức (`OPTN`)**:
+   - Trong `Calculate`: Hàm hypebol, Đơn vị góc, Ký hiệu kỹ thuật.
+   - Trong `Complex`: `Argument`, `Conjugate`, `Real Part`, `Imaginary Part`, `▸r∠θ`, `▸a+bi`.
+   - Trong `Matrix` / `Vector`: tạo/sửa ma trận & vectơ, chèn `MatA`–`MatD`, `VctA`–`VctD`, `Det`, `Trn`, `Identity`, `Ref`, `Rref`, `Dot Product`, `Angle`, `Unit Vector`.
+4. **Kiểm chứng (`MENU` → `B:Verify`)**:
+   - Nhập biểu thức so sánh, bấm `OPTN` để chọn dấu `=`, `≠`, `>`, `<`, `≥`, `≤`, bấm `=` → màn hình hiện `TRUE` hoặc `FALSE`.
+5. **Tính theo biến (`CALC`), Giải phương trình (`SHIFT` + `CALC` → `SOLVE`) & Đa câu lệnh (`:`)**:
+   - Nhập biểu thức chứa biến (như `2A + 3B`), bấm `CALC` để nhập lần lượt từng biến.
+   - Nhập phương trình (dấu `=` từ `ALPHA + CALC`), bấm `SHIFT + CALC` (`SOLVE`) để tìm nghiệm.
+   - Nối nhiều câu lệnh bằng `ALPHA + ∫■` (`:`), bấm `=` để duyệt từng kết quả (`Disp ▲`).
+6. **Hằng số (`SHIFT + 7`), Đổi đơn vị (`SHIFT + 8`) & Đặt lại máy (`SHIFT + 9`)**:
+   - `SHIFT + 7 (CONST)`: chọn nhóm và hằng số khoa học bằng phím số.
+   - `SHIFT + 8 (CONV)`: chọn nhóm và đơn vị cần chuyển đổi.
+   - `SHIFT + 9 (RESET)`: `1:Setup Data`, `2:Memory`, `3:Initialize All`.

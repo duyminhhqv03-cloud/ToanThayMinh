@@ -9,19 +9,27 @@
 <body>
   <header class="page-header">
     <h1 class="page-title">Máy tính Thầy Minh</h1>
-    <p class="page-subtitle">Máy tính khoa học trực tuyến hỗ trợ học tập</p>
+    <p class="page-subtitle">Giả lập máy tính khoa học trực tuyến hỗ trợ học tập</p>
   </header>
+
+  <!-- Thanh chuyển đổi giữa hai dòng máy: Máy 880 & Máy 580 (ẩn khi ?gon=1) -->
+  <div id="machine-switcher-bar" class="machine-switcher-bar">
+    <div class="machine-switcher-group" role="tablist" aria-label="Chọn kiểu máy tính">
+      <button type="button" id="btn-switch-880" class="machine-switch-btn active" data-switch-machine="880">Máy 880</button>
+      <button type="button" id="btn-switch-580" class="machine-switch-btn" data-switch-machine="580">Máy 580</button>
+    </div>
+  </div>
 
   <main class="page-main">
     <div id="calc-scale-wrap" class="calc-scale-wrap">
       <div id="calc-unit" class="calc-unit">
         <!-- Thân máy tính -->
-        <div id="calc-shell" class="calc-shell model-a">
+        <div id="calc-shell" class="calc-shell machine-880">
           <!-- Đầu máy -->
           <div class="calc-brand-bar">
             <div class="brand-left">
-              <span class="brand-title">MÁY TÍNH THẦY MINH</span>
-              <span class="brand-sub">KHOA HỌC TỰ NHIÊN • MATH I/O</span>
+              <span id="brand-title" class="brand-title">Máy tính Thầy Minh</span>
+              <span id="brand-sub" class="brand-sub">Kiểu 880</span>
             </div>
             <div class="solar-panel" title="Pin năng lượng">
               <span class="solar-cell"></span>
@@ -69,11 +77,13 @@
   </main>
 
   <footer class="page-footer">
-    <span>Mô phỏng chức năng, dùng cho học tập — Toán Thầy Minh</span>
+    <span>Mô phỏng chức năng phục vụ học tập — Toán Thầy Minh</span>
   </footer>
 
   <script src="engine.js"></script>
   <script src="editor.js"></script>
+  <script src="may-880.js"></script>
+  <script src="may-580.js"></script>
   <script src="apps.js"></script>
   <script src="apps2.js"></script>
   <script src="ui.js"></script>

@@ -629,15 +629,46 @@
         continue;
       }
 
-      // Kiểm tra hậu tố ², ³, ⁻¹
+      // Kiểm tra hậu tố ², ³, ⁻¹, đơn vị góc °, ʳ, ᵍ
       if (text.slice(i, i + 2) === '⁻¹') {
         tokens.push({ type: 'POSTFIX', value: '⁻¹' });
         i += 2;
         continue;
       }
-      if (ch === '²' || ch === '³' || ch === '!' || ch === '%') {
+      if (ch === '²' || ch === '³' || ch === '!' || ch === '%' || ch === '°' || ch === 'ʳ' || ch === 'ᵍ') {
+        // Kiểm tra nếu ° là đầu của lệnh đổi đơn vị °F▸°C hoặc °C▸°F
+        if (ch === '°') {
+          var restDeg = text.slice(i).replace(/^°([CF])\s*(?:▸|->|▶|►)\s*°?([CF])/, '°$1▸°$2');
+          if (restDeg.slice(0, 5) === '°F▸°C' || restDeg.slice(0, 5) === '°C▸°F') {
+            var mDeg = text.slice(i).match(/^°[CF]\s*(?:▸|->|▶|►)\s*°?[CF]/);
+            if (mDeg) {
+              tokens.push({ type: 'CONV', value: restDeg.slice(0, 5) });
+              i += mDeg[0].length;
+              continue;
+            }
+          }
+        }
         tokens.push({ type: 'POSTFIX', value: ch });
         i++;
+        continue;
+      }
+
+      // Hằng số khoa học ký hiệu Unicode (ħ, ε0, μ0, μN, μB, Φ0, α, λc, λC, γp, λcp, λCp, λcn, λCn, μp, μe, μn, μμ, σ)
+      var unicodeConstList = [
+        'λcp', 'λCp', 'λcn', 'λCn', 'ε0', 'μ0', 'μN', 'μB', 'Φ0',
+        'λc', 'λC', 'γp', 'μp', 'μe', 'μn', 'μμ', 'ħ', 'ℏ', 'α', 'σ'
+      ];
+      var matchedUniConst = null;
+      for (var uci = 0; uci < unicodeConstList.length; uci++) {
+        var uSym = unicodeConstList[uci];
+        if (text.slice(i, i + uSym.length) === uSym) {
+          matchedUniConst = uSym;
+          break;
+        }
+      }
+      if (matchedUniConst) {
+        tokens.push({ type: 'SCI_CONST', value: matchedUniConst });
+        i += matchedUniConst.length;
         continue;
       }
 
@@ -730,6 +761,26 @@
             break;
           }
         }
+        // Hỗ trợ số thập phân tuần hoàn dạng 0.(3), 1.(021), 0.1(6)
+        if (hasDot && i < len && text.charAt(i) === '(') {
+          var recMatch = text.slice(i).match(/^\((\d+)\)/);
+          if (recMatch) {
+            var repDigits = recMatch[1];
+            var dotParts = numStr.split('.');
+            var intPartVal = dotParts[0] ? parseInt(dotParts[0], 10) : 0;
+            var nonRepStr = dotParts[1] || '';
+            var kLen = nonRepStr.length;
+            var mLen = repDigits.length;
+            var nonRepVal = kLen > 0 ? parseInt(nonRepStr, 10) : 0;
+            var repVal = parseInt(repDigits, 10);
+            var pow10k = Math.pow(10, kLen);
+            var pow10m1 = Math.pow(10, mLen) - 1;
+            var exactRecur = intPartVal + (nonRepVal / pow10k) + (repVal / (pow10k * pow10m1));
+            tokens.push({ type: 'NUM', value: exactRecur });
+            i += recMatch[0].length;
+            continue;
+          }
+        }
         if (numStr === '.') throw new Error('Lỗi cú pháp');
         var parsedVal = parseFloat(numStr);
         if (isNaN(parsedVal)) throw new Error('Lỗi cú pháp');
@@ -737,11 +788,40 @@
         continue;
       }
 
+      // Kiểm tra lệnh đổi đơn vị (ví dụ cm▸in, n mile▸m, kgf•m▸J, m/s▸km/h...)
+      if (text.slice(i).indexOf('▸') !== -1 || text.slice(i).indexOf('->') !== -1) {
+        var restConv = text.slice(i);
+        var convMatch = restConv.match(/^(n mile|gal\(US\)|gal\(UK\)|kgf\/cm²|kgf\/cm2|lbf\/in²|lbf\/in2|kgf•m|kgf·m|km\/h|m\/s|mile|acre|mmHg|cal15|cal|atm|kPa|kW|hp|in|cm|ft|yd|pc|km|m²|m2|oz|lb|kg|Pa|J|L|m|g)\s*(?:▸|->)\s*(n mile|gal\(US\)|gal\(UK\)|kgf\/cm²|kgf\/cm2|lbf\/in²|lbf\/in2|kgf•m|kgf·m|km\/h|m\/s|mile|acre|mmHg|cal15|cal|atm|kPa|kW|hp|in|cm|ft|yd|pc|km|m²|m2|oz|lb|kg|Pa|J|L|m|g)/);
+        if (convMatch) {
+          var normC = convMatch[1] + '▸' + convMatch[2];
+          if (CONV_LOOKUP && CONV_LOOKUP[normC]) {
+            tokens.push({ type: 'CONV', value: normC });
+            i += convMatch[0].length;
+            continue;
+          }
+        }
+      }
+
+      // Ký hiệu kỹ thuật đặt trong ‹k› hoặc hậu tố μ
+      if (ch === 'μ') {
+        tokens.push({ type: 'POSTFIX', value: 'eng_u' });
+        i++;
+        continue;
+      }
+
       // Từ định danh (hàm, hằng, biến, nCr, nPr)
       if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch === '#') {
         var rest = text.slice(i);
-        // Kiểm tra hàm đặc biệt có biểu thức bên trong: integ, deriv, sum, prod
-        var specMatch = rest.match(/^(integ|deriv|sum|prod)\s*\(/);
+        // Kiểm tra const(...) cho hằng số khoa học
+        var constCallMatch = rest.match(/^const\(([A-Za-z0-9_∞-]+)\)/);
+        if (constCallMatch) {
+          tokens.push({ type: 'SCI_CONST', value: constCallMatch[1] });
+          i += constCallMatch[0].length;
+          continue;
+        }
+
+        // Kiểm tra hàm đặc biệt có biểu thức bên trong: integ, deriv, sum, prod, AtWt
+        var specMatch = rest.match(/^(integ|deriv|sum|prod|AtWt)\s*\(/);
         if (specMatch) {
           var fnName = specMatch[1];
           var openIdx = i + specMatch[0].length - 1;
@@ -760,6 +840,29 @@
           continue;
         }
 
+        // Kiểm tra hằng số khoa học nhiều ký tự (c0, Z0, lP, tP, G0, KJ-90, RK-90, KJ, RK, mp, mn, me, mμ, a0, re, R∞, mτ, mu, NA, Vm, c1, c2, gn, g0, atm, e_c, F_c)
+        var sciMultiList = [
+          'RK-90', 'KJ-90', 'atm', 'c0', 'Z0', 'lP', 'tP', 'G0', 'KJ', 'RK',
+          'mp', 'mn', 'me', 'mμ', 'a0', 're', 'R∞', 'mτ', 'mu', 'NA', 'Vm',
+          'c1', 'c2', 'gn', 'g0', 'e_c', 'F_c'
+        ];
+        var matchedSci = null;
+        for (var sciIdx = 0; sciIdx < sciMultiList.length; sciIdx++) {
+          var scSym = sciMultiList[sciIdx];
+          if (rest.slice(0, scSym.length) === scSym) {
+            var nextAfterSci = rest.charAt(scSym.length);
+            if (!nextAfterSci || !((nextAfterSci >= 'a' && nextAfterSci <= 'z') || (nextAfterSci >= 'A' && nextAfterSci <= 'Z') || (nextAfterSci >= '0' && nextAfterSci <= '9'))) {
+              matchedSci = scSym;
+              break;
+            }
+          }
+        }
+        if (matchedSci) {
+          tokens.push({ type: 'SCI_CONST', value: matchedSci });
+          i += matchedSci.length;
+          continue;
+        }
+
         // Các từ khóa dài cần ưu tiên khớp trước
         var kwList = [
           'PreAns', 'Ans', 'asinh', 'acosh', 'atanh', 'asin', 'acos', 'atan',
@@ -767,7 +870,7 @@
           'sqrt', 'cbrt', 'root', 'abs', 'log', 'ln', 'exp',
           'nPr', 'nCr', 'Pol', 'Rec', 'gcd', 'lcm',
           'intg', 'int', 'round', 'ranint', 'RanInt', 'ran#', 'Ran#', 'ran',
-          'frac', 'mixed', 'dms', 'pi'
+          'frac', 'mixed', 'dms', 'AtWt', 'recur', 'pi'
         ];
         var matchedKw = null;
         for (var kwIdx = 0; kwIdx < kwList.length; kwIdx++) {
@@ -800,7 +903,26 @@
           continue;
         }
 
-        // Chữ cái đơn: biến A..F, x, y, M, hằng e, hoặc toán tử P, C
+        // Hàm định nghĩa f(x) và g(x) khi theo sau bởi '('
+        if ((ch === 'f' || ch === 'g') && rest.charAt(1) === '(') {
+          tokens.push({ type: 'FUNC', value: ch });
+          i++;
+          continue;
+        }
+
+        // Hậu tố ký hiệu kỹ thuật (m, n, p, f, k, M, G, T, P, E) nếu đứng ngay sau NUM
+        var prevTokEng = tokens.length > 0 ? tokens[tokens.length - 1] : null;
+        if (prevTokEng && prevTokEng.type === 'NUM' && 'mnpfkMGTPE'.indexOf(ch) !== -1) {
+          var afterEngCh = rest.charAt(1);
+          var isCombOrVar = (ch === 'P' || ch === 'C') && ((afterEngCh >= '0' && afterEngCh <= '9') || afterEngCh === '(');
+          if (!isCombOrVar && 'mnpfkGT'.indexOf(ch) !== -1) {
+            tokens.push({ type: 'POSTFIX', value: 'eng_' + ch });
+            i++;
+            continue;
+          }
+        }
+
+        // Chữ cái đơn: biến A..F, x, y, z, M, hằng e, hoặc toán tử P, C
         if (ch === 'P') {
           tokens.push({ type: 'COMB', value: 'nPr' });
           i++;
@@ -813,7 +935,7 @@
           var nextRest = text.slice(i + 1).replace(/^\s+/, '');
           var nextCh = nextRest.charAt(0);
           var prevIsVal = prevTok && (prevTok.type === 'NUM' || prevTok.type === 'VAR' || prevTok.type === 'RPAREN' || prevTok.type === 'POSTFIX');
-          var nextIsVal = (nextCh >= '0' && nextCh <= '9') || nextCh === '(' || nextCh === 'x' || nextCh === 'y' || (nextCh >= 'A' && nextCh <= 'F');
+          var nextIsVal = (nextCh >= '0' && nextCh <= '9') || nextCh === '(' || nextCh === 'x' || nextCh === 'y' || nextCh === 'z' || (nextCh >= 'A' && nextCh <= 'F');
           if (prevIsVal && nextIsVal) {
             tokens.push({ type: 'COMB', value: 'nCr' });
           } else {
@@ -827,8 +949,14 @@
           i++;
           continue;
         }
-        if ('ABDEFxyM'.indexOf(ch) !== -1) {
+        if ('ABDEFxyzM'.indexOf(ch) !== -1) {
           tokens.push({ type: 'VAR', value: ch });
+          i++;
+          continue;
+        }
+        // Hằng số khoa học 1 ký tự (h, c, G, u, k, R, g, t)
+        if ('hcGukRgt'.indexOf(ch) !== -1) {
+          tokens.push({ type: 'SCI_CONST', value: ch });
           i++;
           continue;
         }
@@ -861,8 +989,8 @@
 
     function canStartImplicitFactor(tok) {
       if (!tok) return false;
-      return tok.type === 'NUM' || tok.type === 'CONST' || tok.type === 'VAR' ||
-             tok.type === 'FUNC' || tok.type === 'SPECIAL_CALL' || tok.type === 'LPAREN';
+      return tok.type === 'NUM' || tok.type === 'CONST' || tok.type === 'SCI_CONST' ||
+             tok.type === 'VAR' || tok.type === 'FUNC' || tok.type === 'SPECIAL_CALL' || tok.type === 'LPAREN';
     }
 
     // Mức 1: + và -
@@ -935,12 +1063,19 @@
     // Mức 4: Toán tử một ngôi + / - (thấp hơn ^ và nhân ngầm để -2^2 = -4 và -2pi = -(2*pi))
     function parseUnary() {
       var t = peek();
+      var val;
       if (t && t.type === 'OP' && (t.value === '+' || t.value === '-')) {
         consume();
         var v = parseUnary();
-        return t.value === '-' ? -v : v;
+        val = t.value === '-' ? -v : v;
+      } else {
+        val = parseImplicit();
       }
-      return parseImplicit();
+      while (peek() && peek().type === 'CONV') {
+        var cTok = consume();
+        val = CalcEngine.convert(val, cTok.value);
+      }
+      return val;
     }
 
     // Mức 5: Nhân ngầm (2pi, 2(3+1), 3sqrt(2), 2A)
@@ -1010,9 +1145,13 @@
       return parsePow();
     }
 
-    // Mức 7: Hậu tố !, %, ², ³, ⁻¹
+    // Mức 7: Hậu tố !, %, ², ³, ⁻¹, đơn vị góc °/ʳ/ᵍ, ký hiệu kỹ thuật
     function parsePostfix() {
       var val = parseAtom();
+      var ENG_MULS = {
+        eng_f: 1e-15, eng_p: 1e-12, eng_n: 1e-9, eng_u: 1e-6, eng_m: 1e-3,
+        eng_k: 1e3, eng_M: 1e6, eng_G: 1e9, eng_T: 1e12, eng_P: 1e15, eng_E: 1e18
+      };
       while (true) {
         var t = peek();
         if (t && t.type === 'POSTFIX') {
@@ -1028,6 +1167,14 @@
           } else if (t.value === '⁻¹') {
             if (Math.abs(val) < 1e-15) throw new Error('Lỗi toán');
             val = 1 / val;
+          } else if (t.value === '°') {
+            val = fromRad(toRad(val, 'deg'), angleMode);
+          } else if (t.value === 'ʳ') {
+            val = fromRad(val, angleMode);
+          } else if (t.value === 'ᵍ') {
+            val = fromRad(toRad(val, 'grad'), angleMode);
+          } else if (ENG_MULS[t.value] !== undefined) {
+            val = val * ENG_MULS[t.value];
           }
         } else {
           break;
@@ -1052,6 +1199,16 @@
         if (t.value === 'e') return Math.E;
         if (t.value === 'ran#') return Math.round(Math.random() * 1000) / 1000;
         throw new Error('Lỗi cú pháp');
+      }
+
+      if (t.type === 'SCI_CONST') {
+        consume();
+        if (vars && typeof vars[t.value] === 'number' && !isNaN(vars[t.value])) {
+          return vars[t.value];
+        }
+        var scVal = CalcEngine.getConstant(t.value, opts && opts.model);
+        if (!isNum(scVal)) throw new Error('Lỗi cú pháp');
+        return scVal;
       }
 
       if (t.type === 'VAR') {
@@ -1091,6 +1248,16 @@
     }
 
     function evalSpecialCall(name, rawArgs) {
+      if (name === 'AtWt') {
+        if (rawArgs.length !== 1) throw new Error('Lỗi cú pháp');
+        var rawSym = stripQuotes(rawArgs[0]);
+        var directWt = CalcEngine.atomicWeight(rawSym);
+        if (isNum(directWt)) return directWt;
+        var numZ = evalSubExpr(rawSym, vars);
+        var zWt = CalcEngine.atomicWeight(numZ);
+        if (!isNum(zWt)) throw new Error('Lỗi toán');
+        return zWt;
+      }
       if (name === 'integ') {
         if (rawArgs.length !== 3) throw new Error('Lỗi cú pháp');
         var fExpr = stripQuotes(rawArgs[0]);
@@ -1372,6 +1539,47 @@
         var dSign = dVal < 0 ? -1 : 1;
         return dSign * (Math.abs(dVal) + mVal / 60 + sVal / 3600);
       }
+      if (fn === 'AtWt') {
+        if (args.length !== 1) throw new Error('Lỗi cú pháp');
+        var awVal = CalcEngine.atomicWeight(args[0]);
+        if (!isNum(awVal)) throw new Error('Lỗi toán');
+        return awVal;
+      }
+      if (fn === 'recur') {
+        if (args.length === 1) {
+          var sRep = String(Math.round(Math.abs(args[0])));
+          return parseInt(sRep, 10) / (Math.pow(10, sRep.length) - 1);
+        }
+        if (args.length === 3) {
+          var iP = args[0] || 0;
+          var nRStr = String(args[1] || '');
+          var rStr = String(args[2] || '0');
+          var kL = nRStr.length;
+          var mL = rStr.length;
+          return iP + (kL ? parseInt(nRStr, 10) / Math.pow(10, kL) : 0) + parseInt(rStr, 10) / (Math.pow(10, kL) * (Math.pow(10, mL) - 1));
+        }
+        throw new Error('Lỗi cú pháp');
+      }
+      if (fn === 'f' || fn === 'g') {
+        if (args.length !== 1) throw new Error('Lỗi cú pháp');
+        var fnDepth = (opts && opts._funcDepth) ? opts._funcDepth : 0;
+        if (fnDepth >= 6) throw new Error('Circular ERROR');
+        var fnMap = (opts && opts.funcs) ? opts.funcs : CalcEngine.definedFuncs;
+        var defExpr = fnMap && fnMap[fn] ? String(fnMap[fn]).replace(/^\s+|\s+$/g, '') : '';
+        if (!defExpr) throw new Error('Lỗi cú pháp');
+        var fnVars = copyVars(vars);
+        fnVars.x = args[0];
+        var fnRes = CalcEngine.evalText(defExpr, {
+          angle: angleMode,
+          vars: fnVars,
+          fix: fixDigits,
+          funcs: fnMap,
+          _funcDepth: fnDepth + 1,
+          skipExact: true
+        });
+        if (!fnRes.ok) throw new Error(fnRes.error || 'Lỗi toán');
+        return fnRes.value;
+      }
 
       throw new Error('Lỗi cú pháp');
     }
@@ -1422,7 +1630,7 @@
       return out;
     } catch (e) {
       var msg = (e && e.message) ? e.message : 'Lỗi toán';
-      if (msg !== 'Lỗi toán' && msg !== 'Lỗi cú pháp' && msg !== 'Lỗi ngăn xếp') {
+      if (msg !== 'Lỗi toán' && msg !== 'Lỗi cú pháp' && msg !== 'Lỗi ngăn xếp' && msg !== 'Circular ERROR') {
         msg = 'Lỗi toán';
       }
       return { ok: false, error: msg };
@@ -1891,11 +2099,13 @@
       }
     }
 
+    var targetVar = (opts && opts.targetVar) ? String(opts.targetVar) : 'x';
+
     function f(xVal) {
-      baseVars.x = xVal;
-      var lRes = CalcEngine.evalText(lhsText, { angle: opts.angle, vars: baseVars, skipExact: true });
+      baseVars[targetVar] = xVal;
+      var lRes = CalcEngine.evalText(lhsText, { angle: opts.angle, vars: baseVars, funcs: opts.funcs, skipExact: true });
       if (!lRes.ok) return NaN;
-      var rRes = CalcEngine.evalText(rhsText, { angle: opts.angle, vars: baseVars, skipExact: true });
+      var rRes = CalcEngine.evalText(rhsText, { angle: opts.angle, vars: baseVars, funcs: opts.funcs, skipExact: true });
       if (!rRes.ok) return NaN;
       return lRes.value - rRes.value;
     }
@@ -2012,6 +2222,7 @@
       }
     }
 
+    var tblFuncs = opts.funcs || { f: fText, g: hasG ? gText : '' };
     var rows = [];
     for (var i = 0; i < count; i++) {
       var xVal = start + i * step;
@@ -2019,12 +2230,12 @@
       else xVal = Math.round(xVal * 1e10) / 1e10;
 
       baseVars.x = xVal;
-      var fRes = CalcEngine.evalText(fText, { angle: opts.angle, vars: baseVars, skipExact: true });
+      var fRes = CalcEngine.evalText(fText, { angle: opts.angle, vars: baseVars, funcs: tblFuncs, skipExact: true });
       var fVal = fRes.ok ? fRes.value : 'Lỗi';
 
       var row = { x: xVal, f: fVal };
       if (hasG) {
-        var gRes = CalcEngine.evalText(gText, { angle: opts.angle, vars: baseVars, skipExact: true });
+        var gRes = CalcEngine.evalText(gText, { angle: opts.angle, vars: baseVars, funcs: tblFuncs, skipExact: true });
         row.g = gRes.ok ? gRes.value : 'Lỗi';
       } else {
         row.g = null;
@@ -4986,6 +5197,771 @@
   };
 
   CalcEngine.algo = AlgoAPI;
+
+  // ===========================================================================
+  // GIAI ĐOẠN 3: BẢNG TUẦN HOÀN (118 NGUYÊN TỐ), HẰNG SỐ KHOA HỌC (47),
+  //              ĐỔI ĐƠN VỊ (40), VERIFY, HÀM f(x)/g(x), ĐA CÂU LỆNH (:),
+  //              MATH BOX (NUMBER LINE & CIRCLE)
+  // ===========================================================================
+
+  // 118 nguyên tố hóa học theo chuẩn IUPAC 2019 (fx-880BTG)
+  // Mảng rút gọn: [z, symbol, name, weight, isBracket, period, group]
+  var RAW_ELEMENTS = [
+    [1, 'H', 'Hydrogen', 1.008, false, 1, 1],
+    [2, 'He', 'Helium', 4.0026, false, 1, 18],
+    [3, 'Li', 'Lithium', 6.94, false, 2, 1],
+    [4, 'Be', 'Beryllium', 9.0122, false, 2, 2],
+    [5, 'B', 'Boron', 10.81, false, 2, 13],
+    [6, 'C', 'Carbon', 12.011, false, 2, 14],
+    [7, 'N', 'Nitrogen', 14.007, false, 2, 15],
+    [8, 'O', 'Oxygen', 15.999, false, 2, 16],
+    [9, 'F', 'Fluorine', 18.998, false, 2, 17],
+    [10, 'Ne', 'Neon', 20.180, false, 2, 18],
+    [11, 'Na', 'Sodium', 22.990, false, 3, 1],
+    [12, 'Mg', 'Magnesium', 24.305, false, 3, 2],
+    [13, 'Al', 'Aluminium', 26.982, false, 3, 13],
+    [14, 'Si', 'Silicon', 28.085, false, 3, 14],
+    [15, 'P', 'Phosphorus', 30.974, false, 3, 15],
+    [16, 'S', 'Sulfur', 32.06, false, 3, 16],
+    [17, 'Cl', 'Chlorine', 35.45, false, 3, 17],
+    [18, 'Ar', 'Argon', 39.95, false, 3, 18],
+    [19, 'K', 'Potassium', 39.098, false, 4, 1],
+    [20, 'Ca', 'Calcium', 40.078, false, 4, 2],
+    [21, 'Sc', 'Scandium', 44.956, false, 4, 3],
+    [22, 'Ti', 'Titanium', 47.867, false, 4, 4],
+    [23, 'V', 'Vanadium', 50.942, false, 4, 5],
+    [24, 'Cr', 'Chromium', 51.996, false, 4, 6],
+    [25, 'Mn', 'Manganese', 54.938, false, 4, 7],
+    [26, 'Fe', 'Iron', 55.845, false, 4, 8],
+    [27, 'Co', 'Cobalt', 58.933, false, 4, 9],
+    [28, 'Ni', 'Nickel', 58.693, false, 4, 10],
+    [29, 'Cu', 'Copper', 63.546, false, 4, 11],
+    [30, 'Zn', 'Zinc', 65.38, false, 4, 12],
+    [31, 'Ga', 'Gallium', 69.723, false, 4, 13],
+    [32, 'Ge', 'Germanium', 72.630, false, 4, 14],
+    [33, 'As', 'Arsenic', 74.922, false, 4, 15],
+    [34, 'Se', 'Selenium', 78.971, false, 4, 16],
+    [35, 'Br', 'Bromine', 79.904, false, 4, 17],
+    [36, 'Kr', 'Krypton', 83.798, false, 4, 18],
+    [37, 'Rb', 'Rubidium', 85.468, false, 5, 1],
+    [38, 'Sr', 'Strontium', 87.62, false, 5, 2],
+    [39, 'Y', 'Yttrium', 88.906, false, 5, 3],
+    [40, 'Zr', 'Zirconium', 91.224, false, 5, 4],
+    [41, 'Nb', 'Niobium', 92.906, false, 5, 5],
+    [42, 'Mo', 'Molybdenum', 95.95, false, 5, 6],
+    [43, 'Tc', 'Technetium', 97, true, 5, 7],
+    [44, 'Ru', 'Ruthenium', 101.07, false, 5, 8],
+    [45, 'Rh', 'Rhodium', 102.91, false, 5, 9],
+    [46, 'Pd', 'Palladium', 106.42, false, 5, 10],
+    [47, 'Ag', 'Silver', 107.87, false, 5, 11],
+    [48, 'Cd', 'Cadmium', 112.41, false, 5, 12],
+    [49, 'In', 'Indium', 114.82, false, 5, 13],
+    [50, 'Sn', 'Tin', 118.71, false, 5, 14],
+    [51, 'Sb', 'Antimony', 121.76, false, 5, 15],
+    [52, 'Te', 'Tellurium', 127.60, false, 5, 16],
+    [53, 'I', 'Iodine', 126.90, false, 5, 17],
+    [54, 'Xe', 'Xenon', 131.29, false, 5, 18],
+    [55, 'Cs', 'Caesium', 132.91, false, 6, 1],
+    [56, 'Ba', 'Barium', 137.33, false, 6, 2],
+    [57, 'La', 'Lanthanum', 138.91, false, 8, 3],
+    [58, 'Ce', 'Cerium', 140.12, false, 8, 4],
+    [59, 'Pr', 'Praseodymium', 140.91, false, 8, 5],
+    [60, 'Nd', 'Neodymium', 144.24, false, 8, 6],
+    [61, 'Pm', 'Promethium', 145, true, 8, 7],
+    [62, 'Sm', 'Samarium', 150.36, false, 8, 8],
+    [63, 'Eu', 'Europium', 151.96, false, 8, 9],
+    [64, 'Gd', 'Gadolinium', 157.25, false, 8, 10],
+    [65, 'Tb', 'Terbium', 158.93, false, 8, 11],
+    [66, 'Dy', 'Dysprosium', 162.50, false, 8, 12],
+    [67, 'Ho', 'Holmium', 164.93, false, 8, 13],
+    [68, 'Er', 'Erbium', 167.26, false, 8, 14],
+    [69, 'Tm', 'Thulium', 168.93, false, 8, 15],
+    [70, 'Yb', 'Ytterbium', 173.05, false, 8, 16],
+    [71, 'Lu', 'Lutetium', 174.97, false, 8, 17],
+    [72, 'Hf', 'Hafnium', 178.49, false, 6, 4],
+    [73, 'Ta', 'Tantalum', 180.95, false, 6, 5],
+    [74, 'W', 'Tungsten', 183.84, false, 6, 6],
+    [75, 'Re', 'Rhenium', 186.21, false, 6, 7],
+    [76, 'Os', 'Osmium', 190.23, false, 6, 8],
+    [77, 'Ir', 'Iridium', 192.22, false, 6, 9],
+    [78, 'Pt', 'Platinum', 195.08, false, 6, 10],
+    [79, 'Au', 'Gold', 196.97, false, 6, 11],
+    [80, 'Hg', 'Mercury', 200.59, false, 6, 12],
+    [81, 'Tl', 'Thallium', 204.38, false, 6, 13],
+    [82, 'Pb', 'Lead', 207.2, false, 6, 14],
+    [83, 'Bi', 'Bismuth', 208.98, false, 6, 15],
+    [84, 'Po', 'Polonium', 209, true, 6, 16],
+    [85, 'At', 'Astatine', 210, true, 6, 17],
+    [86, 'Rn', 'Radon', 222, true, 6, 18],
+    [87, 'Fr', 'Francium', 223, true, 7, 1],
+    [88, 'Ra', 'Radium', 226, true, 7, 2],
+    [89, 'Ac', 'Actinium', 227, true, 9, 3],
+    [90, 'Th', 'Thorium', 232.04, false, 9, 4],
+    [91, 'Pa', 'Protactinium', 231.04, false, 9, 5],
+    [92, 'U', 'Uranium', 238.03, false, 9, 6],
+    [93, 'Np', 'Neptunium', 237, true, 9, 7],
+    [94, 'Pu', 'Plutonium', 244, true, 9, 8],
+    [95, 'Am', 'Americium', 243, true, 9, 9],
+    [96, 'Cm', 'Curium', 247, true, 9, 10],
+    [97, 'Bk', 'Berkelium', 247, true, 9, 11],
+    [98, 'Cf', 'Californium', 251, true, 9, 12],
+    [99, 'Es', 'Einsteinium', 252, true, 9, 13],
+    [100, 'Fm', 'Fermium', 257, true, 9, 14],
+    [101, 'Md', 'Mendelevium', 258, true, 9, 15],
+    [102, 'No', 'Nobelium', 259, true, 9, 16],
+    [103, 'Lr', 'Lawrencium', 266, true, 9, 17],
+    [104, 'Rf', 'Rutherfordium', 267, true, 7, 4],
+    [105, 'Db', 'Dubnium', 268, true, 7, 5],
+    [106, 'Sg', 'Seaborgium', 269, true, 7, 6],
+    [107, 'Bh', 'Bohrium', 270, true, 7, 7],
+    [108, 'Hs', 'Hassium', 270, true, 7, 8],
+    [109, 'Mt', 'Meitnerium', 278, true, 7, 9],
+    [110, 'Ds', 'Darmstadtium', 281, true, 7, 10],
+    [111, 'Rg', 'Roentgenium', 282, true, 7, 11],
+    [112, 'Cn', 'Copernicium', 285, true, 7, 12],
+    [113, 'Nh', 'Nihonium', 286, true, 7, 13],
+    [114, 'Fl', 'Flerovium', 289, true, 7, 14],
+    [115, 'Mc', 'Moscovium', 290, true, 7, 15],
+    [116, 'Lv', 'Livermorium', 293, true, 7, 16],
+    [117, 'Ts', 'Tennessine', 294, true, 7, 17],
+    [118, 'Og', 'Oganesson', 294, true, 7, 18]
+  ];
+
+  var ELEMENTS_LIST = [];
+  var ELEMENTS_BY_Z = {};
+  var ELEMENTS_BY_SYM = {};
+  for (var elIdx = 0; elIdx < RAW_ELEMENTS.length; elIdx++) {
+    var rEl = RAW_ELEMENTS[elIdx];
+    var elObj = {
+      z: rEl[0],
+      symbol: rEl[1],
+      name: rEl[2],
+      weight: rEl[3],
+      bracket: rEl[4],
+      period: rEl[5],
+      group: rEl[6]
+    };
+    ELEMENTS_LIST.push(elObj);
+    ELEMENTS_BY_Z[elObj.z] = elObj;
+    ELEMENTS_BY_SYM[elObj.symbol.toLowerCase()] = elObj;
+    ELEMENTS_BY_SYM[elObj.name.toLowerCase()] = elObj;
+  }
+
+  CalcEngine.elements = ELEMENTS_LIST;
+
+  CalcEngine.getElement = function (key) {
+    if (typeof key === 'number') {
+      return ELEMENTS_BY_Z[Math.round(key)] || null;
+    }
+    if (typeof key === 'string') {
+      var trimmedKey = key.replace(/^\s+|\s+$/g, '');
+      var asNum = Number(trimmedKey);
+      if (!isNaN(asNum) && asNum >= 1 && asNum <= 118 && Math.abs(asNum - Math.round(asNum)) < 1e-9) {
+        return ELEMENTS_BY_Z[Math.round(asNum)] || null;
+      }
+      return ELEMENTS_BY_SYM[trimmedKey.toLowerCase()] || null;
+    }
+    return null;
+  };
+
+  CalcEngine.atomicWeight = function (key) {
+    var el = CalcEngine.getElement(key);
+    return el ? el.weight : NaN;
+  };
+
+  // 47 hằng số khoa học CODATA theo sách hướng dẫn 580 và 880
+  var SCI_CONSTANTS_CATEGORIES = [
+    {
+      id: 'Universal',
+      name: 'Universal',
+      items: [
+        { code: '1', sym: 'h', sym880: 'h', token: 'const(h)', val: 6.626070040e-34, val880: 6.62607015e-34, desc: 'Hằng số Planck' },
+        { code: '2', sym: 'ħ', sym880: 'ħ', token: 'const(hbar)', val: 1.054571800e-34, val880: 1.054571817e-34, desc: 'Hằng số Dirac (h/2π)' },
+        { code: '3', sym: 'c0', sym880: 'c', token: 'const(c0)', val: 299792458, val880: 299792458, desc: 'Tốc độ ánh sáng trong chân không' },
+        { code: '4', sym: 'ε0', sym880: 'ε0', token: 'const(eps0)', val: 8.854187817e-12, val880: 8.8541878128e-12, desc: 'Hằng số điện môi chân không' },
+        { code: '5', sym: 'μ0', sym880: 'μ0', token: 'const(mu0)', val: 1.2566370614e-6, val880: 1.25663706212e-6, desc: 'Hằng số từ chân không' },
+        { code: '6', sym: 'Z0', sym880: 'Z0', token: 'const(Z0)', val: 376.730313461, val880: 376.730313668, desc: 'Trở kháng đặc trưng chân không' },
+        { code: '7', sym: 'G', sym880: 'G', token: 'const(G)', val: 6.67408e-11, val880: 6.67430e-11, desc: 'Hằng số hấp dẫn Newton' },
+        { code: '8', sym: 'lP', sym880: 'lP', token: 'const(lP)', val: 1.616229e-35, val880: 1.616255e-35, desc: 'Chiều dài Planck' },
+        { code: '9', sym: 'tP', sym880: 'tP', token: 'const(tP)', val: 5.39116e-44, val880: 5.391247e-44, desc: 'Thời gian Planck' }
+      ]
+    },
+    {
+      id: 'Electromagnetic',
+      name: 'Electromagnetic',
+      items: [
+        { code: '1', sym: 'μN', sym880: 'μN', token: 'const(muN)', val: 5.050783699e-27, val880: 5.0507837461e-27, desc: 'Manhêton hạt nhân' },
+        { code: '2', sym: 'μB', sym880: 'μB', token: 'const(muB)', val: 9.274009994e-24, val880: 9.2740100783e-24, desc: 'Manhêton Bohr' },
+        { code: '3', sym: 'e', sym880: 'e', token: 'const(qe)', val: 1.6021766208e-19, val880: 1.602176634e-19, desc: 'Điện tích nguyên tố' },
+        { code: '4', sym: 'Φ0', sym880: 'Φ0', token: 'const(Phi0)', val: 2.067833831e-15, val880: 2.067833848e-15, desc: 'Lượng tử từ thông' },
+        { code: '5', sym: 'G0', sym880: 'G0', token: 'const(G0)', val: 7.7480917310e-5, val880: 7.748091729e-5, desc: 'Lượng tử độ dẫn điện' },
+        { code: '6', sym: 'KJ', sym880: 'KJ', token: 'const(KJ)', val: 483597.8525e9, val880: 483597.8484e9, desc: 'Hằng số Josephson' },
+        { code: '7', sym: 'RK', sym880: 'RK', token: 'const(RK)', val: 25812.8074555, val880: 25812.80745, desc: 'Hằng số von Klitzing' }
+      ]
+    },
+    {
+      id: 'Atomic&Nuclear',
+      name: 'Atomic&Nuclear',
+      items: [
+        { code: '1', sym: 'mp', sym880: 'mp', token: 'const(mp)', val: 1.672621898e-27, val880: 1.67262192369e-27, desc: 'Khối lượng proton' },
+        { code: '2', sym: 'mn', sym880: 'mn', token: 'const(mn)', val: 1.674927471e-27, val880: 1.67492749804e-27, desc: 'Khối lượng neutron' },
+        { code: '3', sym: 'me', sym880: 'me', token: 'const(me)', val: 9.10938356e-31, val880: 9.1093837015e-31, desc: 'Khối lượng electron' },
+        { code: '4', sym: 'mμ', sym880: 'mμ', token: 'const(mmu)', val: 1.883531594e-28, val880: 1.883531627e-28, desc: 'Khối lượng muon' },
+        { code: '5', sym: 'a0', sym880: 'a0', token: 'const(a0)', val: 0.52917721067e-10, val880: 5.29177210903e-11, desc: 'Bán kính Bohr' },
+        { code: '6', sym: 'α', sym880: 'α', token: 'const(alpha)', val: 7.2973525664e-3, val880: 7.2973525693e-3, desc: 'Hằng số cấu trúc tinh tế' },
+        { code: '7', sym: 're', sym880: 're', token: 'const(re)', val: 2.8179403227e-15, val880: 2.8179403262e-15, desc: 'Bán kính electron cổ điển' },
+        { code: '8', sym: 'λc', sym880: 'λC', token: 'const(lambdac)', val: 2.4263102367e-12, val880: 2.42631023867e-12, desc: 'Bước sóng Compton' },
+        { code: '9', sym: 'γp', sym880: 'γp', token: 'const(gammap)', val: 2.675221900e8, val880: 2.6752218744e8, desc: 'Tỉ số từ hồi chuyển proton' },
+        { code: 'A', sym: 'λcp', sym880: 'λCp', token: 'const(lambdacp)', val: 1.32140985396e-15, val880: 1.32140985539e-15, desc: 'Bước sóng Compton của proton' },
+        { code: 'B', sym: 'λcn', sym880: 'λCn', token: 'const(lambdacn)', val: 1.31959090481e-15, val880: 1.31959090581e-15, desc: 'Bước sóng Compton của neutron' },
+        { code: 'C', sym: 'R∞', sym880: 'R∞', token: 'const(Rinf)', val: 10973731.568508, val880: 10973731.568160, desc: 'Hằng số Rydberg' },
+        { code: 'D', sym: 'μp', sym880: 'μp', token: 'const(mup)', val: 1.4106067873e-26, val880: 1.41060679736e-26, desc: 'Mô men từ proton' },
+        { code: 'E', sym: 'μe', sym880: 'μe', token: 'const(mue)', val: -928.4764620e-26, val880: -9.2847647043e-24, desc: 'Mô men từ electron' },
+        { code: 'F', sym: 'μn', sym880: 'μn', token: 'const(mun)', val: -0.96623650e-26, val880: -9.6623651e-27, desc: 'Mô men từ neutron' },
+        { code: 'M', sym: 'μμ', sym880: 'μμ', token: 'const(mumu)', val: -4.49044826e-26, val880: -4.49044830e-26, desc: 'Mô men từ muon' },
+        { code: 'x', sym: 'mτ', sym880: 'mτ', token: 'const(mtau)', val: 3.16747e-27, val880: 3.16754e-27, desc: 'Khối lượng tau' }
+      ]
+    },
+    {
+      id: 'Physico-Chem',
+      name: 'Physico-Chem',
+      items: [
+        { code: '1', sym: 'u', sym880: 'mu', token: 'const(u)', val: 1.660539040e-27, val880: 1.66053906660e-27, desc: 'Đơn vị khối lượng nguyên tử' },
+        { code: '2', sym: 'F', sym880: 'F', token: 'const(F)', val: 96485.33289, val880: 96485.33212, desc: 'Hằng số Faraday' },
+        { code: '3', sym: 'NA', sym880: 'NA', token: 'const(NA)', val: 6.022140857e23, val880: 6.02214076e23, desc: 'Hằng số Avogadro' },
+        { code: '4', sym: 'k', sym880: 'k', token: 'const(k)', val: 1.38064852e-23, val880: 1.380649e-23, desc: 'Hằng số Boltzmann' },
+        { code: '5', sym: 'Vm', sym880: 'Vm', token: 'const(Vm)', val: 22.710947e-3, val880: 2.271095464e-2, desc: 'Thể tích mol khí lý tưởng' },
+        { code: '6', sym: 'R', sym880: 'R', token: 'const(R)', val: 8.3144598, val880: 8.314462618, desc: 'Hằng số khí lý tưởng' },
+        { code: '7', sym: 'c1', sym880: 'c1', token: 'const(c1)', val: 3.741771790e-16, val880: 3.741771852e-16, desc: 'Hằng số bức xạ thứ nhất' },
+        { code: '8', sym: 'c2', sym880: 'c2', token: 'const(c2)', val: 1.43877736e-2, val880: 1.438776877e-2, desc: 'Hằng số bức xạ thứ hai' },
+        { code: '9', sym: 'σ', sym880: 'σ', token: 'const(sigma)', val: 5.670367e-8, val880: 5.670374419e-8, desc: 'Hằng số Stefan-Boltzmann' }
+      ]
+    },
+    {
+      id: 'Adopted Values',
+      name: 'Adopted Values',
+      items: [
+        { code: '1', sym: 'g', sym880: 'gn', token: 'const(gn)', val: 9.80665, val880: 9.80665, desc: 'Gia tốc trọng trường chuẩn' },
+        { code: '2', sym: 'atm', sym880: 'atm', token: 'const(atm)', val: 101325, val880: 101325, desc: 'Áp suất khí quyển chuẩn' },
+        { code: '3', sym: 'RK-90', sym880: 'RK-90', token: 'const(RK90)', val: 25812.807, val880: 25812.807, desc: 'Hằng số von Klitzing (1990)' },
+        { code: '4', sym: 'KJ-90', sym880: 'KJ-90', token: 'const(KJ90)', val: 483597.9e9, val880: 483597.9e9, desc: 'Hằng số Josephson (1990)' }
+      ]
+    },
+    {
+      id: 'Other',
+      name: 'Other',
+      items: [
+        { code: '1', sym: 't', sym880: 't', token: 'const(tC)', val: 273.15, val880: 273.15, desc: 'Nhiệt độ chuẩn (K ở 0°C)' }
+      ]
+    }
+  ];
+
+  var CONST_LOOKUP = {};
+  var FLAT_CONSTANTS = [];
+  for (var catIdx = 0; catIdx < SCI_CONSTANTS_CATEGORIES.length; catIdx++) {
+    var catC = SCI_CONSTANTS_CATEGORIES[catIdx];
+    for (var ci = 0; ci < catC.items.length; ci++) {
+      var cItem = catC.items[ci];
+      cItem.category = catC.id;
+      FLAT_CONSTANTS.push(cItem);
+      CONST_LOOKUP[cItem.sym] = cItem;
+      CONST_LOOKUP[cItem.sym880] = cItem;
+      var innerId = cItem.token.replace(/^const\(|\)$/g, '');
+      CONST_LOOKUP[innerId] = cItem;
+    }
+  }
+  CONST_LOOKUP['hbar'] = CONST_LOOKUP['ħ'];
+  CONST_LOOKUP['ℏ'] = CONST_LOOKUP['ħ'];
+  CONST_LOOKUP['c'] = CONST_LOOKUP['c0'];
+  CONST_LOOKUP['C1'] = CONST_LOOKUP['c1'];
+  CONST_LOOKUP['C2'] = CONST_LOOKUP['c2'];
+  CONST_LOOKUP['qe'] = CONST_LOOKUP['e'];
+  CONST_LOOKUP['e_c'] = CONST_LOOKUP['e'];
+  CONST_LOOKUP['F_c'] = CONST_LOOKUP['F'];
+  CONST_LOOKUP['g0'] = CONST_LOOKUP['gn'];
+
+  CalcEngine.constants = SCI_CONSTANTS_CATEGORIES;
+  CalcEngine.constantsList = FLAT_CONSTANTS;
+
+  CalcEngine.getConstant = function (key, model) {
+    if (!key) return NaN;
+    var k = String(key).replace(/^\s+|\s+$/g, '').replace(/^const\(|\)$/g, '');
+    var found = CONST_LOOKUP[k];
+    if (!found) return NaN;
+    return model === '880' ? found.val880 : found.val;
+  };
+
+  // 40 lệnh chuyển đổi đơn vị theo sách hướng dẫn 580 và 880 (NIST SP 811)
+  var UNIT_CONVERSION_CATEGORIES = [
+    {
+      id: 'Length',
+      name: 'Length',
+      items: [
+        { code: '1', label: 'in▸cm', label880: 'in▸cm', mul: 2.54 },
+        { code: '2', label: 'cm▸in', label880: 'cm▸in', mul: 50 / 127 },
+        { code: '3', label: 'ft▸m', label880: 'ft▸m', mul: 0.3048 },
+        { code: '4', label: 'm▸ft', label880: 'm▸ft', mul: 1250 / 381 },
+        { code: '5', label: 'yd▸m', label880: 'yd▸m', mul: 0.9144 },
+        { code: '6', label: 'm▸yd', label880: 'm▸yd', mul: 1250 / 1143 },
+        { code: '7', label: 'mile▸km', label880: 'mile▸km', mul: 1.609344 },
+        { code: '8', label: 'km▸mile', label880: 'km▸mile', mul: 1 / 1.609344 },
+        { code: '9', label: 'n mile▸m', label880: 'n mile▸m', mul: 1852 },
+        { code: 'A', label: 'm▸n mile', label880: 'm▸n mile', mul: 1 / 1852 },
+        { code: 'B', label: 'pc▸km', label880: 'pc▸km', mul: 3.085678e13 },
+        { code: 'C', label: 'km▸pc', label880: 'km▸pc', mul: 3.24077885e-14 }
+      ]
+    },
+    {
+      id: 'Area',
+      name: 'Area',
+      items: [
+        { code: '1', label: 'acre▸m²', label880: 'acre▸m²', alt: 'acre▸m2', mul: 4046.856 },
+        { code: '2', label: 'm²▸acre', label880: 'm²▸acre', alt: 'm2▸acre', mul: 0.0002471054073 }
+      ]
+    },
+    {
+      id: 'Volume',
+      name: 'Volume',
+      items: [
+        { code: '1', label: 'gal(US)▸L', label880: 'gal(US)▸L', mul: 3.785412 },
+        { code: '2', label: 'L▸gal(US)', label880: 'L▸gal(US)', mul: 0.2641720373 },
+        { code: '3', label: 'gal(UK)▸L', label880: 'gal(UK)▸L', mul: 4.54609 },
+        { code: '4', label: 'L▸gal(UK)', label880: 'L▸gal(UK)', mul: 0.2199692483 }
+      ]
+    },
+    {
+      id: 'Mass',
+      name: 'Mass',
+      items: [
+        { code: '1', label: 'oz▸g', label880: 'oz▸g', mul: 28.34952 },
+        { code: '2', label: 'g▸oz', label880: 'g▸oz', mul: 0.03527396584 },
+        { code: '3', label: 'lb▸kg', label880: 'lb▸kg', mul: 0.4535924 },
+        { code: '4', label: 'kg▸lb', label880: 'kg▸lb', mul: 2.204622476 }
+      ]
+    },
+    {
+      id: 'Velocity',
+      name: 'Velocity',
+      items: [
+        { code: '1', label: 'km/h▸m/s', label880: 'km/h▸m/s', mul: 5 / 18 },
+        { code: '2', label: 'm/s▸km/h', label880: 'm/s▸km/h', mul: 3.6 }
+      ]
+    },
+    {
+      id: 'Pressure',
+      name: 'Pressure',
+      items: [
+        { code: '1', label: 'atm▸Pa', label880: 'atm▸Pa', mul: 101325 },
+        { code: '2', label: 'Pa▸atm', label880: 'Pa▸atm', mul: 1 / 101325 },
+        { code: '3', label: 'mmHg▸Pa', label880: 'mmHg▸Pa', mul: 133.3224 },
+        { code: '4', label: 'Pa▸mmHg', label880: 'Pa▸mmHg', mul: 0.00750061505 },
+        { code: '5', label: 'kgf/cm²▸Pa', label880: 'kgf/cm²▸Pa', alt: 'kgf/cm2▸Pa', mul: 98066.5 },
+        { code: '6', label: 'Pa▸kgf/cm²', label880: 'Pa▸kgf/cm²', alt: 'Pa▸kgf/cm2', mul: 1 / 98066.5 },
+        { code: '7', label: 'lbf/in²▸kPa', label880: 'lbf/in²▸kPa', alt: 'lbf/in2▸kPa', mul: 6.894757 },
+        { code: '8', label: 'kPa▸lbf/in²', label880: 'kPa▸lbf/in²', alt: 'kPa▸lbf/in2', mul: 0.1450377439 }
+      ]
+    },
+    {
+      id: 'Energy',
+      name: 'Energy',
+      items: [
+        { code: '1', label: 'kgf•m▸J', label880: 'kgf•m▸J', alt: 'kgf·m▸J', mul: 9.80665 },
+        { code: '2', label: 'J▸kgf•m', label880: 'J▸kgf•m', alt: 'J▸kgf·m', mul: 1 / 9.80665 },
+        { code: '3', label: 'J▸cal', label880: 'J▸cal15', alt: 'J▸cal15', mul: 1 / 4.1858 },
+        { code: '4', label: 'cal▸J', label880: 'cal15▸J', alt: 'cal15▸J', mul: 4.1858 }
+      ]
+    },
+    {
+      id: 'Power',
+      name: 'Power',
+      items: [
+        { code: '1', label: 'hp▸kW', label880: 'hp▸kW', mul: 0.7457 },
+        { code: '2', label: 'kW▸hp', label880: 'kW▸hp', mul: 1 / 0.7457 }
+      ]
+    },
+    {
+      id: 'Temperature',
+      name: 'Temperature',
+      items: [
+        { code: '1', label: '°F▸°C', label880: '°F▸°C', alt: 'F▸C', fn: function (x) { return (x - 32) * 5 / 9; } },
+        { code: '2', label: '°C▸°F', label880: '°C▸°F', alt: 'C▸F', fn: function (x) { return x * 9 / 5 + 32; } }
+      ]
+    }
+  ];
+
+  var CONV_LOOKUP = {};
+  var FLAT_CONVERSIONS = [];
+  for (var uCatIdx = 0; uCatIdx < UNIT_CONVERSION_CATEGORIES.length; uCatIdx++) {
+    var uCat = UNIT_CONVERSION_CATEGORIES[uCatIdx];
+    for (var ui = 0; ui < uCat.items.length; ui++) {
+      var uItem = uCat.items[ui];
+      uItem.category = uCat.id;
+      FLAT_CONVERSIONS.push(uItem);
+      var keysToReg = [uItem.label, uItem.label880];
+      if (uItem.alt) keysToReg.push(uItem.alt);
+      for (var ki = 0; ki < keysToReg.length; ki++) {
+        var kStr = keysToReg[ki];
+        CONV_LOOKUP[kStr] = uItem;
+        CONV_LOOKUP[kStr.replace('▸', '->')] = uItem;
+        CONV_LOOKUP[kStr.replace('▸', '_')] = uItem;
+      }
+    }
+  }
+
+  CalcEngine.conversions = UNIT_CONVERSION_CATEGORIES;
+  CalcEngine.conversionsList = FLAT_CONVERSIONS;
+
+  CalcEngine.convert = function (val, code) {
+    val = Number(val);
+    if (!isNum(val) || !code) return NaN;
+    var normCode = String(code).replace(/^\s+|\s+$/g, '').replace(/->|▶|►/g, '▸');
+    var item = CONV_LOOKUP[normCode];
+    if (!item) return NaN;
+    if (item.fn) return cleanNum(item.fn(val));
+    return cleanNum(val * item.mul);
+  };
+
+  // Định nghĩa hàm f(x) và g(x) dùng chung cho Calculate và Table (fx-880BTG)
+  CalcEngine.definedFuncs = { f: '', g: '' };
+
+  CalcEngine.defineFunc = function (name, exprText) {
+    if (name !== 'f' && name !== 'g') return false;
+    CalcEngine.definedFuncs[name] = typeof exprText === 'string' ? exprText : '';
+    return true;
+  };
+
+  CalcEngine.getDefinedFunc = function (name) {
+    return CalcEngine.definedFuncs[name] || '';
+  };
+
+  // Kiểm tra tính đúng/sai của đẳng thức hoặc bất đẳng thức (Verify)
+  // Hỗ trợ cả biểu thức đơn (4√9 = 12) và nối tiếp (1 ≤ 1 < 1+1, 2+3 = 5 ≠ 2+5 = 8)
+  CalcEngine.verify = function (exprText, opts) {
+    opts = opts || {};
+    if (typeof exprText !== 'string') {
+      return { ok: false, error: 'Lỗi cú pháp' };
+    }
+    var s = exprText.replace(/^\s+|\s+$/g, '');
+    if (!s) return { ok: false, error: 'Lỗi cú pháp' };
+
+    // Tách theo các toán tử quan hệ ở mức ngoặc ngoài cùng: <=, >=, !=, ≠, ≤, ≥, =, <, >
+    var parts = [];
+    var ops = [];
+    var depth = 0;
+    var lastIdx = 0;
+    var i = 0;
+    while (i < s.length) {
+      var ch = s.charAt(i);
+      if (ch === '(') {
+        depth++;
+        i++;
+        continue;
+      }
+      if (ch === ')') {
+        if (depth > 0) depth--;
+        i++;
+        continue;
+      }
+      if (depth === 0) {
+        var two = s.slice(i, i + 2);
+        if (two === '<=' || two === '>=' || two === '!=') {
+          parts.push(s.slice(lastIdx, i));
+          ops.push(two === '<=' ? '≤' : (two === '>=' ? '≥' : '≠'));
+          i += 2;
+          lastIdx = i;
+          continue;
+        }
+        if (ch === '=' || ch === '≠' || ch === '<' || ch === '>' || ch === '≤' || ch === '≥') {
+          parts.push(s.slice(lastIdx, i));
+          ops.push(ch);
+          i++;
+          lastIdx = i;
+          continue;
+        }
+      }
+      i++;
+    }
+    parts.push(s.slice(lastIdx));
+
+    if (ops.length === 0) {
+      return { ok: false, error: 'Lỗi cú pháp' };
+    }
+    for (var pi = 0; pi < parts.length; pi++) {
+      if (!parts[pi].replace(/\s+/g, '')) {
+        return { ok: false, error: 'Lỗi cú pháp' };
+      }
+    }
+
+    // Kiểm tra quy tắc kết hợp toán tử quan hệ của sách hướng dẫn:
+    // - Không trộn (<, ≤) với (>, ≥)
+    // - Toán tử ≠ không đi kèm (<, ≤, >, ≥) và xuất hiện tối đa 1 lần
+    var hasLess = false;
+    var hasGreater = false;
+    var neqCount = 0;
+    for (var oi = 0; oi < ops.length; oi++) {
+      var op = ops[oi];
+      if (op === '<' || op === '≤') hasLess = true;
+      else if (op === '>' || op === '≥') hasGreater = true;
+      else if (op === '≠') neqCount++;
+    }
+    if (hasLess && hasGreater) {
+      return { ok: false, error: 'Lỗi cú pháp' };
+    }
+    if (neqCount > 1 || (neqCount > 0 && (hasLess || hasGreater))) {
+      return { ok: false, error: 'Lỗi cú pháp' };
+    }
+
+    var vals = [];
+    var cplxVals = null;
+    for (var vi = 0; vi < parts.length; vi++) {
+      var ev = CalcEngine.evalText(parts[vi], opts);
+      if (!ev.ok) {
+        if (!hasLess && !hasGreater && CalcEngine.evalComplex) {
+          cplxVals = [];
+          for (var cvi = 0; cvi < parts.length; cvi++) {
+            var cev = CalcEngine.evalComplex(parts[cvi], opts);
+            if (!cev.ok) {
+              return { ok: false, error: cev.error || 'Lỗi cú pháp' };
+            }
+            cplxVals.push({ re: cev.re, im: cev.im });
+          }
+          break;
+        }
+        return { ok: false, error: ev.error || 'Lỗi toán' };
+      }
+      vals.push(ev.value);
+    }
+
+    var allTrue = true;
+    if (cplxVals) {
+      for (var cci = 0; cci < ops.length; cci++) {
+        var za = cplxVals[cci];
+        var zb = cplxVals[cci + 1];
+        var cRel = ops[cci];
+        var cDiff = Math.sqrt((za.re - zb.re) * (za.re - zb.re) + (za.im - zb.im) * (za.im - zb.im));
+        var cTol = 1e-11 * Math.max(1, Math.abs(za.re), Math.abs(za.im), Math.abs(zb.re), Math.abs(zb.im));
+        var cOk = (cRel === '=') ? (cDiff <= cTol) : (cDiff > cTol);
+        if (!cOk) {
+          allTrue = false;
+          break;
+        }
+      }
+    } else {
+      for (var ci2 = 0; ci2 < ops.length; ci2++) {
+        var a = vals[ci2];
+        var b = vals[ci2 + 1];
+        var rel = ops[ci2];
+        var tol = 1e-11 * Math.max(1, Math.abs(a), Math.abs(b));
+        var stepOk = false;
+        if (rel === '=') stepOk = Math.abs(a - b) <= tol;
+        else if (rel === '≠') stepOk = Math.abs(a - b) > tol;
+        else if (rel === '<') stepOk = a < b - tol;
+        else if (rel === '≤') stepOk = a <= b + tol;
+        else if (rel === '>') stepOk = a > b + tol;
+        else if (rel === '≥') stepOk = a >= b - tol;
+        if (!stepOk) {
+          allTrue = false;
+          break;
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      result: allTrue,
+      text: allTrue ? 'TRUE' : 'FALSE',
+      text880: allTrue ? 'True' : 'False',
+      ans: allTrue ? 1 : 0,
+      rhsExpr: parts[parts.length - 1]
+    };
+  };
+
+  // Tách và tính đa câu lệnh nối bằng dấu hai chấm (:)
+  CalcEngine.splitMultiStatements = function (exprText) {
+    if (typeof exprText !== 'string') return [];
+    var res = [];
+    var depth = 0;
+    var last = 0;
+    for (var i = 0; i < exprText.length; i++) {
+      var ch = exprText.charAt(i);
+      if (ch === '(') depth++;
+      else if (ch === ')' && depth > 0) depth--;
+      else if (ch === ':' && depth === 0) {
+        res.push(exprText.slice(last, i));
+        last = i + 1;
+      }
+    }
+    res.push(exprText.slice(last));
+    return res;
+  };
+
+  // Trích danh sách biến xuất hiện trong biểu thức (phục vụ CALC và SOLVE)
+  CalcEngine.extractVariables = function (exprText) {
+    if (typeof exprText !== 'string') return [];
+    var found = [];
+    var seen = {};
+    try {
+      var eqParts = exprText.split('=');
+      for (var ep = 0; ep < eqParts.length; ep++) {
+        var toks = tokenize(eqParts[ep]);
+        for (var ti = 0; ti < toks.length; ti++) {
+          if (toks[ti].type === 'VAR') {
+            var vn = toks[ti].value;
+            if (vn !== 'Ans' && vn !== 'PreAns' && !seen[vn]) {
+              seen[vn] = true;
+              found.push(vn);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      var fallbackOrder = ['x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F'];
+      for (var fi = 0; fi < fallbackOrder.length; fi++) {
+        var v = fallbackOrder[fi];
+        if (exprText.indexOf(v) !== -1 && !seen[v]) {
+          seen[v] = true;
+          found.push(v);
+        }
+      }
+    }
+    return found;
+  };
+
+  // Mở rộng Math Box: Number Line & Circle (fx-880BTG)
+  CalcEngine.mathBox = CalcEngine.mathbox || (CalcEngine.mathbox = {});
+  if (CalcEngine.mathBox) {
+    var NL_TYPE_NORM = {
+      'lt': 'x<a',
+      'le': 'x≤a',
+      'eq': 'x=a',
+      'gt': 'x>a',
+      'ge': 'x≥a',
+      'open_open': 'a<x<b',
+      'closed_open': 'a≤x<b',
+      'open_closed': 'a<x≤b',
+      'closed_closed': 'a≤x≤b'
+    };
+    // Các dạng: 'x<a', 'x≤a', 'x=a', 'x>a', 'x≥a', 'a<x<b', 'a≤x<b', 'a<x≤b', 'a≤x≤b'
+    CalcEngine.mathBox.numberLine = function (items, viewWindow) {
+      items = Array.isArray(items) ? items : [];
+      var parsed = [];
+      var pts = [];
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (!it || !it.type) {
+          parsed.push(null);
+          continue;
+        }
+        var normType = NL_TYPE_NORM[it.type] || it.type;
+        var a = Number(it.a);
+        var b = it.b !== undefined ? Number(it.b) : null;
+        if (!isNum(a)) {
+          parsed.push(null);
+          continue;
+        }
+        if (normType.indexOf('b') !== -1) {
+          if (!isNum(b) || a >= b) {
+            return { ok: false, error: 'Lỗi miền' };
+          }
+          pts.push(a, b);
+        } else {
+          pts.push(a);
+        }
+        var label = normType.replace('a', String(a)).replace('b', b !== null ? String(b) : '');
+        parsed.push({
+          slot: ['A', 'B', 'C'][i] || String(i + 1),
+          type: normType,
+          a: a,
+          b: b,
+          label: label
+        });
+      }
+      var center = 0;
+      var scale = 1;
+      if (viewWindow && isNum(viewWindow.center) && isNum(viewWindow.scale) && viewWindow.scale > 0) {
+        center = Number(viewWindow.center);
+        scale = Number(viewWindow.scale);
+      } else if (pts.length > 0) {
+        var minP = pts[0], maxP = pts[0];
+        for (var pi = 1; pi < pts.length; pi++) {
+          if (pts[pi] < minP) minP = pts[pi];
+          if (pts[pi] > maxP) maxP = pts[pi];
+        }
+        center = 0.5 * (minP + maxP);
+        if (Math.abs(center) < 1e-12) center = 0;
+        var span = Math.max(1, maxP - minP);
+        scale = Math.pow(10, Math.floor(Math.log(span) / Math.LN10));
+        if (span / scale > 10) scale *= 2;
+        else if (span / scale < 3) scale *= 0.5;
+      }
+      return {
+        ok: true,
+        axes: parsed,
+        center: center,
+        scale: scale,
+        min: center - scale * 8,
+        max: center + scale * 8
+      };
+    };
+
+    // Đồ thị Unit Circle, Half Circle và Clock
+    CalcEngine.mathBox.circle = function (type, theta1, theta2, angleMode) {
+      angleMode = angleMode || 'deg';
+      type = type || 'unit';
+      if (type === 'clock') {
+        var hr = isNum(theta1) ? ((Math.round(theta1) % 12) + 12) % 12 : 0;
+        var degSmall = Math.min(hr * 30, 360 - hr * 30);
+        var degLarge = 360 - degSmall;
+        var factor = angleMode === 'rad' ? (Math.PI / 180) : (angleMode === 'grad' ? (200 / 180) : 1);
+        return {
+          ok: true,
+          type: 'clock',
+          hour: hr === 0 ? 12 : hr,
+          diffAngle: cleanNum(degSmall * factor),
+          theta1: cleanNum(degSmall * factor),
+          theta2: cleanNum(degLarge * factor),
+          theta1Exact: angleMode === 'rad' ? CalcEngine.toExact(degSmall * factor) : String(degSmall * factor),
+          theta2Exact: angleMode === 'rad' ? CalcEngine.toExact(degLarge * factor) : String(degLarge * factor)
+        };
+      }
+      function angleInfo(th) {
+        if (th === null || th === undefined || th === '' || !isNum(Number(th))) return null;
+        var val = Number(th);
+        var s = cleanNum(trigSin(val, angleMode));
+        var c = cleanNum(trigCos(val, angleMode));
+        var tVal;
+        try {
+          tVal = cleanNum(trigTan(val, angleMode));
+        } catch (e) {
+          tVal = null;
+        }
+        return {
+          theta: val,
+          rad: toRad(val, angleMode),
+          sin: s,
+          cos: c,
+          tan: tVal,
+          sinExact: CalcEngine.toExact(s) || CalcEngine.format(s),
+          cosExact: CalcEngine.toExact(c) || CalcEngine.format(c),
+          tanExact: tVal === null ? 'Không xác định' : (CalcEngine.toExact(tVal) || CalcEngine.format(tVal))
+        };
+      }
+      var info1 = angleInfo(theta1);
+      var info2 = angleInfo(theta2);
+      return {
+        ok: true,
+        type: type,
+        a1: info1,
+        a2: info2,
+        sin: info1 ? info1.sin : null,
+        cos: info1 ? info1.cos : null,
+        tan: info1 ? info1.tan : null,
+        sinExact: info1 ? info1.sinExact : null,
+        cosExact: info1 ? info1.cosExact : null,
+        tanExact: info1 ? info1.tanExact : null
+      };
+    };
+  }
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = CalcEngine;
