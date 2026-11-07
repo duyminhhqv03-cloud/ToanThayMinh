@@ -2100,6 +2100,7 @@
     var ctm = [1, 0, 0, 1, 0, 0];
     var stack = [];
     var bars = [];
+    var verts = [];
     function bbox(pts) {
       var xs = pts.map(function (q) { return q[0]; });
       var ys = pts.map(function (q) { return q[1]; });
@@ -2121,10 +2122,21 @@
         var h = pb[3] - pb[1];
         if (h <= 2.5 && w >= 4 && w <= 50) {
           bars.push({ x0: pb[0], y0: pb[1], x1: pb[2], y1: pb[3], y: (pb[1] + pb[3]) / 2, w: w, h: h });
+        } else if (w <= 2.5 && h >= 6) {
+          verts.push(pb);
         }
       }
     }
-    return bars;
+    // Nét ngang nối vào nét dọc là đường kẻ của ô bảng (ô hẹp như cột "Câu"), không phải gạch phân số:
+    // không có thì số 2 và 3 ở hai hàng liền nhau bị ghép thành "2/3".
+    var kept = bars.filter(function (b) {
+      return !verts.some(function (v) {
+        var nearEnd = Math.abs(v[0] - b.x0) <= 2.5 || Math.abs(v[2] - b.x1) <= 2.5 || Math.abs(v[2] - b.x0) <= 2.5 || Math.abs(v[0] - b.x1) <= 2.5;
+        return nearEnd && v[1] - 2.5 <= b.y && v[3] + 2.5 >= b.y;
+      });
+    });
+    kept.verts = verts; // đường kẻ dọc của bảng, để tách ô khi đọc file đáp án
+    return kept;
   }
 
   function isNumFracPart(s) {
@@ -2304,7 +2316,9 @@
   }
 
   /** Đọc PDF bằng PDF.js: dòng chữ (kèm toạ độ) và vị trí hình / bảng trên từng trang. */
-  function pdfAnalyze(file) {
+  /** opts.keepFigText: giữ cả chữ nằm trong hình/bảng (file đáp án hay kẻ bảng "Câu | Đáp án | Hướng dẫn"). */
+  function pdfAnalyze(file, opts) {
+    var keepFigText = !!(opts && opts.keepFigText);
     return loadPdfJs().then(function (lib) {
       return readArrayBuffer(file).then(function (buf) { return lib.getDocument({ data: buf }).promise; }).then(function (doc) {
         var pages = [];
@@ -2319,7 +2333,7 @@
                 var usedBars = mergeFractions(textItems, bars);
                 mergeSuperscripts(textItems);
                 snapSymbolPieces(textItems);
-                pages.push({ page: page, rows: textRows(textItems), figs: figureBoxes(lib, ol, page.view, usedBars) });
+                pages.push({ page: page, rows: textRows(textItems, keepFigText ? bars.verts : null), figs: figureBoxes(lib, ol, page.view, usedBars) });
               });
             });
           })(i);
@@ -2331,8 +2345,14 @@
             pg.figs = pg.figs.filter(function (b) {
               if (b.img) return true;
               if (b[0] <= v[0] + 4 || b[2] >= v[2] - 4 || b[3] >= v[3] - 4) return false;
-              var rowsIn = pg.rows.filter(function (r) { return r.y > b[1] && r.y < b[3]; }).length;
-              return !(b[3] - b[1] < 34 && rowsIn <= 1);
+              var inside = pg.rows.filter(function (r) { return r.y > b[1] && r.y < b[3] && r.x1 > b[0] && r.x0 < b[2]; });
+              if (b[3] - b[1] < 34 && inside.length <= 1) return false;
+              // Bảng chứa nhiều câu chữ (bảng đáp án, bảng hướng dẫn chấm) là nội dung, không phải hình.
+              // Bảng số liệu trong đề (ô ngắn) vẫn là hình.
+              var prose = inside.filter(function (r) {
+                return r.str.split(/\s+/).filter(function (w) { return /[A-Za-zÀ-ỹĐđ]{2,}/.test(w); }).length >= 6;
+              }).length;
+              return prose < 3;
             });
           });
           // 2) Đầu trang / chân trang: chỉ xét dòng ở sát mép trên / mép dưới (12% chiều cao trang)
@@ -2364,7 +2384,7 @@
                 var ov = Math.min(r.x1, b[2]) - Math.max(r.x0, b[0]);
                 return ov > 0.6 * Math.max(1, r.x1 - r.x0);
               });
-              if (inFig) return;
+              if (inFig && !keepFigText) return;
               lines.push({ p: pi, y: r.y, str: window.QuizFormat.plainMath(r.str).normalize('NFC') });
             });
           });
@@ -2375,9 +2395,10 @@
     });
   }
   function pdfText(file) {
-    return pdfAnalyze(file).then(function (r) { return r.text; });
+    return pdfAnalyze(file, { keepFigText: true }).then(function (r) { return r.text; });
   }
-  function textRows(items) {
+  /** verts (tùy chọn): đường kẻ dọc của bảng; chữ ở hai ô khác nhau được nối bằng " | " để biết đâu là cột nào. */
+  function textRows(items, verts) {
     var rows = [];
     items.forEach(function (it) {
       if (!it.str || !it.transform) return;
@@ -2394,6 +2415,12 @@
       var out = '';
       var end = null;
       r.items.forEach(function (t) {
+        if (end !== null && verts && verts.some(function (v) { return v[0] >= end - 1 && v[2] <= t.x + 1 && v[1] - 2 <= r.y && v[3] + 2 >= r.y; })) {
+          out = out.replace(/\s+$/, '') + ' | ';
+          out += t.str.replace(/^\s+/, '');
+          end = t.x + t.w;
+          return;
+        }
         var isFracAfterNum = /\d$/.test(out) && /^\d+\//.test(t.str);
         if (end !== null && (t.x - end > 1.5 || (isFracAfterNum && t.x - end > 0.3)) && !/\s$/.test(out) && !/^\s/.test(t.str)) out += ' ';
         out += t.str;

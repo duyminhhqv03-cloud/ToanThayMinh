@@ -401,4 +401,62 @@ var QuizFormat = require('../hoc/quiz-format.js');
   assert.deepStrictEqual(p.questions[0].answers, ['200']);
 })();
 
+// Bảng đáp án có cột (bộ đọc PDF chèn " | " giữa các ô), tiêu đề "Dạng 1" không chia lại điểm phần,
+// "Bài 1. (1,5 điểm)" / "Bài 2. (1,25)" là điểm của bài, dòng chấm để viết bài bị bỏ khỏi đề.
+(function testTableKey() {
+  var de = [
+    'I. CÂU TRẢ LỜI NGẮN (2 điểm)',
+    'Dạng 1 – Tìm tỉ số phần trăm',
+    'Câu 1. Lớp có 35 học sinh, 15 bạn nam. Số bạn nam bằng bao nhiêu phần trăm số bạn nữ?',
+    'Trả lời: ................ %',
+    'Câu 2. Mẹ có 600 000 đồng, dùng 35% để mua sách. Hỏi mẹ còn lại bao nhiêu tiền?',
+    'Trả lời: ................ đồng',
+    'Dạng 2 – Tìm một số',
+    'Câu 3. Biết 15% của một số là 42. Tìm số đó.',
+    'Trả lời: ................',
+    'Câu 4. Hoa tiêu 40% số tiền, còn lại 72 000 đồng. Hỏi lúc đầu Hoa có bao nhiêu tiền?',
+    'Trả lời: ................ đồng',
+    'II. BÀI TẬP TỰ LUẬN (3 điểm)',
+    'Bài 1. (1,5 điểm) Một kho có 1 250 kg gạo, xuất đi 28%. Hỏi kho còn bao nhiêu ki-lô-gam gạo?',
+    '................................................................................',
+    '................................................................................',
+    'Bài 2. (1,5) Đội sửa được 180 m, bằng 36% quãng đường. Hỏi quãng đường dài bao nhiêu mét?',
+    '................................................................................'
+  ].join('\n');
+  var da = [
+    'III. ĐÁP ÁN VÀ HƯỚNG DẪN CHẤM',
+    'Phần I. Câu trả lời ngắn (2 điểm – mỗi câu 0,5 điểm)',
+    'Câu | Đáp án | Hướng dẫn',
+    '1 | 75 | Số nữ: 35 − 15 = 20. 15 : 20 = 75%.',
+    '2 | 390 000 | 600 000 : 100 × 65 = 390',
+    '000 (đồng).',
+    '3 | 280 | 42 : 15 × 100 = 280.',
+    '4 | 120 000 | 72 000 : 60 × 100 = 120 000 (đồng).',
+    'Phần II. Tự luận (3 điểm)',
+    'Bài | Nội dung lời giải | Điểm',
+    'Bài 1 | Số gạo đã xuất: 1 250 : 100 × 28 = 350 (kg) | 0,5',
+    '(1,5 đ) | Số gạo còn lại: 1 250 − 350 = 900 (kg) | 0,75',
+    'Đáp số: 900 kg | 0,25',
+    'Bài 2 | Quãng đường: 180 : 36 × 100 = 500 (m) | 1,25',
+    'Đáp số: 500 m | 0,25',
+    'Tổng Phần II | 3'
+  ].join('\n');
+  var r = QuizFormat.fromText(de, da);
+  assert.strictEqual(r.count, 6, 'Bảng: 6 câu');
+  assert.strictEqual(r.keyed, 6, 'Bảng: câu nào cũng có đáp án');
+  var p = QuizFormat.parse(r.source, { allowEssay: true });
+  assert.deepStrictEqual(p.errors, [], 'Bảng: không lỗi');
+  var qs = p.questions;
+  assert.deepStrictEqual(qs.map(function (q) { return q.type; }), ['short', 'short', 'short', 'short', 'essay', 'essay']);
+  assert.deepStrictEqual(qs.map(function (q) { return q.points; }), [0.5, 0.5, 0.5, 0.5, 1.5, 1.5], 'Bảng: điểm từng câu');
+  assert.deepStrictEqual(qs[0].answers, ['75']);
+  assert.deepStrictEqual(qs[1].answers, ['390 000']);
+  assert.deepStrictEqual(qs[3].answers, ['120 000']);
+  assert.ok(/390\s*000 \(đồng\)/.test(qs[1].explain), 'Bảng: dòng hướng dẫn bị ngắt vẫn nối vào câu 2');
+  assert.ok(/^Một kho/.test(qs[4].text) && !/\.{10}/.test(qs[4].text), 'Bài 1: bỏ "(1,5 điểm)" và dòng chấm');
+  assert.ok(/^Đội sửa/.test(qs[5].text), 'Bài 2: bỏ "(1,5)"');
+  assert.ok(/900 \(kg\) \(0,75 đ\)/.test(qs[4].explain) && !/1,5 đ\)/.test(qs[4].explain), 'Bài 1: hướng dẫn chấm có điểm từng bước');
+  assert.ok(!/Số nữ/.test(qs[4].explain), 'Bài 1 không lẫn đáp án Câu 1');
+})();
+
 console.log('OK');

@@ -655,6 +655,7 @@
     var blocks = [];
     var cur = null;
     var skip = false;
+    var tableKw = ''; // "câu"/"bài" theo tiêu đề cột của bảng đáp án
     lines.forEach(function (line, i) {
       if (skip) { skip = false; return; }
       if (isKeyHead(line) && !/\d/.test(line)) return;
@@ -667,6 +668,24 @@
         cur = null;
         skip = true;
         return;
+      }
+      if (line.indexOf('|') >= 0) {
+        // Dòng tiêu đề bảng "Câu | Đáp án | Hướng dẫn", dòng tổng "Tổng Phần II | 7" → bỏ.
+        var th = /^\s*(câu|bài|stt)\s*\|/i.exec(line);
+        if (th && !/^\s*(?:câu|bài)\s*\d/i.test(line)) { tableKw = /stt/i.test(th[1]) ? '' : th[1].toLowerCase(); cur = null; return; }
+        if (/^\s*tổng\b/i.test(line)) { cur = null; return; }
+        // Hàng bảng "1 | 75 | Số nữ: …" (cột số câu, cột đáp án, cột hướng dẫn).
+        var tr = /^\s*(?:câu\s*)?(\d{1,3})\s*\|\s*([^|]*?)\s*(?:\|\s*(.*))?$/i.exec(line);
+        if (tr && tr[2]) {
+          cur = { kw: tableKw, n: Number(tr[1]), lines: ['Đáp án: ' + tr[2]].concat(tr[3] ? ['Hướng dẫn: ' + tr[3]] : []) };
+          blocks.push(cur);
+          return;
+        }
+        // Bảng hướng dẫn chấm "Bài 1 | lời giải | 0,5": cột điểm cuối → "(0,5 đ)"; ô "(1,5 đ)" dưới số bài → bỏ.
+        line = line.replace(/^\s*\(\s*\d+(?:[.,]\d+)?\s*(?:đ|điểm)\s*\)\s*\|\s*/i, '')
+          .replace(/\s*\|\s*(\d+(?:[.,]\d+)?)\s*$/, ' ($1 đ)')
+          .replace(/\s*\|\s*/g, ' ').trim();
+        if (!line) return;
       }
       var m = QH.exec(line);
       if (m) {
@@ -791,6 +810,7 @@
         if (t) section = t;
         var mk = MARKS.exec(line);
         var rg = RANGE.exec(line);
+        if (!t && !mk && !rg && sec && /^\s*dạng\b/i.test(line)) { if (cur) afterBreak = true; return; }
         sec = { marks: mk ? Number(mk[1].replace(',', '.')) : null, range: rg ? [Number(rg[1]), Number(rg[2])] : null, qs: [] };
         sections.push(sec);
         if (cur) afterBreak = true; // chữ ngay sau tiêu đề phần là lời dẫn cho các câu sau
@@ -820,6 +840,11 @@
         preamble = [];
         afterBreak = false;
         var rest = m ? m[5] : nm[2];
+        var pts = !cur.meta && rest ? /^\(\s*(\d+(?:[.,]\d+)?)\s*(điểm|đ)?\s*\)\s*[:.\-–]?\s*/i.exec(rest) : null;
+        if (pts && Number(pts[1].replace(',', '.')) > 0 && Number(pts[1].replace(',', '.')) <= 20) {
+          cur.meta = pts[1] + ' điểm';
+          rest = rest.slice(pts[0].length);
+        }
         var inline = rest ? splitOptions(rest, 0) : null;
         if (rest) {
           // Lựa chọn có thể nằm ngay sau câu hỏi trên cùng dòng: "… là: A. 4 B. 5"
@@ -911,6 +936,7 @@
       if (k) keyed++;
       var pm = POINTS.exec(c.meta);
       if (c.pre) c.text = c.pre.concat(c.text);
+      if (writingSpace) c.text = c.text.filter(function (l) { return !/^[\s.…]{16,}$/.test(l); });
       // Nối các dòng bị PDF ngắt giữa câu; giữ xuống dòng ở ý nhỏ a), b)… hoặc gạch đầu dòng.
       var joined = c.text.reduce(function (acc, l, k) {
         if (!k) return l;
