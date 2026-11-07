@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Máy tính Thầy Minh</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="page-header">
+    <h1 class="page-title">Máy tính Thầy Minh</h1>
+    <p class="page-subtitle">Máy tính khoa học trực tuyến hỗ trợ học tập</p>
+  </header>
+
+  <main class="page-main">
+    <div id="calc-scale-wrap" class="calc-scale-wrap">
+      <div id="calc-unit" class="calc-unit">
+        <!-- Thân máy tính -->
+        <div id="calc-shell" class="calc-shell model-a">
+          <!-- Đầu máy -->
+          <div class="calc-brand-bar">
+            <div class="brand-left">
+              <span class="brand-title">MÁY TÍNH THẦY MINH</span>
+              <span class="brand-sub">KHOA HỌC TỰ NHIÊN • MATH I/O</span>
+            </div>
+            <div class="solar-panel" title="Pin năng lượng">
+              <span class="solar-cell"></span>
+              <span class="solar-cell"></span>
+              <span class="solar-cell"></span>
+              <span class="solar-cell"></span>
+            </div>
+          </div>
+
+          <!-- Màn hình LCD -->
+          <div class="lcd-frame">
+            <div class="lcd-screen">
+              <div id="lcd-status-bar" class="lcd-status-bar"></div>
+              <div id="lcd-body" class="lcd-body"></div>
+            </div>
+          </div>
+
+          <!-- Dải Nhật ký phím bấm ngay dưới màn hình -->
+          <div id="keylog-panel" class="keylog-panel">
+            <div class="keylog-header">
+              <span class="keylog-title">Nhật ký phím:</span>
+              <div class="keylog-actions">
+                <button type="button" id="btn-keylog-keep" class="keylog-btn">Giữ lại: TẮT</button>
+                <button type="button" id="btn-keylog-clear" class="keylog-btn">Xóa</button>
+              </div>
+            </div>
+            <div id="keylog-list" class="keylog-list"></div>
+          </div>
+
+          <div class="keylog-toggle-bar">
+            <button type="button" id="btn-keylog-toggle" class="keylog-toggle-btn">Ẩn/Hiện nhật ký phím</button>
+          </div>
+
+          <!-- Cụm phím điều khiển trên và phím điều hướng -->
+          <div id="calc-top-row" class="calc-top-row"></div>
+
+          <!-- Lưới phím hàm khoa học -->
+          <div id="calc-sci-grid" class="calc-sci-grid"></div>
+
+          <!-- Lưới phím số và phép toán cơ bản -->
+          <div id="calc-num-grid" class="calc-num-grid"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="page-footer">
+    <span>Mô phỏng chức năng, dùng cho học tập — Toán Thầy Minh</span>
+  </footer>
+
+  <script src="engine.js"></script>
+  <script src="editor.js"></script>
+  <script src="apps.js"></script>
+  <script src="apps2.js"></script>
+  <script src="ui.js"></script>
+</body>
+</html>
