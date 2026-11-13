@@ -8,6 +8,11 @@
 <meta name="theme-color" content="#0f9d74">
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="manifest" href="../manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Thầy Minh">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta property="og:title" content="Khu học tập – Toán Thầy Minh">
 <meta property="og:description" content="Lớp học trực tuyến của Toán Thầy Minh: bài tập, luyện tập, tài liệu và trò chơi.">
 <meta property="og:image" content="https://duyminhhqv03-cloud.github.io/ToanThayMinh/og-image.png">
@@ -37,5 +42,6 @@
 <script src="sao.js?v=66"></script>
 <script src="thach-dau.js?v=66"></script>
 <script src="tro-choi.js?v=66"></script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(function () {});</script>
 </body>
 </html>

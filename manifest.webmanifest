@@ -1,0 +1,17 @@
+{
+  "name": "Toán Thầy Minh",
+  "short_name": "Thầy Minh",
+  "description": "Khu học tập, Máy tính và Bảng hình học của Toán Thầy Minh.",
+  "lang": "vi",
+  "id": "./hoc/",
+  "start_url": "./hoc/",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f9d74",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
