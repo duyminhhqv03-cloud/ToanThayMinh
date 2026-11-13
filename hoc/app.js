@@ -1172,7 +1172,7 @@
     }
     if (!token) return renderLogin();
     if (!me) return boot();
-    if (parts[0] && ['khoa', 'bai', 'luyen', 'soan-de', 'soan-the', 'giao-bai', 'tai-khoan', 'hoc-phi', 'dau', 'dau-host'].indexOf(parts[0]) >= 0) refreshMe();
+    if (parts[0] && ['khoa', 'bai', 'luyen', 'soan-de', 'soan-the', 'giao-bai', 'tai-khoan', 'hoc-phi', 'dau', 'dau-host', 'dau-demo'].indexOf(parts[0]) >= 0) refreshMe();
     window.scrollTo(0, 0);
     switch (parts[0]) {
       case 'khoa': if (parts[1]) return renderCourse(parts[1]); break;
@@ -1184,6 +1184,10 @@
       case 'dau-host':
         if (!window.TTMGame) return;
         if (parts[1]) return window.TTMGame.renderHost(parts[1], parts[2]);
+        break;
+      case 'dau-demo':
+        if (!window.TTMDemo) return;
+        if (parts[1]) return window.TTMDemo.renderDemo(parts[1]);
         break;
       case 'nhan-vat':
         if (!window.TTMStars) break;
@@ -1352,7 +1356,7 @@
     var p = location.hash.replace(/^#\/?/, '').split('/')[0];
     if (!p) return 'home';
     if (p === 'khoa' || p === 'bai' || p === 'luyen' || p === 'soan-de' || p === 'soan-the' || p === 'giao-bai' || p === 'lop') return 'lop';
-    if (p === 'ung-dung' || p === 'tro-choi' || p === 'dau' || p === 'dau-host' || p === 'thach-dau') return 'ung-dung';
+    if (p === 'ung-dung' || p === 'tro-choi' || p === 'dau' || p === 'dau-host' || p === 'dau-demo' || p === 'thach-dau') return 'ung-dung';
     if (p === 'sao' || p === 'nhan-vat') return 'sao';
     if (p === 'tai-lieu-mien-phi' || p === 'tai-lieu') return 'tai-lieu';
     return p;

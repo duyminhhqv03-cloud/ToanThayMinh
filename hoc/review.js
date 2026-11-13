@@ -6,6 +6,7 @@
 (function () {
   'use strict';
 
+  var SERVER_TS = { '.sv': 'timestamp' };
   var LIMITS = [3, 5, 10]; // số phút cho cả lượt ôn
   var BASE_POINTS = 1000;
   var SPEED_BONUS = 500;
@@ -264,7 +265,7 @@
       localLog['q' + idx] = { a: k, t: G.serverNow() };
       roomRef.child('players/' + uid + '/log/q' + idx).set({
         a: k,
-        t: window.firebase.database.ServerValue.TIMESTAMP
+        t: SERVER_TS
       }).catch(function (err) {
         delete localLog['q' + idx];
         feedback = null;
@@ -338,7 +339,7 @@
         roomRef.child('players/' + uid).set({
           name: String(me.fullName || me.username || 'Học sinh').slice(0, 80),
           username: String(me.username || 'hs').slice(0, 60),
-          joinedAt: window.firebase.database.ServerValue.TIMESTAMP
+          joinedAt: SERVER_TS
         }).catch(function () {});
       }
       sync();
@@ -421,7 +422,7 @@
       finishing = true;
       roomRef.child('state').update({
         phase: 'end',
-        endedAt: window.firebase.database.ServerValue.TIMESTAMP
+        endedAt: SERVER_TS
       }).catch(function (err) {
         finishing = false;
         T.toast('Không kết thúc được: ' + err.message, 'error');
@@ -459,7 +460,7 @@
           roomRef.child('state').update({
             phase: 'question',
             index: 0,
-            startedAt: window.firebase.database.ServerValue.TIMESTAMP
+            startedAt: SERVER_TS
           }).catch(function (err) {
             T.busy(startBtn, false);
             T.toast('Không bắt đầu được: ' + err.message, 'error');
@@ -612,6 +613,13 @@
         return;
       }
       if (!list.length) return;
+      if (window.TTMDemo && window.TTMDemo.isDemo()) {
+        T.toast('Xem thử: không lưu kết quả.', 'info');
+        savedMatch = true;
+        persist();
+        if (tr.alive()) render();
+        return;
+      }
       if (saving) {
         T.fill(box, h('span', { class: 'muted small' }, 'Đang lưu kết quả…'));
         return;

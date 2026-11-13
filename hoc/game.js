@@ -5,6 +5,7 @@
   'use strict';
 
   var FB_BASE = 'https://www.gstatic.com/firebasejs/10.14.1/';
+  var SERVER_TS = { '.sv': 'timestamp' };
   var OPT_SYMS = ['▲', '◆', '●', '■', '★', '⬢', '♥', '✦'];
   var OPT_COLORS = ['#e21b3c', '#1368ce', '#d89e00', '#26890c', '#7c3aed', '#0891b2', '#db2777', '#ea580c'];
   var DURATIONS = [10, 20, 30, 60];
@@ -15,6 +16,7 @@
   var offsetListening = false;
 
   function hasConfig() {
+    if (window.TTMDemo && window.TTMDemo.isDemo()) return true;
     var c = window.FIREBASE_CONFIG;
     return !!(c && typeof c === 'object' && c.apiKey && c.databaseURL);
   }
@@ -31,6 +33,22 @@
 
   /** Chỉ nạp động SDK Firebase khi người dùng mở trang đấu, rồi đăng nhập ẩn danh. */
   function ensureFirebase() {
+    if (window.TTMDemo && window.TTMDemo.isDemo()) {
+      var role = window.TTMDemo.demoRole();
+      var demoDb = window.parent && window.parent.__ttmDemoDb;
+      if (!offsetListening && demoDb) {
+        offsetListening = true;
+        demoDb.ref('.info/serverTimeOffset').on('value', function (snap) {
+          serverOffset = Number(snap.val() || 0);
+        });
+      }
+      return Promise.resolve({
+        db: demoDb,
+        auth: null,
+        uid: role === 'host' ? 'demo-host' : 'demo-hs'
+      });
+    }
+
     if (!hasConfig()) return Promise.reject(new Error(MISSING_CFG_MSG));
     var loadSdk = window.firebase && window.firebase.database && window.firebase.auth
       ? Promise.resolve()
@@ -405,7 +423,9 @@
       e.preventDefault();
       var pin = inp.value.replace(/\D/g, '');
       if (pin.length !== 6) return T.toast('Vui lòng nhập đủ 6 chữ số mã phòng.', 'error');
-      T.store.set('ttm_last_pin', pin);
+      if (!(window.TTMDemo && window.TTMDemo.isDemo())) {
+        T.store.set('ttm_last_pin', pin);
+      }
       T.go('#/dau/' + pin);
     });
 
@@ -546,6 +566,7 @@
         h('div', { class: 'add-bar' },
           h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/soan-de/' + encodeURIComponent(cd.course.id) + '/' + x.id); } }, 'Sửa'),
           h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/dau-host/' + encodeURIComponent(x.id) + '/on-tap'); } }, '⚡ Ôn từ vựng'),
+          !(window.TTMDemo && window.TTMDemo.isDemo()) ? h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/dau-demo/' + encodeURIComponent(x.id)); } }, '👀 Xem thử như học sinh') : null,
           h('button', { class: 'btn btn-sm', onclick: function () { T.go('#/dau-host/' + encodeURIComponent(x.id)); } }, '🎮 Mở phòng'),
           h('button', { class: 'btn btn-sm btn-ghost danger-text', onclick: function () {
             if (formDirty && !confirm('Bài đấu đang soạn chưa được lưu. Bỏ nội dung này?')) return;
@@ -1406,7 +1427,9 @@
               useCount: picked.useCount,
               limitMin: picked.limitMin
             };
-            T.store.set('ttm_game_plan', JSON.stringify(planObj));
+            if (!(window.TTMDemo && window.TTMDemo.isDemo())) {
+              T.store.set('ttm_game_plan', JSON.stringify(planObj));
+            }
             T.go('#/dau-host/' + encodeURIComponent(res.id));
           }, function (err) {
             savingQuiz = false;
@@ -1479,7 +1502,10 @@
       }
     }
     T.setLeaveGuard(
-      function () { return activeGame; },
+      function () {
+        if (window.TTMDemo && window.TTMDemo.isDemo()) return false;
+        return activeGame;
+      },
       'Trận đấu đang diễn ra. Em có chắc muốn rời phòng?',
       function () {
         clearActiveDrag();
@@ -1506,8 +1532,12 @@
           return;
         }
 
-        T.store.set('ttm_last_pin', pin);
-        var me = T.getMe() || { username: 'hs', fullName: 'Học sinh' };
+        if (!(window.TTMDemo && window.TTMDemo.isDemo())) {
+          T.store.set('ttm_last_pin', pin);
+        }
+        var me = (window.TTMDemo && window.TTMDemo.isDemo() && window.TTMDemo.demoRole() === 'hs')
+          ? { username: 'xem-thu', fullName: 'Bạn (xem thử)', role: 'student' }
+          : (T.getMe() || { username: 'hs', fullName: 'Học sinh' });
         return Promise.all([
           roomRef.child('quizId').once('value'),
           roomRef.child('quizTitle').once('value'),
@@ -1531,7 +1561,7 @@
             // Vào lại phòng: giữ nguyên bài đang làm dở trong players/$uid/log.
             joinPromise = existingPlayer.name === (me.fullName || me.username) ? Promise.resolve() : playerRef.update(playerInfo);
           } else {
-            playerInfo.joinedAt = window.firebase.database.ServerValue.TIMESTAMP;
+            playerInfo.joinedAt = SERVER_TS;
             joinPromise = playerRef.set(playerInfo);
           }
 
@@ -1613,7 +1643,7 @@
           roomRef.child('players/' + uid).set({
             name: String(me.fullName || me.username || 'Học sinh').slice(0, 80),
             username: String(me.username || 'hs').slice(0, 60),
-            joinedAt: window.firebase.database.ServerValue.TIMESTAMP
+            joinedAt: SERVER_TS
           }).catch(function () {});
         }
         if (currentPhase === 'lobby') {
@@ -1877,7 +1907,7 @@
             renderBetLocked('Đã cược ' + betLabelText(lvlIdx) + ', chờ câu hỏi…');
             roomRef.child('answers/' + qKey + '/' + uid).set({
               a: lvlIdx,
-              t: window.firebase.database.ServerValue.TIMESTAMP
+              t: SERVER_TS
             }).catch(function (err) {
               delete answeredMap[qKey];
               T.toast('Không gửi được mức cược: ' + (err.message || 'Hết giờ hoặc lỗi mạng.'), 'error');
@@ -1968,7 +1998,7 @@
           renderLocked('Đã gửi, chờ các bạn…', formatPicked(val));
           roomRef.child('answers/' + qKey + '/' + uid).set({
             a: val,
-            t: window.firebase.database.ServerValue.TIMESTAMP
+            t: SERVER_TS
           }).catch(function (err) {
             delete answeredMap[qKey];
             T.toast('Không gửi được câu trả lời: ' + (err.message || 'Hết giờ hoặc lỗi mạng.'), 'error');
@@ -2617,6 +2647,7 @@
   }
 
   function loadHostState(quizId) {
+    if (window.TTMDemo && window.TTMDemo.isDemo()) return null;
     try {
       var raw = window.TTM.store.get(hostStoreKey(quizId));
       if (!raw) return null;
@@ -2632,6 +2663,7 @@
   }
 
   function saveHostState(quizId, data) {
+    if (window.TTMDemo && window.TTMDemo.isDemo()) return;
     if (!data) {
       window.TTM.store.set(hostStoreKey(quizId), null);
       return;
@@ -2651,7 +2683,10 @@
     var roomActive = false;
 
     T.setLeaveGuard(
-      function () { return roomActive; },
+      function () {
+        if (window.TTMDemo && window.TTMDemo.isDemo()) return false;
+        return roomActive;
+      },
       'Phòng đấu cả lớp đang diễn ra. Bạn có chắc muốn rời trang?',
       tracker.cleanup
     );
@@ -2753,7 +2788,9 @@
           var parsedPlan = JSON.parse(rawPlan);
           if (parsedPlan && parsedPlan.quizId === q.id && parsedPlan.gameType) {
             plan = parsedPlan;
-            T.store.set('ttm_game_plan', null);
+            if (!(window.TTMDemo && window.TTMDemo.isDemo())) {
+              T.store.set('ttm_game_plan', null);
+            }
           }
         } catch (e) {
           plan = null;
@@ -2868,7 +2905,7 @@
             quizTitle: String(q.title || '').slice(0, 300),
             courseId: c.id,
             courseName: String(c.name + (c.grade ? ' · ' + c.grade : '')).slice(0, 200),
-            createdAt: window.firebase.database.ServerValue.TIMESTAMP,
+            createdAt: SERVER_TS,
             state: {
               phase: 'lobby',
               index: -1,
@@ -2951,7 +2988,7 @@
             quizTitle: String(q.title || '').slice(0, 300),
             courseId: c.id,
             courseName: String(c.name + (c.grade ? ' · ' + c.grade : '')).slice(0, 200),
-            createdAt: window.firebase.database.ServerValue.TIMESTAMP,
+            createdAt: SERVER_TS,
             state: initState
           };
           return fb.db.ref('rooms/' + pin).set(roomData).then(function () {
@@ -3061,7 +3098,16 @@
           limitField,
           shuffleField,
           dragFillField,
-          h('div', { class: 'actions-start' }, openBtn)));
+          h('div', { class: 'actions-start' },
+            openBtn,
+            !(window.TTMDemo && window.TTMDemo.isDemo())
+              ? h('button', {
+                  type: 'button',
+                  class: 'btn btn-sm btn-ghost',
+                  onclick: function () { T.go('#/dau-demo/' + encodeURIComponent(q.id)); }
+                }, '👀 Xem thử như học sinh')
+              : null
+          )));
       drawMode();
     }
 
@@ -3543,7 +3589,7 @@
             sub: 'bet',
             qkey: 'b' + idx,
             total: questions.length,
-            startedAt: window.firebase.database.ServerValue.TIMESTAMP,
+            startedAt: SERVER_TS,
             duration: betDur
           });
           var qPlaceholder = {
@@ -3736,7 +3782,7 @@
             // Khóa câu dạng chuỗi: luật Firebase so với tên nút answers/$i (luôn là chuỗi).
             qkey: String(idx),
             total: questions.length,
-            startedAt: window.firebase.database.ServerValue.TIMESTAMP,
+            startedAt: SERVER_TS,
             duration: duration
           };
           if (gameType === 'wager') {
@@ -4279,6 +4325,12 @@
             T.fill(saveStatusBox, h('span', { class: 'pill p-done' }, '✓ Đã lưu kết quả vào Google Sheets'));
             return;
           }
+          if (window.TTMDemo && window.TTMDemo.isDemo()) {
+            hostState.savedMatch = true;
+            T.toast('Xem thử: không lưu kết quả.', 'info');
+            T.fill(saveStatusBox, h('span', { class: 'pill p-done' }, 'Xem thử: không lưu kết quả'));
+            return;
+          }
           T.fill(saveStatusBox, T.loading('Đang lưu kết quả trận đấu…'));
           var payload = {
             quizId: q.id,
@@ -4459,13 +4511,14 @@
     renderHost: renderHost,
     renderJoin: renderJoin,
     renderPlay: renderPlay,
+    renderDemo: function (quizId) { return window.TTMDemo && window.TTMDemo.renderDemo(quizId); },
     fmtPin: fmtPin,
     serverNow: serverNow,
     saveHostState: saveHostState
   };
 
-  // Nếu mở trực tiếp đường dẫn #/dau hoặc #/dau-host khi mới tải trang, gọi lại route() sau khi TTMGame đã sẵn sàng
-  if (/^#\/?dau(-host)?(\/|$)/.test(location.hash) && window.TTM && window.TTM.route) {
+  // Nếu mở trực tiếp đường dẫn #/dau hoặc #/dau-host hoặc #/dau-demo khi mới tải trang, gọi lại route() sau khi TTMGame đã sẵn sàng
+  if (/^#\/?dau(-host|-demo)?(\/|$)/.test(location.hash) && window.TTM && window.TTM.route) {
     window.TTM.route();
   }
 })();
