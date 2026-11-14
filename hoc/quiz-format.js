@@ -12,12 +12,34 @@
  *   Câu 3 (tự luận, 4 điểm): Giải bài toán sau…
  *   Hướng dẫn chấm: …       ← tự luận: giáo viên chấm (chỉ dùng trong Bài tập về nhà)
  *
+ *   Round 1: Tính nhẩm (45 giây)   ← chia round cho trận Đấu cả lớp (tùy chọn)
+ *
  * Điểm mỗi câu mặc định là 1 nếu không ghi.
  */
 (function (root) {
   'use strict';
 
   var Q_START = /^\s*câu\s*\d+\s*(?:\(([^)]*)\)|\[([^\]]*)\])?\s*[:.)\-–]?\s*/i;
+  var ROUND_LINE = /^(?:round|vòng)\s+(\d+)\s*(?:[:：.\-–—]\s*(.*?))?\s*(?:\(\s*(\d+(?:[.,]\d+)?)\s*(giây|giay|s|sec|phút|phut|p|m)\s*\))?\s*$/i;
+
+  function parseRoundLine(line) {
+    var s = String(line || '').normalize('NFC').trim();
+    if (!s || s.length > 160) return null;
+    s = s.replace(/^#+\s*/, '').replace(/\*\*/g, '').trim();
+    var m = ROUND_LINE.exec(s);
+    if (!m) return null;
+    var n = parseInt(m[1], 10);
+    if (!isFinite(n) || n < 1) return null;
+    var title = (m[2] || '').trim();
+    var sec = 0;
+    if (m[3]) {
+      var val = Number(String(m[3]).replace(',', '.'));
+      var unit = String(m[4] || '').toLowerCase();
+      var inSec = (/^p|^m/.test(unit)) ? Math.round(val * 60) : Math.round(val);
+      if (isFinite(inSec) && inSec >= 5 && inSec <= 300) sec = inSec;
+    }
+    return { n: n, title: title, sec: sec };
+  }
   var OPTION = /^\s*(\*)?\s*([A-Ha-h])\s*[.)]\s*(\S.*)$/;
   var ANSWER = /^\s*đáp\s*án(?:\s*mẫu)?\s*[:：]\s*(.*)$/i;
   var EXPLAIN = /^\s*(giải\s*thích|lời\s*giải|hướng\s*dẫn(?:\s*chấm)?|gợi\s*ý\s*chấm)\s*[:：]\s*(.*)$/i;
@@ -171,11 +193,23 @@
     var hasMarkers = lines.some(function (l) { return Q_START.test(l); });
     var blocks = [];
     var cur = null;
+    var curRound = null;
     lines.forEach(function (line) {
+      var r = parseRoundLine(line);
+      if (r) {
+        curRound = r;
+        if (cur) cur.blankBefore = true;
+        return;
+      }
       var m = hasMarkers ? Q_START.exec(line) : null;
       var startsNew = hasMarkers ? !!m : (line.trim() !== '' && (!cur || cur.blankBefore));
       if (startsNew) {
-        cur = { lines: [], blankBefore: false, meta: m ? (m[1] || m[2] || '') : '' };
+        cur = {
+          lines: [],
+          blankBefore: false,
+          meta: m ? (m[1] || m[2] || '') : '',
+          round: curRound ? { n: curRound.n, title: curRound.title, sec: curRound.sec } : null
+        };
         blocks.push(cur);
         if (m) line = line.slice(m[0].length);
       }
@@ -230,6 +264,7 @@
       });
 
       var q = { text: qText.join('\n').trim(), explain: explain.join('\n').trim(), points: points };
+      if (block.round) q.round = { n: block.round.n, title: block.round.title, sec: block.round.sec };
       if (image) q.image = image;
       if (!q.text) errors.push('Câu ' + n + ': thiếu nội dung câu hỏi.');
       if (!(points > 0 && points <= 100)) errors.push('Câu ' + n + ': số điểm không hợp lệ.');
@@ -492,6 +527,15 @@
 
   function toSource(questions) {
     return questions.map(function (q, i) {
+      var prefix = '';
+      if (q && q.round && q.round.n != null) {
+        var prevQ = i > 0 ? questions[i - 1] : null;
+        var prevN = (prevQ && prevQ.round && prevQ.round.n != null) ? prevQ.round.n : null;
+        if (prevN !== q.round.n) {
+          var rLine = 'Round ' + q.round.n + (q.round.title ? ': ' + q.round.title : '') + (q.round.sec > 0 ? ' (' + q.round.sec + ' giây)' : '');
+          prefix = rLine + '\n\n';
+        }
+      }
       var meta = [];
       if (q.type === 'essay') meta.push('tự luận');
       if (q.type === 'col') meta.push('đặt tính');
@@ -508,7 +552,7 @@
         lines.push('Đáp án: ' + (q.answers || []).join(' | '));
       }
       if (q.explain) lines.push((q.type === 'essay' ? 'Hướng dẫn chấm: ' : 'Giải thích: ') + q.explain);
-      return lines.join('\n');
+      return prefix + lines.join('\n');
     }).join('\n\n');
   }
 
@@ -908,12 +952,18 @@
     var sections = [];
     var sec = null;
     var cur = null;
+    var curRound = null;
     var afterBreak = false;
     var preamble = [];
     var groups = [];
     lines.forEach(function (line) {
       // Lời giải chèn sau câu có thể sang trang sau → vẫn thuộc câu đó, không phải lời dẫn câu kế.
       if (line === PAGE_MARK) { if (!(hasInlineKeys && cur && cur.state !== 'body')) afterBreak = true; return; }
+      var rLine = parseRoundLine(line);
+      if (rLine) {
+        curRound = rLine;
+        return;
+      }
       if (isSection(line)) {
         var t = sectionType(line);
         if (t) section = t;
@@ -935,6 +985,7 @@
           text: [],
           options: [],
           section: section,
+          round: curRound ? { n: curRound.n, title: curRound.title, sec: curRound.sec } : null,
           state: 'body',
           inlineAns: '',
           inlineExp: []
@@ -1054,6 +1105,7 @@
         return acc + (heading || /^\s*(?:[a-hA-H]\s*[).]|\d+\s*\)|[-–•+*]\s)/.test(l) || /[:;?!.]\s*$/.test(prevL) && /^\s*[A-ZĐÀ-Ỹ(]/.test(l) ? '\n' : ' ') + l;
       }, '');
       var q = { text: joined.trim(), points: pm ? Number(pm[1].replace(',', '.')) : (perQ[qs.indexOf(c)] || 1), explain: '' };
+      if (c.round) q.round = { n: c.round.n, title: c.round.title, sec: c.round.sec };
       var fig = opts.figures && opts.figures[qs.indexOf(c)];
       if (fig) q.image = fig;
       var bCount = blankCount(joined);

@@ -837,6 +837,54 @@
     return shuf(cards);
   }
 
+  function roundsOf(questions) {
+    if (!Array.isArray(questions) || !questions.length) return [];
+    var out = [];
+    for (var i = 0; i < questions.length; i++) {
+      var q = questions[i];
+      var r = q && q.round;
+      if (!r || r.n === undefined || r.n === null) continue;
+      var n = Number(r.n);
+      if (!isFinite(n)) continue;
+      var prev = out.length ? out[out.length - 1] : null;
+      if (prev && prev.n === n && prev.start + prev.count === i) {
+        prev.count++;
+      } else {
+        var sec = Number(r.sec) || 0;
+        if (sec < 5 || sec > 300) sec = 0;
+        out.push({
+          n: n,
+          title: r.title ? String(r.title) : '',
+          sec: sec,
+          start: i,
+          count: 1
+        });
+      }
+    }
+    return out.length >= 2 ? out : [];
+  }
+
+  function shuffleWithinRounds(questions, shuffleFn) {
+    var list = Array.isArray(questions) ? questions.slice() : [];
+    var shuf = typeof shuffleFn === 'function' ? shuffleFn : defaultShuffle;
+    var rounds = roundsOf(list);
+    if (!rounds.length) return shuf(list);
+    var out = list.slice();
+    for (var i = 0; i < rounds.length; i++) {
+      var r = rounds[i];
+      var part = shuf(list.slice(r.start, r.start + r.count));
+      for (var j = 0; j < part.length; j++) {
+        out[r.start + j] = part[j];
+      }
+    }
+    return out;
+  }
+
+  function roundLabel(r) {
+    if (!r || r.n === undefined || r.n === null) return '';
+    return 'Round ' + r.n + (r.title ? ' · ' + r.title : '');
+  }
+
   var TTMModes = {
     GAMES: GAMES,
     BET_LEVELS: BET_LEVELS,
@@ -863,7 +911,10 @@
     relayStandings: relayStandings,
     betAmount: betAmount,
     applyWager: applyWager,
-    buildBank: buildBank
+    buildBank: buildBank,
+    roundsOf: roundsOf,
+    shuffleWithinRounds: shuffleWithinRounds,
+    roundLabel: roundLabel
   };
 
   if (typeof window !== 'undefined') window.TTMModes = TTMModes;

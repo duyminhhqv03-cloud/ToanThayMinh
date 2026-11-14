@@ -1119,7 +1119,7 @@
           h('div', { class: 'game-wiz-head-row' },
             h('p', { class: 'muted small' }, 'Thầy cô dán đề và đáp án (hoặc lấy từ file PDF), hệ thống sẽ tự tách câu hỏi.'),
             pdfBtn),
-          T.field('Đề bài', deTa, 'Mẹo: câu có từ 2 chỗ trống "....", ví dụ ghép cặp "Solar = ...." hoặc xếp thứ tự "Bước 1: ....", sẽ cho học sinh kéo thả đáp án.'),
+          T.field('Đề bài', deTa, 'Mẹo: câu có từ 2 chỗ trống "....", ví dụ ghép cặp "Solar = ...." hoặc xếp thứ tự "Bước 1: ....", sẽ cho học sinh kéo thả đáp án. Chia round: thêm dòng "Round 1: Tên round (60 giây)" trước các câu của round đó.'),
           T.field('Đáp án (nếu để riêng)', dapAnTa),
           h('div', { class: 'actions-start' }, readBtn),
           step1ResultBox,
@@ -1870,6 +1870,13 @@
         }
       });
 
+      function studentRoundPill(stObj) {
+        var r = stObj && stObj.round;
+        if (!r || r.n === undefined || r.n === null) return null;
+        var txt = 'Round ' + r.n + (r.title ? ' · ' + r.title : '') + (r.i && r.count ? ' · câu ' + r.i + '/' + r.count : '');
+        return h('span', { class: 'pill game-round-pill' }, txt);
+      }
+
       function drawStudentQuestion(room, st, q, myScoreObj) {
         clearQTimer();
         var qIdx = Number(st.index);
@@ -1964,6 +1971,7 @@
             h('div', { class: 'panel game-student-q' },
               h('div', { class: 'game-q-top' },
                 h('span', { class: 'q-num' }, 'Câu ' + (qIdx + 1) + ' / ' + (st.total || 1) + ' · Đặt cược'),
+                studentRoundPill(st),
                 clockEl,
                 qScorePill),
               h('p', { class: 'game-student-qtext' }, '🎲 Chọn mức điểm em muốn cược cho câu ' + (qIdx + 1) + ':'),
@@ -2459,6 +2467,7 @@
           h('div', { class: 'panel game-student-q' },
             h('div', { class: 'game-q-top' },
               h('span', { class: 'q-num' }, 'Câu ' + (qIdx + 1) + ' / ' + (st.total || 1)),
+              studentRoundPill(st),
               myTeamPill,
               clockEl,
               qScorePill),
@@ -2510,6 +2519,38 @@
           );
         }
 
+        if (st && st.roundBreak) {
+          var rb = st.roundBreak;
+          var doneText = rb.doneLabel || ('Round ' + rb.done);
+          var nextText = rb.nextLabel || ('Round ' + rb.next);
+          var nextSub = (rb.nextCount && rb.nextSec)
+            ? (rb.nextCount + ' câu · ' + rb.nextSec + ' giây/câu')
+            : '';
+          var myTeamBanner = null;
+          if (st.teamMode && gType !== 'wager' && myT !== undefined && myT !== null && TEAMS[myT]) {
+            var tmInf = TEAMS[myT];
+            myTeamBanner = h('div', { class: 'game-reveal-round-wrap' },
+              h('span', {
+                class: 'pill game-team-pill',
+                style: '--team-color:' + tmInf.color
+              }, tmInf.icon + ' ' + tmInf.name));
+          }
+          T.fill(stage,
+            h('div', { class: 'panel game-reveal-student game-round-break-student' },
+              h('div', { class: 'game-verdict-icon' }, '🏁'),
+              h('h2', { class: 'game-round-break-title sm' }, 'Hết ' + doneText),
+              myTeamBanner,
+              h('div', { class: 'stats game-student-stats' },
+                h('div', { class: 'stat' }, h('strong', null, T.fmtScore(currentEffectiveScore())), h('span', null, 'Tổng điểm')),
+                h('div', { class: 'stat' }, h('strong', null, rank ? '#' + rank : '–'), h('span', null, 'Hạng hiện tại')),
+                h('div', { class: 'stat' }, h('strong', null, streak ? '🔥 ' + streak : '0'), h('span', null, 'Chuỗi đúng'))),
+              teamBoardSection,
+              h('div', { class: 'game-round-next-box student' },
+                h('strong', null, 'Chuẩn bị ' + nextText + '…'),
+                nextSub ? h('div', { class: 'muted small' }, nextSub) : null)));
+          return;
+        }
+
         var verdictHeading;
         var badgeText;
         var badgePositive = gain > 0;
@@ -2538,8 +2579,10 @@
           badgeText = '+' + T.fmtScore(gain) + ' điểm';
         }
 
+        var rPill = studentRoundPill(st);
         T.fill(stage,
           h('div', { class: 'panel game-reveal-student ' + (right ? 'is-ok' : 'is-bad') },
+            rPill ? h('div', { class: 'game-reveal-round-wrap' }, rPill) : null,
             h('div', { class: 'game-verdict-icon' }, right ? '✅' : '❌'),
             h('h2', null, verdictHeading),
             h('div', { class: 'game-gain-badge ' + (badgePositive ? 'ok' : 'bad') }, badgeText),
@@ -2710,7 +2753,19 @@
           T.errorBox('Bạn không có quyền tổ chức đấu cả lớp cho bài luyện tập này.'));
         return;
       }
-      var allQs = (d.fullQuestions || []).filter(function (q) {
+      var fullQs = d.fullQuestions || [];
+      var rawSrc = (d.quiz && d.quiz.source) || d.source || '';
+      if (rawSrc && window.QuizFormat && window.QuizFormat.parse) {
+        var parsedSrc = window.QuizFormat.parse(rawSrc);
+        if (parsedSrc && parsedSrc.questions && parsedSrc.questions.length === fullQs.length) {
+          for (var qi = 0; qi < fullQs.length; qi++) {
+            if (fullQs[qi] && parsedSrc.questions[qi] && parsedSrc.questions[qi].round) {
+              fullQs[qi].round = parsedSrc.questions[qi].round;
+            }
+          }
+        }
+      }
+      var allQs = fullQs.filter(function (q) {
         return q && (q.type === 'mc' || q.type === 'short' || q.type === 'fill');
       });
       if (!allQs.length) {
@@ -2770,9 +2825,16 @@
       var modeBar = h('div', { class: 'game-mode-grid' });
       var limitBar = h('div', { class: 'chips filter' });
       var modeHint = h('small', { class: 'muted small' });
+      var baseRounds = (window.TTMModes && window.TTMModes.roundsOf) ? window.TTMModes.roundsOf(baseQuestions) : [];
+      var hasRounds = baseRounds.length >= 2;
+      var roundsListWrap = h('div', { class: 'game-rounds-setup' });
+      var roundsField = h('div', { class: 'field', style: hasRounds ? '' : 'display:none' },
+        h('span', null, '🏁 Trận có ' + baseRounds.length + ' round'),
+        roundsListWrap);
       var durField = h('div', { class: 'field' }, h('span', null, 'Thời gian suy nghĩ mỗi câu'), durBar, customDurInp);
       var limitField = h('div', { class: 'field' }, h('span', null, 'Thời gian cho cả lượt ôn'), limitBar);
-      var shuffleField = h('label', { class: 'check' }, shuffleBox, 'Trộn thứ tự câu hỏi');
+      var shuffleLabelSpan = h('span', null, hasRounds ? 'Trộn câu trong từng round' : 'Trộn thứ tự câu hỏi');
+      var shuffleField = h('label', { class: 'check' }, shuffleBox, shuffleLabelSpan);
       var dragFillField = h('div', { class: 'field' },
         h('label', { class: 'check' }, dragFillBox, 'Học sinh kéo thả đáp án vào ô trống (câu điền khuyết)'),
         h('small', null, 'Tắt nếu cần các em tự tính và gõ đáp án, vì thẻ làm lộ các đáp số'));
@@ -2824,6 +2886,65 @@
         if (pLim && window.TTMReview && window.TTMReview.LIMITS.indexOf(pLim) !== -1) limitMin = pLim;
       }
 
+      var roundSecs = baseRounds.map(function (r) {
+        return validDuration(r.sec) || duration;
+      });
+
+      function drawRoundsSetup() {
+        if (!hasRounds) return;
+        T.fill(roundsListWrap, baseRounds.map(function (r, ri) {
+          var rLbl = (window.TTMModes && window.TTMModes.roundLabel)
+            ? window.TTMModes.roundLabel(r)
+            : ('Round ' + r.n + (r.title ? ' · ' + r.title : ''));
+          var curSec = roundSecs[ri] || duration;
+          var rChips = h('div', { class: 'chips filter game-round-dur-chips' });
+          var rCustomInp = h('input', {
+            type: 'number',
+            min: String(DUR_MIN),
+            max: String(DUR_MAX),
+            step: '5',
+            class: 'game-wiz-min-input game-round-sec-input',
+            value: DURATIONS.indexOf(curSec) === -1 ? String(curSec) : '',
+            placeholder: 'Khác (' + DUR_MIN + '–' + DUR_MAX + 's)'
+          });
+          var renderRChips = function () {
+            var activeSec = roundSecs[ri] || duration;
+            T.fill(rChips, DURATIONS.map(function (sec) {
+              return h('button', {
+                type: 'button',
+                class: 'chip-btn' + (activeSec === sec ? ' active' : ''),
+                onclick: function () {
+                  roundSecs[ri] = sec;
+                  rCustomInp.value = '';
+                  renderRChips();
+                }
+              }, sec < 60 || sec % 60 ? sec + 's' : (sec / 60) + 'p');
+            }));
+          };
+          rCustomInp.addEventListener('input', function () {
+            var v = validDuration(rCustomInp.value);
+            if (v) {
+              roundSecs[ri] = v;
+              renderRChips();
+            }
+          });
+          rCustomInp.addEventListener('change', function () {
+            if (rCustomInp.value !== '' && !validDuration(rCustomInp.value)) {
+              T.toast('Thời gian mỗi câu từ ' + DUR_MIN + ' đến ' + DUR_MAX + ' giây.', 'error');
+              var curVal = roundSecs[ri] || duration;
+              rCustomInp.value = DURATIONS.indexOf(curVal) === -1 ? String(curVal) : '';
+            }
+          });
+          renderRChips();
+          return h('div', { class: 'game-round-setup-row' },
+            h('div', { class: 'game-round-setup-info' },
+              h('strong', null, rLbl),
+              h('span', { class: 'pill p-blue small' }, r.count + ' câu')),
+            h('div', { class: 'game-round-setup-controls' }, rChips, rCustomInp));
+        }));
+      }
+      drawRoundsSetup();
+
       function getModeTitle(id) {
         for (var i = 0; i < allModeCards.length; i++) {
           if (allModeCards[i].id === id) return allModeCards[i].name;
@@ -2841,7 +2962,7 @@
           ? (limitMin + ' phút')
           : (duration + ' giây/câu');
         var planUseCount = Number(plan.useCount || 0);
-        var hasSubset = plan.gameType !== 'review' && planUseCount > 0 && planUseCount < baseQuestions.length;
+        var hasSubset = !hasRounds && plan.gameType !== 'review' && planUseCount > 0 && planUseCount < baseQuestions.length;
         var subsetActive = hasSubset && gameMode === plan.gameType;
         T.fill(planBanner,
           h('div', { class: 'mode-note game-plan-banner' },
@@ -2898,8 +3019,11 @@
         modeHint.textContent = isReview
           ? 'Học sinh tự làm theo tốc độ riêng, mỗi em một thứ tự câu. Thầy cô theo dõi từng em và xếp hạng cuối lượt. Chỉ dùng câu trắc nghiệm.'
           : (curGameInfo ? curGameInfo.desc : 'Thầy cô điều khiển, cả lớp trả lời cùng một câu rồi xem đáp án. Có thể chia 3 nhóm ở sảnh chờ.');
-        var useSubsetNow = plan && gameMode === plan.gameType && gameMode !== 'review' && Number(plan.useCount) > 0 && Number(plan.useCount) < baseQuestions.length;
-        durField.style.display = isReview ? 'none' : '';
+        var useRoundsNow = hasRounds && !isReview;
+        var useSubsetNow = !useRoundsNow && plan && gameMode === plan.gameType && gameMode !== 'review' && Number(plan.useCount) > 0 && Number(plan.useCount) < baseQuestions.length;
+        roundsField.style.display = useRoundsNow ? '' : 'none';
+        durField.style.display = (isReview || useRoundsNow) ? 'none' : '';
+        shuffleLabelSpan.textContent = useRoundsNow ? 'Trộn câu trong từng round' : 'Trộn thứ tự câu hỏi';
         shuffleField.style.display = (isReview || useSubsetNow) ? 'none' : '';
         dragFillField.style.display = (!isReview && fillCount > 0) ? '' : 'none';
         limitField.style.display = isReview ? '' : 'none';
@@ -2986,14 +3110,17 @@
         else if (selectedType === 'tug') initGameData = { rope: 0 };
         else if (selectedType === 'relay') initGameData = { points: [0, 0, 0], pointers: [0, 0, 0] };
 
-        var usePlanSubset = plan && selectedType === plan.gameType && Number(plan.useCount) > 0 && Number(plan.useCount) < baseQuestions.length;
+        var usePlanSubset = !hasRounds && plan && selectedType === plan.gameType && Number(plan.useCount) > 0 && Number(plan.useCount) < baseQuestions.length;
         var qs;
         if (usePlanSubset) {
           qs = shuffleArray(baseQuestions).slice(0, Number(plan.useCount));
+        } else if (hasRounds && window.TTMModes && window.TTMModes.shuffleWithinRounds) {
+          qs = shuffleBox.checked ? window.TTMModes.shuffleWithinRounds(baseQuestions, shuffleArray) : baseQuestions.slice();
         } else {
           qs = shuffleBox.checked ? shuffleArray(baseQuestions) : baseQuestions.slice();
         }
         var useDragFill = !!dragFillBox.checked;
+        var initDur = (hasRounds && roundSecs.length) ? (validDuration(roundSecs[0]) || duration) : duration;
         T.busy(openBtn, true, 'Đang tạo mã phòng…');
         createUniquePin(fb.db, 0).then(function (pin) {
           if (!tracker.alive()) return;
@@ -3003,10 +3130,13 @@
             index: -1,
             total: qs.length,
             startedAt: 0,
-            duration: duration,
+            duration: initDur,
             gameType: selectedType,
             dragFill: useDragFill
           };
+          if (hasRounds) {
+            initState.roundSecs = roundSecs.slice();
+          }
           if (isAutoTeam) {
             initState.teamMode = true;
             initState.teamCount = tCount;
@@ -3029,7 +3159,8 @@
             var hostState = {
               pin: pin,
               quizId: q.id,
-              duration: duration,
+              duration: initDur,
+              roundSecs: hasRounds ? roundSecs.slice() : null,
               questions: qs,
               scores: {},
               savedMatch: false,
@@ -3083,6 +3214,7 @@
             pin: existing.pin,
             quizId: q.id,
             duration: qDur,
+            roundSecs: exSt.roundSecs || exSaved.roundSecs || null,
             questions: qs,
             scores: existing.room.scores || exSaved.scores || {},
             savedMatch: !!exSaved.savedMatch,
@@ -3127,6 +3259,7 @@
             h('span', null, 'Kiểu chơi'),
             modeBar,
             modeHint),
+          roundsField,
           durField,
           limitField,
           shuffleField,
@@ -3195,6 +3328,53 @@
       var curRelay = rState.relay || null;
       var curSub = rState.sub || null;
       var betsByQ = hostState.bets || {};
+      var roundsList = (window.TTMModes && window.TTMModes.roundsOf) ? window.TTMModes.roundsOf(questions) : [];
+      var hasRounds = roundsList.length >= 2;
+      var roundSecs = hostState.roundSecs || rState.roundSecs || null;
+
+      function roundDurationOf(roundIdx) {
+        if (Array.isArray(roundSecs) && roundSecs[roundIdx] !== undefined) {
+          var rs = validDuration(roundSecs[roundIdx]);
+          if (rs) return rs;
+        }
+        var r = roundsList[roundIdx];
+        if (r && validDuration(r.sec)) return validDuration(r.sec);
+        return validDuration(duration) || 20;
+      }
+
+      function qRoundInfo(idx) {
+        if (!hasRounds || idx < 0 || idx >= questions.length) return null;
+        for (var ri = 0; ri < roundsList.length; ri++) {
+          var r = roundsList[ri];
+          if (idx >= r.start && idx < r.start + r.count) {
+            var lbl = (window.TTMModes && window.TTMModes.roundLabel)
+              ? window.TTMModes.roundLabel(r)
+              : ('Round ' + r.n + (r.title ? ' · ' + r.title : ''));
+            return {
+              roundIndex: ri,
+              n: r.n,
+              title: r.title || '',
+              i: (idx - r.start) + 1,
+              count: r.count,
+              sec: roundDurationOf(ri),
+              label: lbl
+            };
+          }
+        }
+        return null;
+      }
+
+      function questionDuration(idx) {
+        var ri = qRoundInfo(idx);
+        if (ri && validDuration(ri.sec)) return validDuration(ri.sec);
+        return validDuration(duration) || 20;
+      }
+
+      function hostRoundPill(rInfo) {
+        if (!rInfo) return null;
+        var txt = 'Round ' + rInfo.n + (rInfo.title ? ' · ' + rInfo.title : '') + ' · câu ' + rInfo.i + '/' + rInfo.count;
+        return h('span', { class: 'pill game-round-pill' }, txt);
+      }
 
       var playersMap = (hostState.resumedRoom && hostState.resumedRoom.players) || {};
       var scoresMap = hostState.scores || (hostState.resumedRoom && hostState.resumedRoom.scores) || {};
@@ -3247,6 +3427,9 @@
         if (gameType === 'relay' && curRelay) {
           st.relay = curRelay;
         }
+        if (hasRounds && Array.isArray(roundSecs)) {
+          st.roundSecs = roundSecs;
+        }
         return st;
       }
 
@@ -3255,6 +3438,7 @@
           pin: pin,
           quizId: q.id,
           duration: duration,
+          roundSecs: roundSecs,
           questions: questions,
           scores: scoresMap,
           savedMatch: !!hostState.savedMatch,
@@ -3551,7 +3735,7 @@
               title: 'Bấm để sao chép mã phòng',
               onclick: function () { T.copy(pin); }
             }, fmtPin(pin)),
-            h('p', { class: 'muted small' }, 'Bấm vào mã phòng để sao chép · ' + modeBadgeText + ' · ' + questions.length + ' câu · ' + duration + ' giây/câu')),
+            h('p', { class: 'muted small' }, 'Bấm vào mã phòng để sao chép · ' + modeBadgeText + ' · ' + (hasRounds ? (roundsList.length + ' round · ' + questions.length + ' câu') : (questions.length + ' câu · ' + duration + ' giây/câu')))),
           h('div', { class: 'panel' },
             h('div', { class: 'list-head', style: 'margin-bottom:14px' },
               h('h3', null, 'Danh sách học sinh'),
@@ -3591,6 +3775,7 @@
           persistLocal();
         }
 
+        var rInfoBet = qRoundInfo(idx);
         var clockEl = h('span', { class: 'clock game-timer' }, '⏱ ' + betDur + 's');
         qAnsweredEl = h('span', { class: 'pill p-blue game-count-pill' }, 'Đã cược: 0/' + Object.keys(playersMap).length);
         var startQBtn = h('button', {
@@ -3601,6 +3786,7 @@
         T.fill(stage,
           h('div', { class: 'game-host-top' },
             h('span', { class: 'pill p-blue game-count-pill' }, 'Mã phòng: ' + fmtPin(pin) + ' · Câu ' + (idx + 1) + ' / ' + questions.length + ' (Đặt cược)'),
+            hostRoundPill(rInfoBet),
             clockEl,
             qAnsweredEl,
             h('div', { class: 'add-bar' },
@@ -3616,7 +3802,7 @@
           applyPromise = Promise.resolve();
         } else {
           curStartedAt = serverNow();
-          var statePayload = buildStatePayload({
+          var betBaseSt = {
             phase: 'question',
             index: idx,
             sub: 'bet',
@@ -3624,7 +3810,11 @@
             total: questions.length,
             startedAt: SERVER_TS,
             duration: betDur
-          });
+          };
+          if (rInfoBet) {
+            betBaseSt.round = { n: rInfoBet.n, title: rInfoBet.title, i: rInfoBet.i, count: rInfoBet.count };
+          }
+          var statePayload = buildStatePayload(betBaseSt);
           var qPlaceholder = {
             index: idx,
             type: 'mc',
@@ -3707,8 +3897,10 @@
         roomActive = true;
         currentQAnswers = {};
         var item = questions[idx];
+        var qDur = questionDuration(idx);
+        var rInfo = qRoundInfo(idx);
 
-        var clockEl = h('span', { class: 'clock game-timer' }, '⏱ ' + duration + 's');
+        var clockEl = h('span', { class: 'clock game-timer' }, '⏱ ' + qDur + 's');
         qAnsweredEl = h('span', { class: 'pill p-blue game-count-pill' }, 'Đã trả lời: 0/' + Object.keys(playersMap).length);
         var skipBtn = h('button', {
           class: 'btn btn-sm btn-ghost',
@@ -3772,6 +3964,7 @@
         T.fill(stage,
           h('div', { class: 'game-host-top' },
             h('span', { class: 'pill p-blue game-count-pill' }, 'Mã phòng: ' + fmtPin(pin) + ' · Câu ' + (idx + 1) + ' / ' + questions.length),
+            hostRoundPill(rInfo),
             clockEl,
             qAnsweredEl,
             h('div', { class: 'add-bar' },
@@ -3816,8 +4009,11 @@
             qkey: String(idx),
             total: questions.length,
             startedAt: SERVER_TS,
-            duration: duration
+            duration: qDur
           };
+          if (rInfo) {
+            baseSt.round = { n: rInfo.n, title: rInfo.title, i: rInfo.i, count: rInfo.count };
+          }
           if (gameType === 'wager') {
             baseSt.sub = 'answer';
           }
@@ -3879,13 +4075,13 @@
 
           function tick() {
             var nowMs = serverNow();
-            var leftMs = (Number(curStartedAt) + duration * 1000) - nowMs;
+            var leftMs = (Number(curStartedAt) + qDur * 1000) - nowMs;
             var sec = Math.max(0, Math.ceil(leftMs / 1000));
             clockEl.textContent = '⏱ ' + sec + 's';
             clockEl.classList.toggle('low', sec <= 5);
 
             if (gameType === 'relay' && curRelay && !revealing && leftMs > 0 && window.TTMModes) {
-              var turnLimitMs = Math.max(6, Math.floor(duration / 3)) * 1000;
+              var turnLimitMs = Math.max(6, Math.floor(qDur / 3)) * 1000;
               var relayUpdates = {};
               var anyTimedOut = false;
               for (var rt = 0; rt < 3; rt++) {
@@ -3930,6 +4126,7 @@
         clearQuestionWatchers();
         phase = 'reveal';
         var item = questions[idx];
+        var qDur = questionDuration(idx);
 
         Promise.all([
           roomRef.child('answers/' + idx).once('value'),
@@ -3991,9 +4188,9 @@
 
               if (rightOnTurn) {
                 var relElapsed = (ans && ans.t && startedAt)
-                  ? Math.max(0, Math.min(duration, (Number(ans.t) - startedAt) / 1000))
-                  : duration;
-                var relBase = Math.round(1000 * (1 - 0.5 * (relElapsed / duration)));
+                  ? Math.max(0, Math.min(qDur, (Number(ans.t) - startedAt) / 1000))
+                  : qDur;
+                var relBase = Math.round(1000 * (1 - 0.5 * (relElapsed / qDur)));
                 var relStreak = Number(prev.streak || 0) + 1;
                 var relBonus = relStreak >= 2 ? Math.min(500, 100 * (relStreak - 1)) : 0;
                 var relGain = relBase + relBonus;
@@ -4067,9 +4264,9 @@
             var streak = 0;
             if (ratio > 0) {
               var elapsed = (ans && ans.t && startedAt)
-                ? Math.max(0, Math.min(duration, (Number(ans.t) - startedAt) / 1000))
-                : duration;
-              var base = Math.round(1000 * (1 - 0.5 * (elapsed / duration)));
+                ? Math.max(0, Math.min(qDur, (Number(ans.t) - startedAt) / 1000))
+                : qDur;
+              var base = Math.round(1000 * (1 - 0.5 * (elapsed / qDur)));
               if (ratio === 1) {
                 streak = Number(prev.streak || 0) + 1;
                 var bonus = streak >= 2 ? Math.min(500, 100 * (streak - 1)) : 0;
@@ -4173,14 +4370,42 @@
         var top = revealObj.top || [];
         var tugKo = (gameType === 'tug' && gameData && Math.abs(Number(gameData.rope || 0)) >= 100);
         var isLast = (idx >= questions.length - 1) || tugKo;
+        var rCur = qRoundInfo(idx);
+        var rNext = (idx + 1 < questions.length) ? qRoundInfo(idx + 1) : null;
+        var isRoundEnd = !isLast && !!(rCur && rNext && rCur.n !== rNext.n);
+        var nextBtnLabel = isLast
+          ? '🏆 Xem kết quả'
+          : (isRoundEnd ? ('🏁 Kết thúc Round ' + rCur.n + ' →') : 'Câu tiếp →');
 
         var nextBtn = h('button', {
-          class: 'btn btn-lg' + (isLast ? ' btn-accent' : ''),
+          class: 'btn btn-lg' + ((isLast || isRoundEnd) ? ' btn-accent' : ''),
           onclick: function () {
-            if (isLast) finishMatch();
-            else startQuestion(idx + 1, false, false);
+            if (isLast) {
+              finishMatch();
+              return;
+            }
+            if (isRoundEnd) {
+              var rbPayload = {
+                done: rCur.n,
+                doneLabel: rCur.label,
+                next: rNext.n,
+                nextLabel: rNext.label,
+                nextCount: rNext.count,
+                nextSec: rNext.sec
+              };
+              T.busy(nextBtn, true, 'Đang chuyển round…');
+              roomRef.child('state/roundBreak').set(rbPayload).then(function () {
+                if (!tracker.alive()) return;
+                drawRoundBreakView(idx, revealObj, rbPayload);
+              }).catch(function (err) {
+                T.busy(nextBtn, false);
+                T.toast('Lỗi khi chuyển round: ' + (err.message || ''), 'error');
+              });
+              return;
+            }
+            startQuestion(idx + 1, false, false);
           }
-        }, isLast ? '🏆 Xem kết quả' : 'Câu tiếp →');
+        }, nextBtnLabel);
 
         // Phần hiển thị đáp án đúng
         var answerHighlight;
@@ -4275,6 +4500,7 @@
         T.fill(stage,
           h('div', { class: 'game-host-top' },
             h('span', { class: 'pill p-blue game-count-pill' }, 'Kết quả câu ' + (idx + 1) + ' / ' + questions.length),
+            hostRoundPill(rCur),
             h('div', { class: 'add-bar' },
               h('button', { class: 'btn btn-ghost danger-text', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'),
               nextBtn)),
@@ -4289,6 +4515,62 @@
               h('h3', { class: 'game-subhead' }, 'Thống kê câu trả lời'),
               h('div', { class: 'game-chart' }, chartCols)),
             rightCol));
+      }
+
+      function drawRoundBreakView(idx, revealObj, rb) {
+        clearQuestionWatchers();
+        phase = 'reveal';
+        curIndex = idx;
+        revealObj = revealObj || {};
+        rb = rb || {};
+        var doneLabel = rb.doneLabel || ('Round ' + rb.done);
+        var nextLabel = rb.nextLabel || ('Round ' + rb.next);
+        var startNextBtn = h('button', {
+          class: 'btn btn-lg btn-accent',
+          onclick: function () { startQuestion(idx + 1, false, false); }
+        }, '▶ Bắt đầu Round ' + rb.next);
+
+        var modeVisualBanner = null;
+        if (gameType === 'race') {
+          modeVisualBanner = raceTrackEl(gameData && gameData.pos, questions.length, teamOf, playersMap, false);
+        } else if (gameType === 'tug') {
+          modeVisualBanner = tugRopeEl(gameData && gameData.rope, false);
+        } else if (gameType === 'relay') {
+          modeVisualBanner = relayStatusEl((revealObj && revealObj.relay) || curRelay, teamOf, playersMap, gameData && gameData.points, false);
+        }
+
+        var boardPanel;
+        if (teamMode && gameType !== 'wager') {
+          var teamsData = (revealObj.teams && revealObj.teams.length) ? revealObj.teams : computeFinalTeams();
+          boardPanel = h('div', { class: 'panel game-round-break-board' },
+            h('h3', { class: 'game-subhead' }, '👥 Bảng điểm nhóm hiện tại'),
+            teamBoardEl(teamsData || [], null, gameType));
+        } else {
+          var top = revealObj.top || [];
+          boardPanel = h('div', { class: 'panel game-round-break-board' },
+            h('h3', { class: 'game-subhead' }, '🔥 Top 5 dẫn đầu'),
+            top.length ? h('div', { class: 'game-top-list' }, top.map(function (t, i) {
+              return h('div', { class: 'game-top-row' },
+                h('span', { class: 'game-top-rank' }, '#' + (i + 1)),
+                h('strong', { class: 'game-top-name' }, t.name),
+                h('span', { class: 'pill p-done' }, T.fmtScore(t.score) + ' đ'));
+            })) : h('p', { class: 'muted' }, 'Chưa có dữ liệu điểm.'));
+        }
+
+        T.fill(stage,
+          h('div', { class: 'game-host-top' },
+            h('span', { class: 'pill p-blue game-count-pill' }, 'Mã phòng: ' + fmtPin(pin) + ' · Chuyển round'),
+            h('div', { class: 'add-bar' },
+              h('button', { class: 'btn btn-ghost danger-text', onclick: function () { closeRoomAndExit(false); } }, 'Đóng phòng'),
+              startNextBtn)),
+          h('div', { class: 'panel game-round-break-hero' },
+            h('h1', { class: 'game-round-break-title' }, '🏁 Hết ' + doneLabel),
+            h('div', { class: 'game-round-next-box' },
+              'Tiếp theo: ',
+              h('strong', null, nextLabel),
+              ' — ' + (rb.nextCount || 0) + ' câu · ' + (rb.nextSec || duration) + ' giây/câu')),
+          modeVisualBanner,
+          boardPanel);
       }
 
       function computeFinalTeams() {
@@ -4530,8 +4812,13 @@
       // Khởi chạy màn hình phù hợp (kể cả khi giáo viên tải lại trang và tiếp tục phòng đang mở)
       if (phase === 'question' && curIndex >= 0 && curIndex < questions.length) {
         startQuestion(curIndex, true, curSub === 'answer');
-      } else if (phase === 'reveal' && curIndex >= 0 && curIndex < questions.length && hostState.resumedRoom && hostState.resumedRoom.reveal) {
-        drawRevealView(curIndex, hostState.resumedRoom.reveal);
+      } else if (phase === 'reveal' && curIndex >= 0 && curIndex < questions.length) {
+        var revData = (hostState.resumedRoom && hostState.resumedRoom.reveal) || {};
+        if (rState.roundBreak) {
+          drawRoundBreakView(curIndex, revData, rState.roundBreak);
+        } else {
+          drawRevealView(curIndex, revData);
+        }
       } else if (phase === 'end') {
         drawEndView();
       } else {

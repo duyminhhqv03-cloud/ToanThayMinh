@@ -2962,3 +2962,133 @@ body.demo-frame a.back {
 .field > .game-wiz-min-input {
   margin-top: 8px;
 }
+
+/* ───────────────── Chia Round cho Đấu cả lớp ───────────────── */
+.game-round-pill {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-reveal-round-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.game-rounds-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.game-round-setup-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line, #e3e9e6);
+  border-radius: 12px;
+  background: var(--bg-alt, #f6f9f8);
+}
+
+.game-round-setup-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.game-round-setup-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.game-round-dur-chips .chip-btn {
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.game-round-sec-input {
+  width: 126px !important;
+  padding: 6px 10px !important;
+  font-size: 13px !important;
+}
+
+.game-round-break-hero {
+  text-align: center;
+  padding: 32px 24px;
+  background: linear-gradient(135deg, #fffbeb 0%, #eff6ff 100%);
+  border: 2px solid #f59e0b;
+}
+
+.game-round-break-title {
+  margin: 0 0 14px;
+  font-size: clamp(26px, 4.2vw, 42px);
+  font-weight: 800;
+  color: var(--ink, #12201c);
+  line-height: 1.25;
+}
+
+.game-round-break-title.sm {
+  font-size: clamp(20px, 5vw, 26px);
+  margin: 4px 0 10px;
+}
+
+.game-round-next-box {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1.5px solid var(--brand, #0f9d74);
+  color: var(--ink, #12201c);
+  font-size: clamp(16px, 2.2vw, 20px);
+  box-shadow: 0 4px 12px rgba(15, 157, 116, 0.1);
+}
+
+.game-round-next-box.student {
+  display: block;
+  margin-top: 14px;
+  padding: 12px 14px;
+  font-size: 15px;
+  background: #f0fdf8;
+}
+
+.game-round-break-board {
+  margin-top: 4px;
+}
+
+@media (max-width: 600px) {
+  .game-round-pill {
+    font-size: 12px;
+    padding: 3px 9px;
+  }
+  .game-round-setup-row {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 10px 12px;
+  }
+  .game-round-break-hero {
+    padding: 22px 14px;
+  }
+  .game-round-next-box {
+    display: block;
+    padding: 10px 12px;
+    font-size: 15px;
+  }
+}
+
