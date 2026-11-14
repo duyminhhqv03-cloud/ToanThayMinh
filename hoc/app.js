@@ -1172,7 +1172,7 @@
     }
     if (!token) return renderLogin();
     if (!me) return boot();
-    if (parts[0] && ['khoa', 'bai', 'luyen', 'soan-de', 'soan-the', 'giao-bai', 'tai-khoan', 'hoc-phi', 'dau', 'dau-host', 'dau-demo'].indexOf(parts[0]) >= 0) refreshMe();
+    if (parts[0] && ['khoa', 'bai', 'luyen', 'soan-de', 'soan-the', 'giao-bai', 'tai-khoan', 'hoc-phi', 'dau', 'dau-host', 'dau-demo', 'lop-truc-tiep'].indexOf(parts[0]) >= 0) refreshMe();
     window.scrollTo(0, 0);
     switch (parts[0]) {
       case 'khoa': if (parts[1]) return renderCourse(parts[1]); break;
@@ -1203,6 +1203,9 @@
         if (!window.TTMStars) break;
         window.scrollTo(0, 0);
         return window.TTMStars.renderBoard(parts[1]);
+      case 'lop-truc-tiep':
+        if (!window.TTMLive || !parts[1]) break;
+        return liveRoute(parts[1]);
       case 'dau':
         if (!window.TTMGame) return;
         if (parts[1]) return window.TTMGame.renderPlay(parts[1]);
@@ -2011,10 +2014,24 @@
         adds),
       h('div', { class: 'seg-bar', role: 'tablist' }, chipBar),
       branchBar,
+      window.TTMLive ? window.TTMLive.courseBanner(c) : null,
       content);
     drawBranches();
     drawFilters();
     drawContent();
+  }
+
+  /** Lớp học trực tiếp: giáo viên của lớp → màn điều khiển; học sinh → màn vào lớp. */
+  function liveRoute(courseId) {
+    var seq = routeSeq;
+    var c = (coursesCache || []).filter(function (x) { return x.id === courseId; })[0];
+    if (c) return c.canEdit ? window.TTMLive.renderHost(courseId) : window.TTMLive.renderStudent(courseId);
+    fill(app, loading('Đang tải…'));
+    api('course', { courseId: courseId }).then(function (d) {
+      if (seq !== routeSeq) return;
+      if (d.course && d.course.canEdit) window.TTMLive.renderHost(courseId);
+      else window.TTMLive.renderStudent(courseId);
+    }, function (e) { if (seq === routeSeq) fill(app, errorBox(e.message)); });
   }
 
   function rowMenu(items) {

@@ -4832,6 +4832,7 @@
     renderJoin: renderJoin,
     renderPlay: renderPlay,
     renderDemo: function (quizId) { return window.TTMDemo && window.TTMDemo.renderDemo(quizId); },
+    ensureFirebase: ensureFirebase,
     fmtPin: fmtPin,
     serverNow: serverNow,
     saveHostState: saveHostState
