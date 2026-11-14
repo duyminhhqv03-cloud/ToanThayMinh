@@ -8,7 +8,14 @@
   var SERVER_TS = { '.sv': 'timestamp' };
   var OPT_SYMS = ['▲', '◆', '●', '■', '★', '⬢', '♥', '✦'];
   var OPT_COLORS = ['#e21b3c', '#1368ce', '#d89e00', '#26890c', '#7c3aed', '#0891b2', '#db2777', '#ea580c'];
-  var DURATIONS = [10, 20, 30, 60];
+  var DURATIONS = [10, 20, 30, 45, 60, 90, 120];
+  var DUR_MIN = 5;
+  var DUR_MAX = 300; // khớp luật Firebase state/duration (5–300 giây)
+
+  function validDuration(v) {
+    v = Math.round(Number(v));
+    return (isFinite(v) && v >= DUR_MIN && v <= DUR_MAX) ? v : 0;
+  }
   var MISSING_CFG_MSG = 'Chức năng đấu cả lớp chưa được cài đặt (thiếu FIREBASE_CONFIG trong hoc/config.js)';
 
   var fbPromise = null;
@@ -2745,7 +2752,15 @@
     function drawSetup(d, baseQuestions, fb, existing) {
       var q = d.quiz;
       var c = d.course;
-      var duration = 20;
+      var duration = validDuration(T.store.get('ttm_game_dur')) || 20;
+      var customDurInp = h('input', {
+        type: 'number',
+        min: String(DUR_MIN),
+        max: String(DUR_MAX),
+        step: '5',
+        class: 'game-wiz-min-input',
+        placeholder: 'Số giây khác (' + DUR_MIN + '–' + DUR_MAX + ')'
+      });
       var shuffleBox = h('input', { type: 'checkbox' });
       var dragFillBox = h('input', { type: 'checkbox', checked: true });
       var durBar = h('div', { class: 'chips filter' });
@@ -2755,7 +2770,7 @@
       var modeBar = h('div', { class: 'game-mode-grid' });
       var limitBar = h('div', { class: 'chips filter' });
       var modeHint = h('small', { class: 'muted small' });
-      var durField = h('div', { class: 'field' }, h('span', null, 'Thời gian suy nghĩ mỗi câu'), durBar);
+      var durField = h('div', { class: 'field' }, h('span', null, 'Thời gian suy nghĩ mỗi câu'), durBar, customDurInp);
       var limitField = h('div', { class: 'field' }, h('span', null, 'Thời gian cho cả lượt ôn'), limitBar);
       var shuffleField = h('label', { class: 'check' }, shuffleBox, 'Trộn thứ tự câu hỏi');
       var dragFillField = h('div', { class: 'field' },
@@ -2804,7 +2819,7 @@
         }
         if (validMode) gameMode = plan.gameType;
         var pDur = Number(plan.duration);
-        if (pDur && DURATIONS.indexOf(pDur) !== -1) duration = pDur;
+        if (validDuration(pDur)) duration = validDuration(pDur);
         var pLim = Number(plan.limitMin);
         if (pLim && window.TTMReview && window.TTMReview.LIMITS.indexOf(pLim) !== -1) limitMin = pLim;
       }
@@ -2927,15 +2942,33 @@
         });
       }
 
+      function setDuration(sec) {
+        duration = sec;
+        T.store.set('ttm_game_dur', String(sec));
+        drawDur();
+        drawPlanBanner();
+      }
+
       function drawDur() {
         T.fill(durBar, DURATIONS.map(function (sec) {
           return h('button', {
             type: 'button',
             class: 'chip-btn' + (duration === sec ? ' active' : ''),
-            onclick: function () { duration = sec; drawDur(); drawPlanBanner(); }
-          }, sec + ' giây');
+            onclick: function () { customDurInp.value = ''; setDuration(sec); }
+          }, sec < 60 || sec % 60 ? sec + ' giây' : (sec / 60) + ' phút');
         }));
       }
+      if (DURATIONS.indexOf(duration) === -1) customDurInp.value = String(duration);
+      customDurInp.addEventListener('input', function () {
+        var v = validDuration(customDurInp.value);
+        if (v) setDuration(v);
+      });
+      customDurInp.addEventListener('change', function () {
+        if (customDurInp.value !== '' && !validDuration(customDurInp.value)) {
+          T.toast('Thời gian mỗi câu từ ' + DUR_MIN + ' đến ' + DUR_MAX + ' giây.', 'error');
+          customDurInp.value = DURATIONS.indexOf(duration) === -1 ? String(duration) : '';
+        }
+      });
       drawDur();
 
       var openBtn = h('button', { class: 'btn btn-lg' }, '🎮 Mở phòng đấu');

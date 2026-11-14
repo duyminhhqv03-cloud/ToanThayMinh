@@ -2958,3 +2958,7 @@ body.demo-frame a.back {
   display: none !important;
 }
 
+
+.field > .game-wiz-min-input {
+  margin-top: 8px;
+}
