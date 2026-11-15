@@ -572,7 +572,6 @@
         h('label', { class: 'check game-hub-toggle' }, visible, stateText),
         h('div', { class: 'add-bar' },
           h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/soan-de/' + encodeURIComponent(cd.course.id) + '/' + x.id); } }, 'Sửa'),
-          h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/dau-host/' + encodeURIComponent(x.id) + '/on-tap'); } }, '⚡ Ôn từ vựng'),
           !(window.TTMDemo && window.TTMDemo.isDemo()) ? h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { T.go('#/dau-demo/' + encodeURIComponent(x.id)); } }, '👀 Xem thử như học sinh') : null,
           h('button', { class: 'btn btn-sm', onclick: function () { T.go('#/dau-host/' + encodeURIComponent(x.id)); } }, '🎮 Mở phòng'),
           h('button', { class: 'btn btn-sm btn-ghost danger-text', onclick: function () {
@@ -1328,7 +1327,7 @@
         var sz = parseInt(wiz.sizeStr, 10) || 12;
         var mins = Number(wiz.minutes) || 10;
         var recs = window.TTMModes
-          ? window.TTMModes.recommend(wiz.questions, { size: sz, minutes: mins })
+          ? window.TTMModes.recommend(wiz.questions, { size: sz, minutes: mins }).filter(function (r) { return r.id !== 'review'; })
           : [];
 
         var firstOkId = '';
@@ -2819,7 +2818,7 @@
       var shuffleBox = h('input', { type: 'checkbox' });
       var dragFillBox = h('input', { type: 'checkbox', checked: true });
       var durBar = h('div', { class: 'chips filter' });
-      var gameMode = presetMode === 'on-tap' ? 'review' : 'classic';
+      var gameMode = 'classic';
       var limitMin = 5;
       var suggestions = window.TTMModes ? window.TTMModes.suggest(baseQuestions) : {};
       var modeBar = h('div', { class: 'game-mode-grid' });
@@ -2848,15 +2847,7 @@
       if (shortCount) parts.push(shortCount + ' câu trả lời ngắn');
       if (fillCount) parts.push(fillCount + ' câu điền khuyết');
 
-      var allModeCards = (window.TTMModes ? window.TTMModes.GAMES : []).concat([
-        {
-          id: 'review',
-          icon: '⚡',
-          name: 'Ôn từ vựng',
-          teams: 0,
-          desc: 'Học sinh tự làm theo tốc độ riêng, mỗi em một thứ tự câu. Chỉ dùng câu trắc nghiệm.'
-        }
-      ]);
+      var allModeCards = window.TTMModes ? window.TTMModes.GAMES : [];
 
       var plan = null;
       var rawPlan = T.store.get('ttm_game_plan');
