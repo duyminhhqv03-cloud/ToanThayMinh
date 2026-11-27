@@ -108,11 +108,6 @@
     return out;
   }
 
-  // Bộ câu hỏi soạn sẵn, giáo viên bấm một nút là điền vào ô nhập đề.
-  var GAME_PRESETS = [
-    { label: 'Dùng bộ 15 từ Energy & Resources', title: 'Ôn nhanh 15 từ vựng Energy & Resources', file: '../de-mau/energy-resources-15-tu.txt' }
-  ];
-
   var TEAMS = [
     { name: 'Nhóm Đỏ', icon: '🔴', color: '#e21b3c' },
     { name: 'Nhóm Xanh', icon: '🔵', color: '#1368ce' },
@@ -448,19 +443,6 @@
 
   /* ═══════════════════ MÀN HÌNH GIÁO VIÊN: QUẢN LÝ GAME (#/dau) ═══════════════════ */
 
-  function loadPreset(preset) {
-    return new Promise(function (resolve, reject) {
-      var xhr = new XMLHttpRequest();
-      xhr.open('GET', preset.file);
-      xhr.onload = function () {
-        if (xhr.status === 200) resolve(xhr.responseText);
-        else reject(new Error('Không tải được bộ câu hỏi có sẵn.'));
-      };
-      xhr.onerror = function () { reject(new Error('Không tải được bộ câu hỏi có sẵn.')); };
-      xhr.send();
-    });
-  }
-
   function renderTeacherHub() {
     var T = window.TTM;
     var h = T.h;
@@ -608,7 +590,7 @@
 
     function drawAddForm(cd, formBox) {
       var c = cd.course;
-      var title = h('input', { maxlength: '200', placeholder: 'VD: Ôn nhanh từ vựng Energy' });
+      var title = h('input', { maxlength: '200', placeholder: 'VD: Đấu nhanh tính nhẩm' });
       var br = T.branchSelect(c, '');
       var topic = T.topicInput(cd.topics, '');
       var src = h('textarea', { class: 'game-hub-src', rows: '12', spellcheck: 'false', placeholder: window.QuizFormat.SAMPLE });
@@ -659,26 +641,10 @@
         });
       });
 
-      var presetBtns = GAME_PRESETS.map(function (p) {
-        return h('button', {
-          type: 'button',
-          class: 'btn btn-sm btn-ghost',
-          onclick: function () {
-            if (src.value.trim() && !confirm('Thay nội dung đang có bằng bộ câu hỏi này?')) return;
-            loadPreset(p).then(function (text) {
-              src.value = text;
-              if (!title.value.trim()) title.value = p.title;
-              update();
-            }).catch(function (err) { T.toast(err.message, 'error'); });
-          }
-        }, '📋 ' + p.label);
-      });
-
       T.fill(formBox,
         h('div', { class: 'panel form game-hub-form' },
           h('h3', { class: 'game-subhead' }, 'Thêm bài đấu cho ' + c.name + (c.grade ? ' · ' + c.grade : '')),
           h('div', { class: 'row' + (br ? '' : ' two') }, T.field('Tên bài', title), br ? T.field('Nhánh', br) : null, T.field('Chủ đề', topic)),
-          h('div', { class: 'add-bar' }, presetBtns),
           T.field('Nội dung đề', src),
           status,
           h('label', { class: 'check' }, visible, 'Hiện cho học sinh luyện tập (bỏ chọn: chỉ dùng để đấu)'),
