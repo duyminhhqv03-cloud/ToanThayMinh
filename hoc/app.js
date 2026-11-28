@@ -2146,7 +2146,7 @@
       h('span', { class: 'kind k-hw' }, 'BÀI TẬP'),
       h('div', { class: 'item-main' },
         h('h3', null, a.title),
-        h('p', { class: 'item-meta' }, dueBadge(a.dueAt, done),
+        h('p', { class: 'item-meta' }, a.hidden ? h('span', { class: 'pill p-wait' }, '🔒 Chưa mở') : null, dueBadge(a.dueAt, done),
           a.questionCount ? h('span', { class: 'muted small' }, ' ' + a.questionCount + ' câu' + (a.essayCount ? ' · ' + a.essayCount + ' tự luận' : ' · chấm tự động')) : null,
           a.topic ? h('span', { class: 'muted small' }, ' · ' + a.topic) : null)),
       h('div', { class: 'item-actions' }, right, h('span', { class: 'chev' }, '›')));
@@ -3587,6 +3587,8 @@
     var due = deadlinePicker(a ? a.dueAt : '', function () { dirty = true; });
     var max = h('input', { type: 'number', min: '1', max: '1000', step: '1', value: a ? String(a.maxScore) : '10' });
     var maxField = field('Thang điểm (khi không có câu hỏi)', max);
+    var hiddenCb = h('input', { type: 'checkbox', checked: !!(a && a.hidden) });
+    hiddenCb.addEventListener('change', function () { dirty = true; });
     var file = h('input', { type: 'file' });
     var removeFile = h('input', { type: 'checkbox' });
     var pickedFile = null;
@@ -3671,6 +3673,7 @@
         branch: br ? br.value : '',
         instructions: instr.value.trim(), maxScore: max.value,
         dueAt: due.value(),
+        hidden: hiddenCb.checked,
         removeFile: removeFile.checked,
         questions: parsed.questions, source: parsed.questions.length ? src.value : '',
         newImages: store.newImages(parsed.questions)
@@ -3684,7 +3687,7 @@
           coursesCache = null;
           delete viewCache['course:' + c.id];
           if (br) setActiveBranch(c.id, br.value);
-          var msg = a ? 'Đã lưu bài tập.' : 'Đã giao bài.';
+          var msg = a ? 'Đã lưu bài tập.' : hiddenCb.checked ? 'Đã đăng bài, chưa mở cho học sinh.' : 'Đã giao bài.';
           if (r.regraded || r.skippedReturned) {
             var parts = [];
             if (r.regraded) parts.push('Đã chấm lại ' + r.regraded + ' bài theo đáp án mới.');
@@ -3703,6 +3706,7 @@
         h('div', { class: 'row' + (br ? '' : ' two') }, field('Tên bài tập', title), br ? field('Nhánh', br) : null, field('Chủ đề (không bắt buộc)', ti)),
         field('Lời dặn', instr),
         h('div', { class: 'field' }, h('span', null, 'Hạn nộp'), due.el),
+        h('label', { class: 'check' }, hiddenCb, '🔒 Chưa mở cho học sinh (thầy cô bấm "Mở bài" trên trang bài tập khi muốn cho làm)'),
         maxField,
         field(a && a.file ? 'File đề (đang có: ' + a.file.name + ') — chọn file khác để thay' : 'File đề (PDF/Word/ảnh) cho học sinh xem và tải về', file),
         fileNote,
@@ -4175,7 +4179,27 @@
       ['graded', 'Đã chấm', isGraded],
       ['all', 'Tất cả', function () { return true; }]
     ];
+    function setHidden(hide, btn) {
+      busy(btn, true, hide ? 'Đang ẩn…' : 'Đang mở…');
+      return api('setAssignmentHidden', { id: a.id, hidden: hide }).then(function () {
+        coursesCache = null;
+        delete viewCache['course:' + d.course.id];
+        delete viewCache['bai:' + a.id];
+        toast(hide ? 'Đã ẩn bài với học sinh.' : 'Đã mở bài. Học sinh tải lại trang là thấy bài.', 'success');
+        renderAssignment(a.id);
+      }, function (err) { busy(btn, false); toast(err.message, 'error'); });
+    }
+    var openBtn = h('button', { class: 'btn' }, '🔓 Mở bài cho học sinh');
+    openBtn.addEventListener('click', function () { setHidden(false, openBtn); });
+    var hideBtn = h('button', { class: 'btn btn-sm btn-ghost' }, '🔒 Ẩn với học sinh');
+    hideBtn.addEventListener('click', function () {
+      confirmBox('Ẩn bài với học sinh?', 'Học sinh sẽ không thấy và không nộp được bài này cho đến khi thầy cô mở lại. Bài đã nộp vẫn được giữ.', 'Ẩn bài', function () { return setHidden(true, hideBtn); });
+    });
+    var hiddenNote = a.hidden ? h('div', { class: 'panel mode-note' },
+      h('p', null, h('strong', null, '🔒 Bài này chưa mở. '), 'Học sinh chưa thấy bài trong lớp và không làm được. Bấm nút dưới đây khi muốn cho cả lớp làm.'),
+      openBtn) : null;
     var tools = h('div', { class: 'head-tools' },
+      a.hidden ? null : hideBtn,
       h('button', { class: 'btn btn-sm btn-ghost', onclick: function () { go('#/giao-bai/' + encodeURIComponent(d.course.id) + '/' + a.id); } }, 'Sửa bài tập'),
       h('button', { class: 'btn btn-sm btn-ghost danger-text', onclick: function () {
         confirmBox('Xóa bài tập?', 'Xóa "' + a.title + '" cùng toàn bộ bài nộp của học sinh. Không thể hoàn tác.', 'Xóa', function () {
@@ -4214,6 +4238,7 @@
 
     fill(app,
       assignmentHeader(d, tools),
+      hiddenNote,
       hasQ ? h('details', { class: 'panel key-panel' },
         h('summary', null, 'Đề & đáp án (' + d.fullQuestions.length + ' câu)'),
         h('div', { class: 'review' }, d.fullQuestions.map(function (x, i) {
